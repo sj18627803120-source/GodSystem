@@ -1,0 +1,657 @@
+VERSION = 1,
+
+option GodSystem.StartingPoints
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 60,
+    page = GodSystem_Base,
+    translation = GodSystem_StartingPoints,
+}
+
+option GodSystem.KillPointReward
+{
+    type = integer,
+    min = 0,
+    max = 1000,
+    default = 1,
+    page = GodSystem_Base,
+    translation = GodSystem_KillPointReward,
+}
+
+option GodSystem.DailyTaskCount
+{
+    type = integer,
+    min = 0,
+    max = 20,
+    default = 5,
+    page = GodSystem_Base,
+    translation = GodSystem_DailyTaskCount,
+}
+
+option GodSystem.MaxActiveTasks
+{
+    type = integer,
+    min = 0,
+    max = 10,
+    default = 3,
+    page = GodSystem_Base,
+    translation = GodSystem_MaxActiveTasks,
+}
+
+option GodSystem.RefreshTaskCost
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 30,
+    page = GodSystem_Base,
+    translation = GodSystem_RefreshTaskCost,
+}
+
+option GodSystem.DefaultTaskLimitHours
+{
+    type = integer,
+    min = 1,
+    max = 168,
+    default = 24,
+    page = GodSystem_Base,
+    translation = GodSystem_DefaultTaskLimitHours,
+}
+
+option GodSystem.MedicalCheckInfectionCost
+{
+    type = integer,
+    min = 0,
+    max = 1000000,
+    default = 50,
+    page = GodSystem_Base,
+    translation = GodSystem_MedicalCheckInfectionCost,
+}
+
+option GodSystem.MedicalHealInjuriesCost
+{
+    type = integer,
+    min = 0,
+    max = 1000000,
+    default = 5000,
+    page = GodSystem_Base,
+    translation = GodSystem_MedicalHealInjuriesCost,
+}
+
+option GodSystem.MedicalCureInfectionCost
+{
+    type = integer,
+    min = 0,
+    max = 1000000,
+    default = 2000,
+    page = GodSystem_Base,
+    translation = GodSystem_MedicalCureInfectionCost,
+}
+
+option GodSystem.HomeSetCost
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 100,
+    page = GodSystem_Base,
+    translation = GodSystem_HomeSetCost,
+}
+
+option GodSystem.HomeTravelCost
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 10,
+    page = GodSystem_Base,
+    translation = GodSystem_HomeTravelCost,
+}
+
+option GodSystem.TempTeleportSlotCost
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 500,
+    page = GodSystem_Base,
+    translation = GodSystem_TempTeleportSlotCost,
+}
+
+option GodSystem.TempTeleportSetCost
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 100,
+    page = GodSystem_Base,
+    translation = GodSystem_TempTeleportSetCost,
+}
+
+option GodSystem.WaistAutoRecycleUnlockCost
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 100,
+    page = GodSystem_Base,
+    translation = GodSystem_WaistAutoRecycleUnlockCost,
+}
+
+option GodSystem.WaistAutoRecycleIntervalHours
+{
+    type = double,
+    min = 0.1,
+    max = 168,
+    default = 1,
+    page = GodSystem_Base,
+    translation = GodSystem_WaistAutoRecycleIntervalHours,
+}
+
+option GodSystem.PositiveTraitCostPerPoint
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 800,
+    page = GodSystem_Base,
+    translation = GodSystem_PositiveTraitCostPerPoint,
+}
+
+option GodSystem.NegativeTraitRemoveCostPerPoint
+{
+    type = integer,
+    min = 0,
+    max = 100000,
+    default = 500,
+    page = GodSystem_Base,
+    translation = GodSystem_NegativeTraitRemoveCostPerPoint,
+}
+
+option GodSystem.AttributeXPPerCoin
+{
+    type = integer,
+    min = 1,
+    max = 1000000,
+    default = 10,
+    page = GodSystem_Base,
+    translation = GodSystem_AttributeXPPerCoin,
+}
+
+option GodSystem.ShopBuyPriceMultiplier
+{
+    type = double,
+    min = 0.01,
+    max = 100,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_ShopBuyPriceMultiplier,
+}
+
+option GodSystem.RecycleSellPriceMultiplier
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_RecycleSellPriceMultiplier,
+}
+
+option GodSystem.TaskRewardMultiplier
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_TaskRewardMultiplier,
+}
+
+option GodSystem.TaskPenaltyMultiplier
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_TaskPenaltyMultiplier,
+}
+
+option GodSystem.MPBackgroundSyncMinutes
+{
+    type = double,
+    min = 1,
+    max = 60,
+    default = 5,
+    page = GodSystem_Economy,
+    translation = GodSystem_MPBackgroundSyncMinutes,
+}
+
+option GodSystem.CompanionPriceMultiplier
+{
+    type = double,
+    min = 0.01,
+    max = 100,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_CompanionPriceMultiplier,
+}
+
+option GodSystem.LotteryAllPrice
+{
+    type = integer,
+    min = 1,
+    max = 100000,
+    default = 100,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryAllPrice,
+}
+
+option GodSystem.LotteryCustomMaxCount
+{
+    type = integer,
+    min = 1,
+    max = 500,
+    default = 50,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryCustomMaxCount,
+}
+
+option GodSystem.LotteryPriceLow
+{
+    type = integer,
+    min = 1,
+    max = 100000,
+    default = 60,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryPriceLow,
+}
+
+option GodSystem.LotteryPriceMid
+{
+    type = integer,
+    min = 1,
+    max = 100000,
+    default = 90,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryPriceMid,
+}
+
+option GodSystem.LotteryPriceUtility
+{
+    type = integer,
+    min = 1,
+    max = 100000,
+    default = 150,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryPriceUtility,
+}
+
+option GodSystem.LotteryPriceVehicle
+{
+    type = integer,
+    min = 1,
+    max = 100000,
+    default = 200,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryPriceVehicle,
+}
+
+option GodSystem.LotteryPriceWeapon
+{
+    type = integer,
+    min = 1,
+    max = 100000,
+    default = 400,
+    page = GodSystem_Economy,
+    translation = GodSystem_LotteryPriceWeapon,
+}
+
+option GodSystem.AutoShopListOnlyCostRatio
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 0.5,
+    page = GodSystem_Economy,
+    translation = GodSystem_AutoShopListOnlyCostRatio,
+}
+
+option GodSystem.AutoShopListOnlyMinCost
+{
+    type = integer,
+    min = 0,
+    max = 100000000,
+    default = 50,
+    page = GodSystem_Economy,
+    translation = GodSystem_AutoShopListOnlyMinCost,
+}
+
+option GodSystem.BankLoanBaseCredit
+{
+    type = integer,
+    min = 0,
+    max = 100000000,
+    default = 2000,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanBaseCredit,
+}
+
+option GodSystem.BankLoanCreditSpendStep
+{
+    type = integer,
+    min = 1,
+    max = 1000000,
+    default = 100,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanCreditSpendStep,
+}
+
+option GodSystem.BankLoanCreditPerStep
+{
+    type = integer,
+    min = 0,
+    max = 1000000,
+    default = 5,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanCreditPerStep,
+}
+
+option GodSystem.BankLoanSingleInterestRate
+{
+    type = double,
+    min = 0,
+    max = 10,
+    default = 0.05,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanSingleInterestRate,
+}
+
+option GodSystem.BankLoanOverduePenaltyDailyRate
+{
+    type = double,
+    min = 0,
+    max = 10,
+    default = 0.05,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanOverduePenaltyDailyRate,
+}
+
+option GodSystem.BankLoanOverduePenaltyMaxRate
+{
+    type = double,
+    min = 0,
+    max = 10,
+    default = 0.5,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanOverduePenaltyMaxRate,
+}
+
+option GodSystem.BankLoanBankruptcyGraceHours
+{
+    type = integer,
+    min = 1,
+    max = 10000,
+    default = 240,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanBankruptcyGraceHours,
+}
+
+option GodSystem.BankLoanFreezeHours
+{
+    type = integer,
+    min = 0,
+    max = 10000,
+    default = 168,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanFreezeHours,
+}
+
+option GodSystem.BankLoanZombieDebtPerZombie
+{
+    type = integer,
+    min = 1,
+    max = 1000000,
+    default = 50,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanZombieDebtPerZombie,
+}
+
+option GodSystem.BankLoanZombieMaxCount
+{
+    type = integer,
+    min = 0,
+    max = 1000,
+    default = 100,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankLoanZombieMaxCount,
+}
+
+option GodSystem.BankInvestmentMinAmount
+{
+    type = integer,
+    min = 1,
+    max = 100000000,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentMinAmount,
+}
+
+option GodSystem.BankInvestmentStableGainChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 70,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentStableGainChance,
+}
+
+option GodSystem.BankInvestmentStableLossChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 5,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentStableLossChance,
+}
+
+option GodSystem.BankInvestmentStableGainPercent
+{
+    type = double,
+    min = 0,
+    max = 1000,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentStableGainPercent,
+}
+
+option GodSystem.BankInvestmentStableLossPercent
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 1,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentStableLossPercent,
+}
+
+option GodSystem.BankInvestmentBalancedGainChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 55,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentBalancedGainChance,
+}
+
+option GodSystem.BankInvestmentBalancedLossChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 30,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentBalancedLossChance,
+}
+
+option GodSystem.BankInvestmentBalancedGainPercent
+{
+    type = double,
+    min = 0,
+    max = 1000,
+    default = 3,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentBalancedGainPercent,
+}
+
+option GodSystem.BankInvestmentBalancedLossPercent
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 2,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentBalancedLossPercent,
+}
+
+option GodSystem.BankInvestmentAggressiveGainChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 45,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentAggressiveGainChance,
+}
+
+option GodSystem.BankInvestmentAggressiveLossChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 45,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentAggressiveLossChance,
+}
+
+option GodSystem.BankInvestmentAggressiveGainPercent
+{
+    type = double,
+    min = 0,
+    max = 1000,
+    default = 8,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentAggressiveGainPercent,
+}
+
+option GodSystem.BankInvestmentAggressiveLossPercent
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 5,
+    page = GodSystem_Economy,
+    translation = GodSystem_BankInvestmentAggressiveLossPercent,
+}
+
+option GodSystem.EnableShop
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableShop,
+}
+
+option GodSystem.EnableRecycle
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableRecycle,
+}
+
+option GodSystem.EnableBank
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableBank,
+}
+
+option GodSystem.EnableTeleport
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableTeleport,
+}
+
+option GodSystem.EnableTraits
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableTraits,
+}
+
+option GodSystem.EnableWaistAutoRecycle
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableWaistAutoRecycle,
+}
+
+option GodSystem.EnableShopLottery
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableShopLottery,
+}
+
+option GodSystem.EnableTasks
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableTasks,
+}
+
+option GodSystem.EnableBankLoan
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableBankLoan,
+}
+
+option GodSystem.EnableBankInvestments
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableBankInvestments,
+}
+
+option GodSystem.EnableCompanion
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableCompanion,
+}
+
+option GodSystem.EnableAttributes
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableAttributes,
+}

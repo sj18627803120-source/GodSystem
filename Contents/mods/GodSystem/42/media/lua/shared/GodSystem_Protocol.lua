@@ -1,0 +1,127 @@
+GodSystemProtocol = GodSystemProtocol or {}
+
+GodSystemProtocol.Module = "GodSystem"
+
+GodSystemProtocol.C2S = {
+    Hello = "hello",
+    Refresh = "refresh",
+    SyncClientData = "syncClientData",
+    SyncKills = "syncKills",
+    BuyShop = "buyShop",
+    Recycle = "recycle",
+    ListOnlyAutoShop = "listOnlyAutoShop",
+    RecycleWaist = "recycleWaist",
+    RecycleWaistAndUnlock = "recycleWaistAndUnlock",
+    ClaimWaist = "claimWaist",
+    UpgradeWaist = "upgradeWaist",
+    ToggleWaistAuto = "toggleWaistAuto",
+    UpgradeSystem = "upgradeSystem",
+    MedicalService = "medicalService",
+    UseMaintenanceItem = "useMaintenanceItem",
+    Task = "task",
+    RefreshTasks = "refreshTasks",
+    Home = "home",
+    TeleportConfirm = "teleportConfirm",
+    Trait = "trait",
+    Attribute = "attribute",
+    Bank = "bank",
+    ConsolidateCurrency = "consolidateCurrency",
+    Death = "death",
+    ToggleRecycleMode = "toggleRecycleMode",
+    ToggleWaistRecycleMode = "toggleWaistRecycleMode",
+    RemoveUnlocked = "removeUnlocked",
+    ShopLottery = "shopLottery",
+    LotteryDraw = "lotteryDraw",
+    DebugGrant = "debugGrant",
+    Diagnostics = "diagnostics",
+    AdminConfigGet = "adminConfigGet",
+    AdminConfigSet = "adminConfigSet",
+    AdminItemOverrideSet = "adminItemOverrideSet",
+    AdminItemOverrideClear = "adminItemOverrideClear",
+}
+
+GodSystemProtocol.S2C = {
+    State = "state",
+    Result = "result",
+    Notify = "notify",
+    Error = "error",
+    Teleport = "teleport",
+}
+
+GodSystemProtocol.StateCommands = {
+    hello = true,
+    refresh = true,
+    syncClientData = true,
+    buyShop = true,
+    recycle = true,
+    listOnlyAutoShop = true,
+    recycleWaist = true,
+    recycleWaistAndUnlock = true,
+    claimWaist = true,
+    upgradeWaist = true,
+    toggleWaistAuto = true,
+    upgradeSystem = true,
+    medicalService = true,
+    useMaintenanceItem = true,
+    task = true,
+    refreshTasks = true,
+    home = true,
+    trait = true,
+    attribute = true,
+    bank = true,
+    consolidateCurrency = true,
+    toggleRecycleMode = true,
+    toggleWaistRecycleMode = true,
+    removeUnlocked = true,
+    shopLottery = true,
+    lotteryDraw = true,
+    debugGrant = true,
+    diagnostics = true,
+    adminConfigGet = true,
+    adminConfigSet = true,
+    adminItemOverrideSet = true,
+    adminItemOverrideClear = true,
+}
+
+GodSystemProtocol.KeyCommands = {
+    buyShop = true,
+    recycle = true,
+    listOnlyAutoShop = true,
+    recycleWaist = true,
+    recycleWaistAndUnlock = true,
+    claimWaist = true,
+    upgradeWaist = true,
+    toggleWaistAuto = true,
+    upgradeSystem = true,
+    medicalService = true,
+    useMaintenanceItem = true,
+    task = true,
+    refreshTasks = true,
+    home = true,
+    trait = true,
+    attribute = true,
+    bank = true,
+    consolidateCurrency = true,
+    toggleRecycleMode = true,
+    toggleWaistRecycleMode = true,
+    removeUnlocked = true,
+    shopLottery = true,
+    lotteryDraw = true,
+    debugGrant = true,
+    adminConfigSet = true,
+    adminItemOverrideSet = true,
+    adminItemOverrideClear = true,
+}
+
+GodSystemProtocol.BackgroundSyncMs = 300000
+GodSystemProtocol.KillSyncThreshold = 10
+GodSystemProtocol.StateThrottleMs = 1200
+GodSystemProtocol.KeyCommandTimeoutMs = 15000
+
+function GodSystemProtocol.isStateCommand(command)
+    return GodSystemProtocol.StateCommands[tostring(command or "")] == true
+end
+
+function GodSystemProtocol.isKeyCommand(command)
+    return GodSystemProtocol.KeyCommands[tostring(command or "")] == true
+end

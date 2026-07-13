@@ -1,0 +1,81 @@
+module GodSystem
+{
+    item SystemCoin1
+    {
+        DisplayName = God System Coin 1,
+        DisplayCategory = Currency,
+        ItemType = base:normal,
+        Icon = Money,
+        WorldStaticModel = Money,
+        Weight = 0.001,
+    }
+
+    item SystemCoin10
+    {
+        DisplayName = God System Coin 10,
+        DisplayCategory = Currency,
+        ItemType = base:normal,
+        Icon = Money,
+        WorldStaticModel = Money,
+        Weight = 0.001,
+    }
+
+    item SystemCoin100
+    {
+        DisplayName = God System Coin 100,
+        DisplayCategory = Currency,
+        ItemType = base:normal,
+        Icon = Money,
+        WorldStaticModel = Money,
+        Weight = 0.001,
+    }
+
+    item SystemRepairKit
+    {
+        DisplayName = System Repair Kit,
+        DisplayCategory = Tool,
+        ItemType = base:normal,
+        Icon = SystemRepairKit,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_SystemRepairKit,
+    }
+
+    item DurabilityCore
+    {
+        DisplayName = Durability Core,
+        DisplayCategory = Tool,
+        ItemType = base:normal,
+        Icon = DurabilityCore,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_DurabilityCore,
+    }
+
+    item SystemVehicleRepairModule
+    {
+        DisplayName = System Vehicle Repair Module,
+        DisplayCategory = Tool,
+        ItemType = base:normal,
+        Icon = SystemVehicleRepairModule,
+        Weight = 0.2,
+        Tooltip = Tooltip_GodSystem_SystemVehicleRepairModule,
+    }
+
+    item SystemSpaceTerminal
+    {
+        DisplayName = System Space Terminal,
+        DisplayCategory = Bag,
+        ItemType = base:container,
+        Icon = SystemSpaceTerminal,
+        Weight = 0.1,
+        Capacity = 10,
+        WeightReduction = 50,
+        CanBeEquipped = GodSystem:GodSystemTerminal,
+        ClothingItem = SystemSpaceTerminal,
+        CloseSound = CloseFannyPack,
+        EquipSound = EquipFannyPack,
+        OpenSound = OpenFannyPack,
+        PutInSound = StoreItemInFannyPack,
+        Tooltip = Tooltip_GodSystem_SystemSpaceTerminal,
+    }
+
+}
