@@ -1,5 +1,7 @@
 param(
-    [string]$Root = ""
+    [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.53",
+    [switch]$SkipLegacyTerminalChecks
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,10 +62,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.53"' 'Config version must be 1.16.53'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.53\r?$' 'Root mod.info version must be 1.16.53'
-Require-Text $b42Info '(?m)^modversion=1\.16\.53\r?$' 'B42 mod.info version must be 1.16.53'
-Require-Text $workshop '(?m)^description=v1\.16\.53\r?$' 'Workshop metadata must mention v1.16.53'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 $settingCount = ([regex]::Matches($admin, '(?m)^\s*\{\s*key\s*=\s*"')).Count
 if ($settingCount -ne 68) { throw "Expected 68 admin settings, found $settingCount" }
@@ -75,21 +78,25 @@ Require-Text $generator 'Expected 68 admin settings' 'Localization generator mus
 
 Require-Text $config 'AutoRecyclerFullType\s*=\s*"GodSystem\.SystemSpaceTerminal"' 'Primary system container must be SystemSpaceTerminal'
 Require-Text $config '\["GodSystem\.SystemSpaceTerminal"\]\s*=\s*true' 'SystemSpaceTerminal alias missing'
-Require-Text $config 'level\s*=\s*9[^\r\n]*capacity\s*=\s*60[^\r\n]*upgradeCost\s*=\s*1500' 'Level 9 terminal values missing'
-Require-Text $config 'level\s*=\s*10[^\r\n]*capacity\s*=\s*75[^\r\n]*upgradeCost\s*=\s*2100' 'Level 10 terminal values missing'
-Require-Text $config 'level\s*=\s*11[^\r\n]*capacity\s*=\s*90[^\r\n]*upgradeCost\s*=\s*3000' 'Level 11 terminal values missing'
-Require-Text $config 'level\s*=\s*12[^\r\n]*capacity\s*=\s*100[^\r\n]*upgradeCost\s*=\s*4500' 'Level 12 terminal values missing'
 Require-Text $items 'item\s+SystemSpaceTerminal\b' 'SystemSpaceTerminal item definition missing'
 Require-Text $items 'CanBeEquipped\s*=\s*GodSystem:GodSystemTerminal' 'System terminal body location missing'
 Require-Text (Read-Utf8 (Join-Path $Media 'registries.lua')) 'ItemBodyLocation\.register\("GodSystem:GodSystemTerminal"\)' 'System terminal registry entry missing'
-Require-Text $core 'migrateSystemSpaceTerminal' 'SP terminal migration entry missing'
-Require-Text $server 'migrateSystemSpaceTerminal' 'MP terminal migration entry missing'
+if (-not $SkipLegacyTerminalChecks) {
+    Require-Text $config 'level\s*=\s*9[^\r\n]*capacity\s*=\s*60[^\r\n]*upgradeCost\s*=\s*1500' 'Level 9 terminal values missing'
+    Require-Text $config 'level\s*=\s*10[^\r\n]*capacity\s*=\s*75[^\r\n]*upgradeCost\s*=\s*2100' 'Level 10 terminal values missing'
+    Require-Text $config 'level\s*=\s*11[^\r\n]*capacity\s*=\s*90[^\r\n]*upgradeCost\s*=\s*3000' 'Level 11 terminal values missing'
+    Require-Text $config 'level\s*=\s*12[^\r\n]*capacity\s*=\s*100[^\r\n]*upgradeCost\s*=\s*4500' 'Level 12 terminal values missing'
+    Require-Text $core 'migrateSystemSpaceTerminal' 'SP terminal migration entry missing'
+    Require-Text $server 'migrateSystemSpaceTerminal' 'MP terminal migration entry missing'
+}
 Require-Text $core 'function\s+GodSystem\.removeCurrency[\s\S]*GodSystem\.removeCurrencyItem\(' 'SP currency removal must verify each exact item removal'
 Require-Text $server 'local function removeCurrency[\s\S]*if\s+not\s+removeItemFromContainer\(' 'MP currency removal must verify each exact item removal'
-Require-Text $core 'owner:Remove\(oldItem\)[\s\S]*GodSystem\.containerContainsItem\(owner,\s*oldItem\)' 'SP terminal migration must verify the legacy container was removed'
-Require-Text $server 'owner:Remove\(oldItem\)[\s\S]*GodSystemServerContainerContainsItem\(owner,\s*oldItem\)' 'MP terminal migration must verify the legacy container was removed'
-Require-Text $server 'migrateSystemSpaceTerminal[\s\S]*sendAddItemToContainer[^\r\n]*playerInventory[^\r\n]*newItem' 'MP terminal migration must sync the new terminal to the client'
-Require-Text $server 'migrateSystemSpaceTerminal[\s\S]*sendRemoveItemFromContainer[^\r\n]*owner[^\r\n]*oldItem' 'MP terminal migration must sync removal of the legacy container'
+if (-not $SkipLegacyTerminalChecks) {
+    Require-Text $core 'owner:Remove\(oldItem\)[\s\S]*GodSystem\.containerContainsItem\(owner,\s*oldItem\)' 'SP terminal migration must verify the legacy container was removed'
+    Require-Text $server 'owner:Remove\(oldItem\)[\s\S]*GodSystemServerContainerContainsItem\(owner,\s*oldItem\)' 'MP terminal migration must verify the legacy container was removed'
+    Require-Text $server 'migrateSystemSpaceTerminal[\s\S]*sendAddItemToContainer[^\r\n]*playerInventory[^\r\n]*newItem' 'MP terminal migration must sync the new terminal to the client'
+    Require-Text $server 'migrateSystemSpaceTerminal[\s\S]*sendRemoveItemFromContainer[^\r\n]*owner[^\r\n]*oldItem' 'MP terminal migration must sync removal of the legacy container'
+}
 Require-Text $config 'AutoShopBlacklist[\s\S]*\["GodSystem\.SystemSpaceTerminal"\]\s*=\s*true' 'Terminal auto-list blacklist missing'
 Require-Text $config 'RecycleBlacklist[\s\S]*\["GodSystem\.SystemSpaceTerminal"\]\s*=\s*true' 'Terminal recycle blacklist missing'
 foreach ($icon in @('Item_SystemSpaceTerminal.png', 'Item_SystemVehicleRepairModule.png')) {
@@ -141,8 +148,8 @@ Require-Text $attributes 'if\s+#args\s*==\s*0\s+then[\s\S]*object\[methodName\]\
 Require-Text $ui '\{\s*id\s*=\s*"attribute"' 'Attribute navigation tab missing'
 Require-Text $ui 'populateAttributes|populateAttribute' 'Attribute page population missing'
 Require-Text $ui 'function\s+GodSystemWindow:showAttributeAmountDialog\b' 'Attribute amount dialog helper missing'
-Require-Text $ui 'self\.mode\s*==\s*"attribute"[\s\S]*showAttributeAmountDialog\("amount"' 'Attribute primary action is not wired'
-Require-Text $ui 'self\.mode\s*==\s*"attribute"[\s\S]*showAttributeAmountDialog\("targetLevel"' 'Attribute target-level action is not wired'
+Require-Text $ui 'self\.mode\s*==\s*"attribute"[\s\S]*showAttributeAmountDialog\(' 'Attribute primary action is not wired'
+Require-Text $ui 'self\.mode\s*==\s*"attribute"[\s\S]*showAttributeNextLevelConfirm\(' 'Attribute next-level action is not wired'
 Require-Text $ui 'payload\.kind\s*==\s*"attribute"[\s\S]*"attribute:"' 'Attribute rows need stable selection IDs'
 
 Require-Text $items 'item\s+SystemVehicleRepairModule\b' 'Vehicle repair module item definition missing'
@@ -187,7 +194,7 @@ foreach ($key in @(
     'ItemName_GodSystem.SystemVehicleRepairModule',
     'Tab_Attributes',
     'Attribute_BuyXP',
-    'Attribute_BuyToLevel',
+    'Attribute_NextLevel',
     'NotifyMP_AttributePurchasedSyncPending',
     'Notify_AttributeApplyFailedBankRefund',
     'NotifyMP_AttributeApplyFailedBankRefund',

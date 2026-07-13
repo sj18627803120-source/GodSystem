@@ -412,7 +412,7 @@ function GodSystem.getData()
         data.homeSystem.tempSlots[i].owned = data.homeSystem.tempSlots[i].owned == true
     end
     data.autoRecyclerClaimed = data.autoRecyclerClaimed == true
-    data.autoRecyclerLevel = math.max(1, math.floor(tonumber(data.autoRecyclerLevel) or 1))
+    data.autoRecyclerLevel = math.max(1, math.min(math.floor(tonumber(data.autoRecyclerLevel) or 1), #(GodSystemConfig.AutoRecyclerLevels or {})))
     data.lastAutoRecyclerHour = data.lastAutoRecyclerHour or math.floor(gsNowHours())
     data.waistAutoRecycleUnlocked = data.waistAutoRecycleUnlocked == true
     data.waistAutoRecycleEnabled = data.waistAutoRecycleEnabled == true
@@ -3707,60 +3707,8 @@ function GodSystem.getAutoRecyclerDisplayName(level)
     return GodSystem.text("AutoRecycler_Name", "System Space Terminal") .. " Lv." .. tostring(level)
 end
 
-local function gsAutoRecyclerNameText(item)
-    local parts = {}
-    local methods = { "getName", "getDisplayName" }
-    for i = 1, #methods do
-        local methodName = methods[i]
-        if item and item[methodName] then
-            local ok, value = pcall(function() return item[methodName](item) end)
-            if ok and value then
-                table.insert(parts, tostring(value))
-            end
-        end
-    end
-    return table.concat(parts, " ")
-end
-
-function GodSystem.inferAutoRecyclerLevelFromName(item)
-    local text = gsAutoRecyclerNameText(item)
-    local level = string.match(text, "Lv%.%s*(%d+)") or string.match(text, "Lv%s*(%d+)")
-    return math.max(1, math.min(math.floor(tonumber(level) or GodSystem.getAutoRecyclerLevel()), GodSystem.getAutoRecyclerMaxLevel()))
-end
-
 function GodSystem.isAutoRecyclerFullType(fullType)
-    if not fullType then
-        return false
-    end
-    local aliases = GodSystemConfig.AutoRecyclerFullTypes or {}
-    if aliases[fullType] == true then
-        return true
-    end
-    return fullType == (GodSystemConfig.AutoRecyclerFullType or "Base.Bag_FannyPackFront")
-end
-
-function GodSystem.isAutoRecyclerNamedItem(item)
-    if not item or not item.getFullType then
-        return false
-    end
-    if not GodSystem.isAutoRecyclerFullType(item:getFullType()) then
-        return false
-    end
-    local text = string.lower(gsAutoRecyclerNameText(item))
-    if text == "" then
-        return false
-    end
-    if string.find(text, "god system recycler", 1, true) then
-        return true
-    end
-    if string.find(text, "system recycler waist", 1, true) then
-        return true
-    end
-    local localizedName = string.lower(GodSystem.text("AutoRecycler_Name", "God System Recycler Waist Bag"))
-    if localizedName ~= "" and string.find(text, localizedName, 1, true) then
-        return true
-    end
-    return false
+    return fullType == (GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal")
 end
 
 function GodSystem.applyAutoRecyclerContainerStats(item, level)
@@ -3785,42 +3733,6 @@ function GodSystem.applyAutoRecyclerContainerStats(item, level)
     end
     if item.setWeightReduction then
         pcall(function() item:setWeightReduction(levelData.weightReduction or GodSystemConfig.AutoRecyclerWeightReduction or 50) end)
-    end
-    return true
-end
-
-function GodSystem.clearAutoRecyclerContainer(item)
-    if not item or not item.getFullType then
-        return false
-    end
-    if not GodSystem.isAutoRecyclerFullType(item:getFullType()) then
-        return false
-    end
-    local data = GodSystem.getItemModData(item)
-    if data then
-        data[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] = nil
-        data[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"] = nil
-    end
-    if item.setCustomName then
-        pcall(function() item:setCustomName(false) end)
-    end
-    local inventory = nil
-    if item.getInventory then
-        local ok, child = pcall(function() return item:getInventory() end)
-        if ok then
-            inventory = child
-        end
-    end
-    if inventory then
-        if inventory.setCapacity then
-            pcall(function() inventory:setCapacity(1) end)
-        end
-        if inventory.setWeightReduction then
-            pcall(function() inventory:setWeightReduction(50) end)
-        end
-    end
-    if item.setWeightReduction then
-        pcall(function() item:setWeightReduction(50) end)
     end
     return true
 end
@@ -3851,9 +3763,6 @@ end
 function GodSystem.getAutoRecyclerItemLevel(item)
     local data = GodSystem.getItemModData(item)
     local level = data and data[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"] or nil
-    if not level and GodSystem.isAutoRecyclerNamedItem(item) then
-        level = GodSystem.inferAutoRecyclerLevelFromName(item)
-    end
     return math.max(1, math.min(math.floor(tonumber(level) or GodSystem.getAutoRecyclerLevel()), GodSystem.getAutoRecyclerMaxLevel()))
 end
 
@@ -3874,7 +3783,7 @@ end
 function GodSystem.findAutoRecyclerCandidates()
     local result = {}
     local seen = {}
-    local aliases = GodSystemConfig.AutoRecyclerFullTypes or { [GodSystemConfig.AutoRecyclerFullType or "Base.Bag_FannyPackFront"] = true }
+    local aliases = GodSystemConfig.AutoRecyclerFullTypes or { [GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"] = true }
     for fullType, enabled in pairs(aliases) do
         if enabled == true then
             local found = gsFindInventoryItems(fullType, true, true)
@@ -3950,162 +3859,7 @@ function GodSystem.findAutoRecyclerCandidates()
     return result
 end
 
-local function gsCollectContainerItemIds(container, result)
-    result = result or {}
-    if not container or not container.getItems then return result end
-    local ok, items = pcall(function() return container:getItems() end)
-    if not ok or not items then return result end
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        if item then
-            local id = item.getID and tostring(item:getID()) or nil
-            if id then result[id] = true end
-            if item.getInventory then
-                local okChild, child = pcall(function() return item:getInventory() end)
-                if okChild and child then gsCollectContainerItemIds(child, result) end
-            end
-        end
-    end
-    return result
-end
-
-local function gsSameItemIds(expected, container)
-    local actual = gsCollectContainerItemIds(container, {})
-    for id, _ in pairs(expected or {}) do
-        if actual[id] ~= true then return false end
-    end
-    for id, _ in pairs(actual) do
-        if expected[id] ~= true then return false end
-    end
-    return true
-end
-
-local function gsDirectContainerItems(container)
-    local result = {}
-    if not container or not container.getItems then return result end
-    local ok, items = pcall(function() return container:getItems() end)
-    if not ok or not items then return result end
-    for i = 0, items:size() - 1 do result[#result + 1] = items:get(i) end
-    return result
-end
-
-function GodSystem.migrateSystemSpaceTerminal(notifyPlayer)
-    local player = gsPlayer()
-    if not player then return false, "playerMissing" end
-    local terminalType = GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"
-    local legacyTypes = GodSystemConfig.AutoRecyclerLegacyFullTypes or {}
-    local candidates = GodSystem.findAutoRecyclerCandidates()
-    local terminals = {}
-    local legacy = {}
-    for i = 1, #candidates do
-        local row = candidates[i]
-        local item = row.item
-        if GodSystem.isAutoRecyclerContainer(item) then
-            if item:getFullType() == terminalType then
-                terminals[#terminals + 1] = row
-            elseif legacyTypes[item:getFullType()] == true then
-                legacy[#legacy + 1] = row
-            end
-        end
-    end
-    if #legacy == 0 then return true, "none" end
-    if #terminals > 0 or #legacy > 1 then
-        if notifyPlayer == true and GodSystem.terminalMigrationConflictNotified ~= true then
-            GodSystem.terminalMigrationConflictNotified = true
-            GodSystem.notify(GodSystem.text("Notify_TerminalMigrationConflict", "Both old and new system containers exist; migration was skipped"))
-        end
-        return false, "conflict"
-    end
-    if not GodSystem.itemExists(terminalType) then
-        if notifyPlayer == true then GodSystem.notify(GodSystem.text("Notify_TerminalMigrationFailed", "System space terminal migration failed; the old container was kept")) end
-        return false, "itemMissing"
-    end
-
-    local oldRow = legacy[1]
-    local oldItem = oldRow.item
-    local oldInventory = oldItem and oldItem.getInventory and oldItem:getInventory() or nil
-    local playerInventory = player:getInventory()
-    if not oldInventory or not playerInventory then return false, "inventoryMissing" end
-    local oldItems = gsDirectContainerItems(oldInventory)
-    local expectedIds = gsCollectContainerItemIds(oldInventory, {})
-    local oldWorn = player.isEquipped and player:isEquipped(oldItem) == true
-    local oldBodyLocation = oldItem.canBeEquipped and oldItem:canBeEquipped() or nil
-    local newItem = playerInventory:AddItem(terminalType)
-    if not newItem then return false, "createFailed" end
-    local newInventory = newItem.getInventory and newItem:getInventory() or nil
-    if not newInventory then
-        playerInventory:Remove(newItem)
-        return false, "newInventoryMissing"
-    end
-    GodSystem.markAutoRecyclerContainer(newItem, GodSystem.getAutoRecyclerItemLevel(oldItem))
-
-    local moved = {}
-    local function rollback()
-        if player.isEquipped and player:isEquipped(newItem) and player.removeWornItem then
-            pcall(function() player:removeWornItem(newItem, false) end)
-        end
-        for i = #moved, 1, -1 do
-            local item = moved[i]
-            pcall(function() newInventory:Remove(item) end)
-            pcall(function() oldInventory:AddItem(item) end)
-        end
-        pcall(function() playerInventory:Remove(newItem) end)
-        if oldWorn and oldBodyLocation and player.setWornItem then
-            pcall(function() player:setWornItem(oldBodyLocation, oldItem) end)
-        end
-    end
-
-    for i = 1, #oldItems do
-        local item = oldItems[i]
-        local okMove = pcall(function()
-            oldInventory:Remove(item)
-            newInventory:AddItem(item)
-        end)
-        if not okMove then
-            rollback()
-            if notifyPlayer == true then GodSystem.notify(GodSystem.text("Notify_TerminalMigrationFailed", "System space terminal migration failed; the old container was kept")) end
-            return false, "moveFailed"
-        end
-        moved[#moved + 1] = item
-    end
-    if not gsSameItemIds(expectedIds, newInventory) then
-        rollback()
-        if notifyPlayer == true then GodSystem.notify(GodSystem.text("Notify_TerminalMigrationFailed", "System space terminal migration failed; the old container was kept")) end
-        return false, "verifyFailed"
-    end
-
-    if oldWorn then
-        if player.removeWornItem then pcall(function() player:removeWornItem(oldItem, false) end) end
-        local newBodyLocation = newItem.canBeEquipped and newItem:canBeEquipped() or nil
-        local okWear = newBodyLocation and player.setWornItem and pcall(function() player:setWornItem(newBodyLocation, newItem) end)
-        if not okWear or (player.isEquipped and player:isEquipped(newItem) ~= true) then
-            rollback()
-            if notifyPlayer == true then GodSystem.notify(GodSystem.text("Notify_TerminalMigrationFailed", "System space terminal migration failed; the old container was kept")) end
-            return false, "wearFailed"
-        end
-    end
-
-    local owner = oldRow.container or playerInventory
-    local okRemove = pcall(function() owner:Remove(oldItem) end)
-    if not okRemove or GodSystem.containerContainsItem(owner, oldItem) then
-        rollback()
-        if notifyPlayer == true then GodSystem.notify(GodSystem.text("Notify_TerminalMigrationFailed", "System space terminal migration failed; the old container was kept")) end
-        return false, "removeFailed"
-    end
-    local data = GodSystem.getData()
-    data.autoRecyclerClaimed = true
-    data.autoRecyclerLevel = GodSystem.getAutoRecyclerItemLevel(newItem)
-    GodSystem.save()
-    if notifyPlayer == true then GodSystem.notify(GodSystem.text("Notify_TerminalMigrationSuccess", "System waist bag migrated to the system space terminal")) end
-    return true, "migrated"
-end
-
 function GodSystem.getAutoRecyclerContainer()
-    if GodSystem.terminalMigrationActive ~= true then
-        GodSystem.terminalMigrationActive = true
-        GodSystem.migrateSystemSpaceTerminal(false)
-        GodSystem.terminalMigrationActive = false
-    end
     local found = GodSystem.findAutoRecyclerCandidates()
     local candidates = {}
     for i = 1, #found do
@@ -6062,15 +5816,7 @@ function GodSystem.isAutoRecyclerContainer(item)
     if not GodSystem.isAutoRecyclerFullType(item:getFullType()) then
         return false
     end
-    local data = GodSystem.getItemModData(item)
-    if data and data[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] == true then
-        return true
-    end
-    if GodSystem.isAutoRecyclerNamedItem(item) then
-        GodSystem.markAutoRecyclerContainer(item, GodSystem.inferAutoRecyclerLevelFromName(item))
-        return true
-    end
-    return false
+    return true
 end
 
 function GodSystem.canAutoRecycleItem(item)
@@ -6225,12 +5971,12 @@ function GodSystem.claimOrRecoverAutoRecycler()
     local data = GodSystem.getData()
     local existing = GodSystem.getAutoRecyclerContainer()
     if existing then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerAlreadyOwned", "System waist bag already exists"))
+        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerAlreadyOwned", "System space terminal already exists"))
         return true
     end
 
     local cost = data.autoRecyclerClaimed and GodSystem.getAutoRecyclerRecoverCost() or 0
-    local fullType = GodSystemConfig.AutoRecyclerFullType or "Base.Bag_FannyPackFront"
+    local fullType = GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"
     if not GodSystem.itemExists(fullType) then
         GodSystem.notify(GodSystem.text("Error_ItemNotFound", "Item not found: ") .. tostring(fullType))
         return false
@@ -6256,22 +6002,22 @@ function GodSystem.claimOrRecoverAutoRecycler()
     local historyKey = cost > 0 and "History_AutoRecyclerRecovered" or "History_AutoRecyclerClaimed"
     local notifyKey = cost > 0 and "Notify_AutoRecyclerRecovered" or "Notify_AutoRecyclerClaimed"
     local suffix = cost > 0 and (" -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins")) or ""
-    gsAppendHistory(data, { kind = "system", text = GodSystem.text(historyKey, "System waist bag ready") .. suffix })
+    gsAppendHistory(data, { kind = "system", text = GodSystem.text(historyKey, "System space terminal ready") .. suffix })
     GodSystem.save()
-    GodSystem.notify(GodSystem.text(notifyKey, "System waist bag ready"))
+    GodSystem.notify(GodSystem.text(notifyKey, "System space terminal ready"))
     return true
 end
 
 function GodSystem.upgradeAutoRecycler()
     local entry = GodSystem.getAutoRecyclerContainer()
     if not entry then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System waist bag not found"))
+        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System space terminal not found"))
         return false
     end
     local data = GodSystem.getData()
     local level = GodSystem.getAutoRecyclerLevel()
     if level >= GodSystem.getAutoRecyclerMaxLevel() then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMaxLevel", "System waist bag is max level"))
+        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMaxLevel", "System space terminal is max level"))
         return false
     end
     local cost = GodSystem.getAutoRecyclerNextUpgradeCost() or 0
@@ -6287,9 +6033,9 @@ function GodSystem.upgradeAutoRecycler()
     data.autoRecyclerClaimed = true
     GodSystem.markAutoRecyclerContainer(entry.item, data.autoRecyclerLevel)
     local levelData = GodSystem.getAutoRecyclerLevelData(data.autoRecyclerLevel)
-    gsAppendHistory(data, { kind = "system", text = GodSystem.text("History_AutoRecyclerUpgraded", "System waist bag upgraded to Lv.") .. tostring(data.autoRecyclerLevel) .. " -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins") })
+    gsAppendHistory(data, { kind = "system", text = GodSystem.text("History_AutoRecyclerUpgraded", "System space terminal upgraded to Lv.") .. tostring(data.autoRecyclerLevel) .. " -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins") })
     GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_AutoRecyclerUpgraded", "System waist bag upgraded to Lv.") .. tostring(data.autoRecyclerLevel) .. " | " .. tostring(levelData.capacity or 0) .. "/" .. tostring(levelData.weightReduction or 0) .. "%")
+    GodSystem.notify(GodSystem.text("Notify_AutoRecyclerUpgraded", "System space terminal upgraded to Lv.") .. tostring(data.autoRecyclerLevel) .. " | " .. tostring(levelData.capacity or 0) .. "/" .. tostring(levelData.weightReduction or 0) .. "%")
     return true
 end
 
@@ -6338,7 +6084,7 @@ end
 function GodSystem.unlockWaistAutoRecycle()
     local info = GodSystem.getAutoRecyclerInfo()
     if not info.found then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System waist bag not found"))
+        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System space terminal not found"))
         return false
     end
 
@@ -6361,20 +6107,20 @@ function GodSystem.unlockWaistAutoRecycle()
     data.lastWaistAutoRecycleHour = math.floor(gsNowHours())
     data.stats = data.stats or {}
     data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
-    gsAppendHistory(data, { kind = "system", text = GodSystem.text("History_WaistAutoRecycleUnlocked", "Waist auto recycle unlocked") .. " -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins") })
+    gsAppendHistory(data, { kind = "system", text = GodSystem.text("History_WaistAutoRecycleUnlocked", "Terminal auto recycle unlocked") .. " -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins") })
     GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_WaistAutoRecycleUnlocked", "Waist auto recycle unlocked and enabled"))
+    GodSystem.notify(GodSystem.text("Notify_WaistAutoRecycleUnlocked", "Terminal auto recycle unlocked and enabled"))
     return true
 end
 
 function GodSystem.toggleWaistAutoRecycle()
     if GodSystem.isFeatureEnabled("EnableWaistAutoRecycle") == false then
-        GodSystem.notify("Waist auto recycle disabled")
+        GodSystem.notify(GodSystem.text("NotifyMP_WaistAutoDisabled", "Terminal auto recycle disabled"))
         return false
     end
     local info = GodSystem.getAutoRecyclerInfo()
     if not info.found then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System waist bag not found"))
+        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System space terminal not found"))
         return false
     end
 
@@ -6386,9 +6132,9 @@ function GodSystem.toggleWaistAutoRecycle()
     data.waistAutoRecycleEnabled = data.waistAutoRecycleEnabled ~= true
     if data.waistAutoRecycleEnabled then
         data.lastWaistAutoRecycleHour = math.floor(gsNowHours())
-        GodSystem.notify(GodSystem.text("Notify_WaistAutoRecycleEnabled", "Waist auto recycle enabled"))
+        GodSystem.notify(GodSystem.text("Notify_WaistAutoRecycleEnabled", "Terminal auto recycle enabled"))
     else
-        GodSystem.notify(GodSystem.text("Notify_WaistAutoRecycleDisabled", "Waist auto recycle disabled"))
+        GodSystem.notify(GodSystem.text("Notify_WaistAutoRecycleDisabled", "Terminal auto recycle disabled"))
     end
     GodSystem.save()
     return true
@@ -6462,7 +6208,7 @@ function GodSystem.recycleWaistSpaceItemsInternal(selectedFullTypes, unlockShop)
     end
     local inventory = GodSystem.getAutoRecyclerInventory()
     if not inventory or not inventory.Remove then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System waist bag not found"))
+        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System space terminal not found"))
         return false
     end
 
@@ -6505,9 +6251,9 @@ function GodSystem.recycleWaistSpaceItemsInternal(selectedFullTypes, unlockShop)
         end
     end
     GodSystem.giveCurrency(totalPayout)
-    gsAppendHistory(data, { kind = "recycle", text = GodSystem.text("History_WaistSpaceRecycled", "Waist space recycled ") .. tostring(removedCount) .. GodSystem.text("Unit_Item", " items, gained ") .. tostring(totalPayout) .. GodSystem.text("Unit_Coin", " coins") })
+    gsAppendHistory(data, { kind = "recycle", text = GodSystem.text("History_WaistSpaceRecycled", "Terminal recycled ") .. tostring(removedCount) .. GodSystem.text("Unit_Item", " items, gained ") .. tostring(totalPayout) .. GodSystem.text("Unit_Coin", " coins") })
     GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_WaistSpaceRecycled", "Waist space recycled ") .. tostring(removedCount) .. GodSystem.text("Unit_Item", " items, gained ") .. tostring(totalPayout) .. GodSystem.text("Unit_Coin", " coins"))
+    GodSystem.notify(GodSystem.text("Notify_WaistSpaceRecycled", "Terminal recycled ") .. tostring(removedCount) .. GodSystem.text("Unit_Item", " items, gained ") .. tostring(totalPayout) .. GodSystem.text("Unit_Coin", " coins"))
     return true
 end
 
@@ -7447,7 +7193,6 @@ function GodSystem.onGameStart()
     GodSystem.getData()
     GodSystem.ensureCurrencyInitialized()
     GodSystem.generateDailyTasks(false)
-    GodSystem.migrateSystemSpaceTerminal(true)
     GodSystem.refreshAutoRecyclerContainers()
 end
 

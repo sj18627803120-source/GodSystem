@@ -294,7 +294,7 @@ local function playerData(player)
         data.homeSystem.tempSlots[i].owned = data.homeSystem.tempSlots[i].owned == true
     end
     data.autoRecyclerClaimed = data.autoRecyclerClaimed == true
-    data.autoRecyclerLevel = math.max(1, floor(data.autoRecyclerLevel, 1))
+    data.autoRecyclerLevel = math.max(1, math.min(floor(data.autoRecyclerLevel, 1), math.max(1, #(GodSystemConfig.AutoRecyclerLevels or {}))))
     data.lastAutoRecyclerHour = data.lastAutoRecyclerHour or math.floor(nowHours())
     data.waistAutoRecycleUnlocked = data.waistAutoRecycleUnlocked == true
     data.waistAutoRecycleEnabled = data.waistAutoRecycleEnabled == true
@@ -1757,45 +1757,12 @@ local function itemHasInventory(item)
 end
 
 local function isAutoRecyclerFullType(fullType)
-    if not fullType then return false end
-    local aliases = GodSystemConfig.AutoRecyclerFullTypes or {}
-    if aliases[fullType] == true then return true end
-    return fullType == (GodSystemConfig.AutoRecyclerFullType or "Base.Bag_FannyPackFront")
-end
-
-local function autoRecyclerItemName(item)
-    if not item then return "" end
-    local parts = {}
-    if item.getName then
-        local ok, value = pcall(item.getName, item)
-        if ok and value then parts[#parts + 1] = tostring(value) end
-    end
-    if item.getDisplayName then
-        local ok, value = pcall(item.getDisplayName, item)
-        if ok and value then parts[#parts + 1] = tostring(value) end
-    end
-    return string.lower(table.concat(parts, " "))
-end
-
-local function isAutoRecyclerNamedItem(item)
-    if not item or not item.getFullType then return false end
-    if not isAutoRecyclerFullType(item:getFullType()) then return false end
-    local text = autoRecyclerItemName(item)
-    if text == "" then return false end
-    if string.find(text, "god system recycler", 1, true) then return true end
-    if string.find(text, "system recycler waist", 1, true) then return true end
-    local localizedName = GodSystemFallbackText and GodSystemFallbackText.zh and GodSystemFallbackText.zh["AutoRecycler_Name"] or ""
-    localizedName = string.lower(tostring(localizedName or ""))
-    if localizedName ~= "" and string.find(text, localizedName, 1, true) then return true end
-    return false
+    return fullType == (GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal")
 end
 
 local function isAutoRecyclerContainer(item)
     if not item or not item.getFullType then return false end
-    if not isAutoRecyclerFullType(item:getFullType()) then return false end
-    local md = item.getModData and item:getModData() or nil
-    if md and md[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] == true then return true end
-    return isAutoRecyclerNamedItem(item)
+    return isAutoRecyclerFullType(item:getFullType())
 end
 
 local function isLooseAmmoRecycleItem(fullType, item)
@@ -2091,7 +2058,7 @@ local function markAutoRecycler(data, item, level)
 end
 
 local function findAutoRecycler(data, player)
-    local aliases = GodSystemConfig.AutoRecyclerFullTypes or { [GodSystemConfig.AutoRecyclerFullType or "Base.Bag_FannyPackFront"] = true }
+    local aliases = GodSystemConfig.AutoRecyclerFullTypes or { [GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"] = true }
     for fullType, enabled in pairs(aliases) do
         if enabled == true then
             local candidates = inventoryItems(player, fullType, true, true)
@@ -2104,125 +2071,6 @@ local function findAutoRecycler(data, player)
         end
     end
     return nil
-end
-
-function GodSystemServer.collectContainerItemIds(container, result)
-    result = result or {}
-    if not container or not container.getItems then return result end
-    local items = container:getItems()
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        if item then
-            if item.getID then result[tostring(item:getID())] = true end
-            local child = item.getInventory and item:getInventory() or nil
-            if child then GodSystemServer.collectContainerItemIds(child, result) end
-        end
-    end
-    return result
-end
-
-function GodSystemServer.sameContainerItemIds(expected, container)
-    local actual = GodSystemServer.collectContainerItemIds(container, {})
-    for id, _ in pairs(expected or {}) do if actual[id] ~= true then return false end end
-    for id, _ in pairs(actual) do if expected[id] ~= true then return false end end
-    return true
-end
-
-function GodSystemServer.directContainerItems(container)
-    local result = {}
-    if not container or not container.getItems then return result end
-    local items = container:getItems()
-    for i = 0, items:size() - 1 do result[#result + 1] = items:get(i) end
-    return result
-end
-
-function GodSystemServer.migrateSystemSpaceTerminal(data, player)
-    local terminalType = GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"
-    local legacyTypes = GodSystemConfig.AutoRecyclerLegacyFullTypes or {}
-    local terminals = {}
-    local legacy = {}
-    local aliases = GodSystemConfig.AutoRecyclerFullTypes or {}
-    for fullType, enabled in pairs(aliases) do
-        if enabled == true then
-            local rows = inventoryItems(player, fullType, true, true)
-            for i = 1, #rows do
-                local row = rows[i]
-                if isAutoRecyclerContainer(row.item) then
-                    if fullType == terminalType then
-                        terminals[#terminals + 1] = row
-                    elseif legacyTypes[fullType] == true then
-                        legacy[#legacy + 1] = row
-                    end
-                end
-            end
-        end
-    end
-    if #legacy == 0 then return true, "none" end
-    if #terminals > 0 or #legacy > 1 then return false, "conflict" end
-    if not itemExists(terminalType) then return false, "itemMissing" end
-
-    local oldRow = legacy[1]
-    local oldItem = oldRow.item
-    local oldInventory = oldItem and oldItem.getInventory and oldItem:getInventory() or nil
-    local playerInventory = player and player:getInventory() or nil
-    if not oldInventory or not playerInventory then return false, "inventoryMissing" end
-    local oldItems = GodSystemServer.directContainerItems(oldInventory)
-    local expectedIds = GodSystemServer.collectContainerItemIds(oldInventory, {})
-    local oldWorn = player.isEquipped and player:isEquipped(oldItem) == true
-    local oldBodyLocation = oldItem.canBeEquipped and oldItem:canBeEquipped() or nil
-    local newItem = playerInventory:AddItem(terminalType)
-    if not newItem then return false, "createFailed" end
-    local newInventory = newItem.getInventory and newItem:getInventory() or nil
-    if not newInventory then
-        playerInventory:Remove(newItem)
-        return false, "newInventoryMissing"
-    end
-    markAutoRecycler(data, newItem, autoRecyclerLevel(data))
-
-    local moved = {}
-    local function rollback()
-        if player.isEquipped and player:isEquipped(newItem) and player.removeWornItem then
-            pcall(function() player:removeWornItem(newItem, false) end)
-        end
-        for i = #moved, 1, -1 do
-            local item = moved[i]
-            pcall(function() newInventory:Remove(item) end)
-            pcall(function() oldInventory:AddItem(item) end)
-        end
-        pcall(function() playerInventory:Remove(newItem) end)
-        if oldWorn and oldBodyLocation and player.setWornItem then
-            pcall(function() player:setWornItem(oldBodyLocation, oldItem) end)
-        end
-    end
-
-    for i = 1, #oldItems do
-        local item = oldItems[i]
-        local okMove = pcall(function()
-            oldInventory:Remove(item)
-            newInventory:AddItem(item)
-        end)
-        if not okMove then rollback(); return false, "moveFailed" end
-        moved[#moved + 1] = item
-    end
-    if not GodSystemServer.sameContainerItemIds(expectedIds, newInventory) then rollback(); return false, "verifyFailed" end
-    if oldWorn then
-        if player.removeWornItem then pcall(function() player:removeWornItem(oldItem, false) end) end
-        local newBodyLocation = newItem.canBeEquipped and newItem:canBeEquipped() or nil
-        local okWear = newBodyLocation and player.setWornItem and pcall(function() player:setWornItem(newBodyLocation, newItem) end)
-        if not okWear or (player.isEquipped and player:isEquipped(newItem) ~= true) then rollback(); return false, "wearFailed" end
-    end
-    local owner = oldRow.container or playerInventory
-    local okRemove = pcall(function() owner:Remove(oldItem) end)
-    if not okRemove or GodSystemServerContainerContainsItem(owner, oldItem) then rollback(); return false, "removeFailed" end
-    if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, owner, oldItem) end
-    if sendAddItemToContainer then pcall(sendAddItemToContainer, playerInventory, newItem) end
-    markInventoryDirty(player, owner)
-    markInventoryDirty(player, oldInventory)
-    markInventoryDirty(player, newInventory)
-    markInventoryDirty(player, playerInventory)
-    data.autoRecyclerClaimed = true
-    data.autoRecyclerLevel = autoRecyclerLevel(data)
-    return true, "migrated"
 end
 
 local function autoRecyclerInventory(data, player)
@@ -2607,14 +2455,6 @@ local Commands = {}
 
 function Commands.hello(_, _, player)
     local data = playerData(player)
-    local migrationOk, migrationResult = GodSystemServer.migrateSystemSpaceTerminal(data, player)
-    if migrationResult == "migrated" then
-        notifyCode(player, "TerminalMigrationSuccess")
-    elseif not migrationOk and migrationResult == "conflict" then
-        notifyCode(player, "TerminalMigrationConflict")
-    elseif not migrationOk then
-        notifyCode(player, "TerminalMigrationFailed")
-    end
     if not data.currencyInitialized then
         local grant = 0
         if data.points and data.points > 0 then grant = floor(data.points, 0)
@@ -3272,7 +3112,7 @@ function Commands.claimWaist(_, _, player)
         end
         if cost > 0 and not canAfford(player, cost, data) then return finishCode(player, false, "CurrencyNotEnough") end
         if cost > 0 and not addPoints(player, -cost, data) then return finishCode(player, false, "CurrencyNotEnough") end
-        local okGive, added = giveItem(player, GodSystemConfig.AutoRecyclerFullType or "Base.Bag_FannyPackFront", 1)
+        local okGive, added = giveItem(player, GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal", 1)
         if not okGive or not added[1] then
             if cost > 0 then giveCurrency(player, cost) end
             return finishCode(player, false, "ItemGrantFailed")

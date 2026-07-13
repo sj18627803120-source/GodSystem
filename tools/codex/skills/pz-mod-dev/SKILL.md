@@ -106,6 +106,12 @@ For compatibility-first B42 mods:
 - Resolve multiplayer vehicles on the server with `getVehicleById(vehicleId)`, then validate the real consumable, floor, distance, and vehicle state before mutation.
 - B42.19's vanilla server vehicle command ultimately calls `vehicle:repair()`. A paid MOD item may call that server-side method after its own validation; do not expose a client-authoritative repair path, and do not claim compatibility with vehicles that replace `BaseVehicle` repair behavior.
 
+## B42 Wearable Containers
+
+- A custom wearable container needs the same registered namespaced location in all three places: `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`. `CanBeEquipped` alone can leave the worn-item location null and crash both context-menu tooltip checks and the wear timed action.
+- B42.19 rejects `ItemContainer.setCapacity()` values above 50. Keep dynamic container capacity at 49 or below and verify the game log; wrapping the call in `pcall` does not make an over-limit assignment succeed.
+- When a custom container has a unique full type, identify it by that full type instead of retaining name-based recognition and vanilla-container aliases from an unpublished prototype.
+
 ## UI Stability
 
 - Do not trigger server refreshes from list drawing or page population.
@@ -164,6 +170,7 @@ For complex GodSystem UI redesigns, prototype first in local HTML/CSS, then port
 - Edit live test directories only when the user asks for direct testing.
 - Keep stable zip backups untouched until the user says the new version is stable.
 - Prefer Git commits for routine development history and add a tag only when the version's status is clear. Create or prune rolling backup ZIPs only under the user's current project rule or explicit request; never delete user-confirmed stable packages as part of cleanup.
+- Treat only user-confirmed published versions as compatibility baselines. Unpublished local test versions do not require item or data migration unless the user explicitly requests it. Keep feature branches and commits local until the user confirms the live test, then decide whether to push, merge, and tag.
 - When packaging, verify the zip root contains `Contents`, `workshop.txt`, `preview.png`, and any upload notes expected by the project.
 - Do not repack third-party dependency mods unless license and user request explicitly allow it.
 

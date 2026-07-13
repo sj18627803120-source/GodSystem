@@ -28,6 +28,8 @@ REMOVED_UI_KEYS = {
     "Companion_SwitchOrb",
     "Companion_CopyAppearance",
     "Notify_CompanionAppearanceCopied",
+    "Attribute_BuyToLevel",
+    "Attribute_TargetLevelPrompt",
 }
 
 

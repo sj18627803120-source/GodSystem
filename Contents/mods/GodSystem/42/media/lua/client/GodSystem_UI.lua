@@ -1037,6 +1037,47 @@ end
 
 GodSystemWindow = ISCollapsableWindow:derive("GodSystemWindow")
 
+local GS_NON_SELECTABLE_KINDS = {
+    traitHeader = true,
+    attributeHeader = true,
+    lotteryInfo = true,
+    lotteryHeader = true,
+    lotteryResult = true,
+    companionState = true,
+    bankSummary = true,
+    bankLoanSummary = true,
+    adminInfo = true,
+    empty = true,
+    detailLine = true,
+    info = true,
+    history = true,
+    diagnostics = true,
+    spacer = true,
+}
+
+local GS_SECTION_HEADER_KINDS = {
+    traitHeader = true,
+    attributeHeader = true,
+    lotteryHeader = true,
+}
+
+local GS_INFO_ROW_KINDS = {
+    lotteryInfo = true,
+    lotteryResult = true,
+    companionState = true,
+    bankSummary = true,
+    bankLoanSummary = true,
+    adminInfo = true,
+    detailLine = true,
+    info = true,
+    history = true,
+    diagnostics = true,
+}
+
+local function gsIsSelectablePayload(payload)
+    return payload ~= nil and payload.selectable ~= false and GS_NON_SELECTABLE_KINDS[payload.kind] ~= true
+end
+
 function GodSystemWindow:new(x, y, width, height)
     local o = ISCollapsableWindow.new(self, x, y, width, height)
     local win = (gsTheme().window or {})
@@ -1051,6 +1092,8 @@ function GodSystemWindow:new(x, y, width, height)
     o.shopSearchPurpose = "shop"
     o.navScroll = 0
     o.navPageIndex = 1
+    o.lastSelectableListRow = 0
+    o.lastSelectableActiveRow = 0
     o.lotteryCategoryKey = "all"
     o.lotteryCustomCount = 10
     o.latestLotteryResult = nil
@@ -1174,18 +1217,25 @@ function GodSystemWindow:setupLayoutMetrics()
     self.actionW = math.max(self:S(280), self.actionRight - self.actionX)
 end
 
-function GodSystemWindow:getNavItemsPerPage()
+function GodSystemWindow:getNavPageLayout()
     local count = math.max(0, math.floor(tonumber(self.navNormalCount) or 0))
     local itemH = self.navItemH or self:S(56)
     local gap = self.navItemGap or self:S(8)
     local viewportH = math.max(itemH, self.navViewportH or self.navH or itemH)
-    return math.max(1, math.min(math.max(1, count), math.floor((viewportH + gap) / math.max(1, itemH + gap))))
+    local capacity = math.max(1, math.floor((viewportH + gap) / math.max(1, itemH + gap)))
+    local pageCount = math.max(1, math.ceil(count / capacity))
+    local perPage = math.max(1, math.ceil(count / pageCount))
+    return perPage, pageCount
+end
+
+function GodSystemWindow:getNavItemsPerPage()
+    local perPage = self:getNavPageLayout()
+    return perPage
 end
 
 function GodSystemWindow:getNavPageCount()
-    local count = math.max(0, math.floor(tonumber(self.navNormalCount) or 0))
-    local perPage = self:getNavItemsPerPage()
-    return math.max(1, math.ceil(count / math.max(1, perPage)))
+    local _, pageCount = self:getNavPageLayout()
+    return pageCount
 end
 
 function GodSystemWindow:clampNavPage()
@@ -1403,6 +1453,12 @@ function GodSystemWindow:applyStaticLayout()
         local page = self:clampNavPage()
         local perPage = self:getNavItemsPerPage()
         local first = ((page - 1) * perPage) + 1
+        local last = math.min(math.floor(tonumber(self.navNormalCount) or 0), first + perPage - 1)
+        local pageItemCount = math.max(0, last - first + 1)
+        local itemH = self.navItemH or self:S(56)
+        local viewportH = self.navViewportH or self.navH or itemH
+        local availableGap = math.max(0, viewportH - (pageItemCount * itemH))
+        local distributedGap = pageItemCount > 0 and math.floor(availableGap / (pageItemCount + 1)) or 0
         for _, button in pairs(self.modeButtons) do
             local index = button.navIndex or 1
             local isTool = button.navTool == true
@@ -1418,7 +1474,9 @@ function GodSystemWindow:applyStaticLayout()
                 local gap = self.navItemGap or 8
                 local normalIndex = button.navNormalIndex or index
                 local displayIndex = normalIndex - first + 1
-                local y = (self.navViewportY or self.navY) + ((math.max(1, displayIndex) - 1) * (buttonH + gap))
+                local y = (self.navViewportY or self.navY)
+                    + (math.max(1, displayIndex) * math.max(gap, distributedGap))
+                    + ((math.max(1, displayIndex) - 1) * buttonH)
                 gsSetBounds(button, self.navX + self:S(10), y, self.navW - self:S(20), buttonH)
             end
             if button.setTitle then
@@ -1437,7 +1495,7 @@ function GodSystemWindow:setDetailText(text)
         self:resetScrollingListState(self.detailList)
         local lines = gsWrapText(self.detailText, UIFont.Small, (self.detailList.width or 240) - 18)
         for i = 1, #lines do
-            self.detailList:addItem(lines[i], { kind = "detailLine" })
+            self.detailList:addItem(lines[i], { kind = "detailLine", selectable = false })
         end
         return
     end
@@ -1852,10 +1910,15 @@ function GodSystemWindow:updateModeButtonStyles()
 end
 
 function GodSystemWindow:onListMouseDown(item)
+    local payload = self:getPayloadFromListCallback(item)
+    if not gsIsSelectablePayload(payload) then
+        self.list.selected = math.floor(tonumber(self.lastSelectableListRow) or 0)
+        return
+    end
+    self.lastSelectableListRow = math.floor(tonumber(self.list.selected) or 0)
     if self.mode == "tasks" then
         self:clearOppositeTaskSelection("open")
     elseif self.mode == "waist" then
-        local payload = self:getPayloadFromListCallback(item)
         if payload and payload.kind == "waist" and payload.data then
             self.waistSelected = self.waistSelected or {}
             local fullType = payload.data.fullType
@@ -1868,6 +1931,12 @@ function GodSystemWindow:onListMouseDown(item)
 end
 
 function GodSystemWindow:onActiveListMouseDown(item)
+    local payload = self:getPayloadFromListCallback(item)
+    if not gsIsSelectablePayload(payload) then
+        self.activeList.selected = math.floor(tonumber(self.lastSelectableActiveRow) or 0)
+        return
+    end
+    self.lastSelectableActiveRow = math.floor(tonumber(self.activeList.selected) or 0)
     self:clearOppositeTaskSelection("active")
     self:updateDetail()
 end
@@ -1880,8 +1949,10 @@ function GodSystemWindow:clearOppositeTaskSelection(taskListName)
     self.selectedTaskList = taskListName
     if taskListName == "active" then
         if self.list then self.list.selected = 0 end
+        self.lastSelectableListRow = 0
     else
         if self.activeList then self.activeList.selected = 0 end
+        self.lastSelectableActiveRow = 0
     end
 end
 
@@ -1891,20 +1962,25 @@ function GodSystemWindow:drawListItem(list, y, item, alt)
     end
     local payload = item.item or {}
     local rowText = tostring(item.text or payload.displayText or payload.label or "")
+    local selectable = gsIsSelectablePayload(payload)
     if payload.kind == "spacer" then
         return y + math.max(self:S(10), math.floor((list.itemheight or self:S(24)) / 2))
     end
     if payload.kind == "detailLine" then
-        gsDrawRect(list, 0, y, list.width, list.itemheight - 1, alt and gsThemeColor("rowAlt") or gsThemeColor("row"))
-        gsDrawText(list, rowText, self:S(8), y + self:S(4), gsThemeColor("text"), UIFont.Small)
+        gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("rowAlt"))
+        gsDrawText(list, rowText, self:S(8), y + self:S(4), gsThemeColor("dimText"), UIFont.Small)
         return y + list.itemheight
     end
-    if payload.kind == "traitHeader" then
+    if GS_SECTION_HEADER_KINDS[payload.kind] then
         gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("panelWarm"))
+    elseif GS_INFO_ROW_KINDS[payload.kind] then
+        gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("rowAlt"))
+    elseif payload.kind == "empty" then
+        gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("panel"))
     else
         gsDrawRect(list, 0, y, list.width, list.itemheight - 1, alt and gsThemeColor("rowAlt") or gsThemeColor("row"))
     end
-    if list.selected == item.index then
+    if selectable and list.selected == item.index then
         gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("rowSelect"))
         gsDrawRectBorder(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("borderStrong"))
     else
@@ -1940,9 +2016,9 @@ function GodSystemWindow:drawListItem(list, y, item, alt)
     local text = gsTruncateText(rowText, UIFont.Small, textWidth)
     local detail = gsTruncateText(detailRaw, UIFont.Small, detailWidth)
     local textColor = gsThemeColor("text")
-    if payload.kind == "empty" then
+    if payload.kind == "empty" or GS_INFO_ROW_KINDS[payload.kind] then
         textColor = gsThemeColor("dimText")
-    elseif payload.kind == "traitHeader" then
+    elseif GS_SECTION_HEADER_KINDS[payload.kind] then
         textColor = gsThemeColor("gold")
     end
     local textY = y + math.max(self:S(6), math.floor(((list.itemheight or self:S(30)) - self:S(18)) / 2))
@@ -2002,8 +2078,10 @@ end
 
 function GodSystemWindow:clearList()
     self:resetScrollingListState(self.list)
+    self.lastSelectableListRow = 0
     if self.activeList then
         self:resetScrollingListState(self.activeList)
+        self.lastSelectableActiveRow = 0
     end
     if self.detailList then
         self:resetScrollingListState(self.detailList)
@@ -2013,12 +2091,14 @@ end
 
 function GodSystemWindow:addListItem(text, payload)
     payload = payload or {}
+    if GS_NON_SELECTABLE_KINDS[payload.kind] then payload.selectable = false end
     payload.displayText = tostring(text or "")
     self.list:addItem(text, payload)
 end
 
 function GodSystemWindow:addActiveListItem(text, payload)
     payload = payload or {}
+    if GS_NON_SELECTABLE_KINDS[payload.kind] then payload.selectable = false end
     payload.displayText = tostring(text or "")
     self.activeList:addItem(text, payload)
 end
@@ -2191,6 +2271,11 @@ function GodSystemWindow:restoreSelection()
             local item = list.items[i]
             if self:getPayloadId(item and item.item) == selectedId then
                 list.selected = i
+                if list == self.activeList then
+                    self.lastSelectableActiveRow = i
+                else
+                    self.lastSelectableListRow = i
+                end
                 return true
             end
         end
@@ -2919,16 +3004,16 @@ function GodSystemWindow:populateWaistSpace()
     self.thirdButton:setVisible(true)
     if not info.found then
         if info.claimed then
-            gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_RecoverWaistBag", "Recover bag") .. " -" .. tostring(info.recoverCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
+            gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_RecoverWaistBag", "Recover terminal") .. " -" .. tostring(info.recoverCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
         else
-            gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_ClaimWaistBag", "Claim bag"))
+            gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_ClaimWaistBag", "Claim terminal"))
         end
         gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
         self.secondaryButton:setVisible(not gsIsMultiplayer())
         self.thirdButton:setVisible(false)
         self.fourthButton:setVisible(false)
         self.fifthButton:setVisible(false)
-        self:addListItem(GodSystem.text("Waist_NotFound", "System waist bag not found"), { kind = "empty", detail = GodSystem.text("Hint_WaistSpaceMissing", "Claim or recover the system waist bag first.") })
+        self:addListItem(GodSystem.text("Waist_NotFound", "System space terminal not found"), { kind = "empty", detail = GodSystem.text("Hint_WaistSpaceMissing", "Claim or recover the system space terminal first.") })
         return
     end
 
@@ -2942,7 +3027,7 @@ function GodSystemWindow:populateWaistSpace()
     end
     local nextCost = info.nextCost
     if nextCost then
-        gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_UpgradeWaistBag", "Upgrade bag") .. " -" .. tostring(nextCost) .. GodSystem.text("Unit_CoinShort", "c"))
+        gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_UpgradeWaistBag", "Upgrade terminal") .. " -" .. tostring(nextCost) .. GodSystem.text("Unit_CoinShort", "c"))
     else
         gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_WaistMaxLevel", "Max level"))
     end
@@ -2962,7 +3047,7 @@ function GodSystemWindow:populateWaistSpace()
     end
 
     local status = string.format("%s Lv.%d/%d | %s %d | %s %d%% | %s %d/%d",
-        GodSystem.text("Waist_Status", "Waist bag"),
+        GodSystem.text("Waist_Status", "System space terminal"),
         info.level or 1,
         info.maxLevel or 1,
         GodSystem.text("Waist_Capacity", "Capacity"),
@@ -3017,7 +3102,7 @@ function GodSystemWindow:populateWaistSpace()
         end
     end
     if #order == 0 then
-        self:addListItem(GodSystem.text("Waist_Empty", "No recyclable item in waist bag"), { kind = "empty", detail = "" })
+        self:addListItem(GodSystem.text("Waist_Empty", "No recyclable item in terminal"), { kind = "empty", detail = "" })
     end
     if skipped and skipped > 0 then
         self:setDetailText(GodSystem.text("Waist_Skipped", "Skipped protected items: ") .. tostring(skipped))
@@ -3210,7 +3295,7 @@ function GodSystemWindow:applyAttributeActionBar(payload)
     local selected = payload and payload.kind == "attribute" and payload.data or nil
     local enabled = selected ~= nil and selected.maxed ~= true
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Attribute_BuyXP", "Buy XP"))
-    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Attribute_BuyToLevel", "Buy to level"))
+    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Attribute_NextLevel", "Next level"))
     self.primaryButton:setVisible(true)
     self.secondaryButton:setVisible(true)
     self.thirdButton:setVisible(false)
@@ -3516,7 +3601,7 @@ function GodSystemWindow:populateInfo()
     self:addWrappedListText(text, { kind = "info", data = text })
     text = GodSystem.text("Info_Recycle", "Recycle skips equipped, favorite and blacklisted items.")
     self:addWrappedListText(text, { kind = "info", data = text })
-    text = GodSystem.text("Info_WaistSpace", "Waist space reads the system waist bag and sells selected first-level items only.")
+    text = GodSystem.text("Info_WaistSpace", "The space terminal reads first-level items from the system space terminal and sells selected items.")
     self:addWrappedListText(text, { kind = "info", data = text })
     text = GodSystem.text("Info_Traits", "Traits can be modified with currency. Risk traits are experimental.")
     self:addWrappedListText(text, { kind = "info", data = text })
@@ -3786,11 +3871,13 @@ function GodSystemWindow:getSelectedPayload()
     if self.mode == "tasks" and self.selectedTaskList == "active" and self.activeList then
         local index = math.floor(tonumber(self.activeList.selected) or 0)
         local selected = index > 0 and self.activeList.items[index] or nil
-        return selected and selected.item or nil
+        local payload = selected and selected.item or nil
+        return gsIsSelectablePayload(payload) and payload or nil
     end
     local index = math.floor(tonumber(self.list.selected) or 0)
     local selected = index > 0 and self.list.items[index] or nil
-    return selected and selected.item or nil
+    local payload = selected and selected.item or nil
+    return gsIsSelectablePayload(payload) and payload or nil
 end
 
 function GodSystemWindow:getPayloadFromListCallback(item)
@@ -3808,11 +3895,18 @@ function GodSystemWindow:selectListRowAt(x, y, list, taskListName)
     if list and list.rowAt then
         local row = list:rowAt(x, y)
         if row and row > 0 and list.items[row] then
+            local payload = list.items[row].item
+            if not gsIsSelectablePayload(payload) then return nil end
             list.selected = row
+            if list == self.activeList then
+                self.lastSelectableActiveRow = row
+            else
+                self.lastSelectableListRow = row
+            end
             if self.mode == "tasks" and taskListName then
                 self:clearOppositeTaskSelection(taskListName)
             end
-            return list.items[row].item
+            return payload
         end
     end
     return self:getSelectedPayload()
@@ -3851,17 +3945,17 @@ function GodSystemWindow:updateDetail()
         elseif self.mode == "lottery" then
             self:setDetailText(GodSystem.text("Hint_Lottery", "Choose all-category or a category, then draw 1, 10, or a custom count. Results are granted directly."))
         elseif self.mode == "waist" then
-            self:setDetailText(GodSystem.text("Hint_WaistSpace", "Waist space only reads the system waist bag. Click rows to select, then sell selected or sell all."))
+            self:setDetailText(GodSystem.text("Hint_WaistSpace", "The space terminal reads the system space terminal. Click rows to select, then sell selected or sell all."))
         elseif self.mode == "bank" then
             self:setDetailText(GodSystem.text("Hint_Bank", "Deposit cash into current account, move current balance into fixed deposits, and withdraw when needed. Death penalty only deducts current account."))
         elseif self.mode == "traits" then
             self:setDetailText(GodSystem.text("Hint_Traits", "Buy positive traits or remove owned negative traits. Risk traits are experimental."))
         elseif self.mode == "attribute" then
-            self:setDetailText(GodSystem.text("Hint_Attributes", "Select a standard skill, then buy XP by amount or target level."))
+            self:setDetailText(GodSystem.text("Hint_Attributes", "Select a standard skill, then buy XP by amount or upgrade to the next level."))
         elseif self.mode == "tasks" then
             self:setDetailText(GodSystem.text("Hint_TasksSplit", "Available tasks are on the left. Active tasks are on the right."))
         elseif self.mode == "upgrades" then
-            self:setDetailText(GodSystem.text("Hint_Upgrades", "Upgrade system task limits here. Waist bag upgrades stay in waist space."))
+            self:setDetailText(GodSystem.text("Hint_Upgrades", "Upgrade system task limits here. Terminal upgrades stay on the space terminal page."))
         elseif self.mode == "companion" then
             self:setDetailText(GodSystem.text("Hint_Companion", "Select an ability to unlock or upgrade. Use the controls below for visibility, shortcuts and recall."))
         elseif self.mode == "home" then
@@ -4342,18 +4436,15 @@ function GodSystemWindow:showBankAmountDialog(action, message, termId, entryId)
     dialog:setVisible(true)
 end
 
-function GodSystemWindow:showAttributeAmountDialog(mode, payload)
+function GodSystemWindow:showAttributeAmountDialog(payload)
     payload = payload or self:getSelectedPayload()
     local row = payload and payload.kind == "attribute" and payload.data or nil
     if not row or row.maxed == true then
         GodSystem.notify(GodSystem.text(row and "Notify_AttributeMaxed" or "Notify_AttributeSelect", row and "This skill is already maxed" or "Select a skill first"))
         return
     end
-    mode = mode == "targetLevel" and "targetLevel" or "amount"
-    local title = mode == "targetLevel" and GodSystem.text("Attribute_BuyToLevel", "Buy to level") or GodSystem.text("Attribute_BuyXP", "Buy XP")
-    local message = mode == "targetLevel"
-        and GodSystem.text("Attribute_TargetLevelPrompt", "Enter the target level")
-        or GodSystem.text("Attribute_AmountPrompt", "Enter the amount of currency to spend")
+    local title = GodSystem.text("Attribute_BuyXP", "Buy XP")
+    local message = GodSystem.text("Attribute_AmountPrompt", "Enter the amount of currency to spend")
     local w, h = 380, 150
     local x = math.max(80, (getCore():getScreenWidth() / 2) - (w / 2))
     local y = math.max(80, (getCore():getScreenHeight() / 2) - (h / 2))
@@ -4362,11 +4453,49 @@ function GodSystemWindow:showAttributeAmountDialog(mode, payload)
         title = title,
         message = message,
         perkIndex = row.index,
-        mode = mode,
+        mode = "amount",
     })
     dialog:initialise()
     dialog:addToUIManager()
     dialog:setVisible(true)
+end
+
+function GodSystemWindow:showAttributeNextLevelConfirm(payload)
+    payload = payload or self:getSelectedPayload()
+    local row = payload and payload.kind == "attribute" and payload.data or nil
+    if not row or row.maxed == true then
+        GodSystem.notify(GodSystem.text(row and "Notify_AttributeMaxed" or "Notify_AttributeSelect", row and "This skill is already maxed" or "Select a skill first"))
+        return
+    end
+    local currentLevel = math.max(0, math.floor(tonumber(row.currentLevel) or 0))
+    local quote = GodSystem.getAttributeQuote(row.index, "targetLevel", currentLevel + 1)
+    if not quote or (tonumber(quote.actualXp) or 0) <= 0 then
+        GodSystem.notify(GodSystem.text("Notify_AttributeInvalid", "Unable to purchase skill XP"))
+        return
+    end
+    local targetLevel = currentLevel + 1
+    local message = GodSystem.text("Attribute_NextLevelConfirm", "Upgrade this skill to the next level?") .. "\n\n"
+        .. tostring(row.label or quote.info and quote.info.label or "") .. "\n"
+        .. GodSystem.text("Attribute_CurrentLevel", "Current level") .. ": " .. tostring(currentLevel) .. "\n"
+        .. GodSystem.text("Attribute_TargetLevel", "Target level") .. ": " .. tostring(targetLevel) .. "\n"
+        .. GodSystem.text("Attribute_RequiredXP", "Required XP") .. ": " .. tostring(math.floor(tonumber(quote.actualXp) or 0)) .. " XP\n"
+        .. GodSystem.text("Attribute_Cost", "Cost") .. ": " .. tostring(math.floor(tonumber(quote.cost) or 0)) .. GodSystem.text("Unit_Coin", " coins")
+    local player = getPlayer()
+    local playerNum = player and player:getPlayerNum() or 0
+    local x = math.max(80, (getCore():getScreenWidth() / 2) - 250)
+    local y = math.max(80, (getCore():getScreenHeight() / 2) - 140)
+    local modal = ISModalDialog:new(x, y, 500, 280, message, true, self, self.onAttributeNextLevelConfirm, playerNum, {
+        perkIndex = row.index,
+        targetLevel = targetLevel,
+    })
+    modal:initialise()
+    modal:addToUIManager()
+end
+
+function GodSystemWindow:onAttributeNextLevelConfirm(button, payload)
+    if not button or button.internal ~= "YES" or not payload then return end
+    local sent = GodSystem.performAttributePurchase(payload.perkIndex, "targetLevel", payload.targetLevel)
+    self:finishMultiplayerCommand(sent)
 end
 
 function GodSystemWindow:showAdminSettingDialog(payload)
@@ -4535,7 +4664,7 @@ end
 function GodSystemWindow:onPrimaryAction()
     local payload = self:getSelectedPayload()
     if self.mode == "attribute" then
-        self:showAttributeAmountDialog("amount", payload)
+        self:showAttributeAmountDialog(payload)
         return
     end
     if self.mode == "companion" then
@@ -4618,7 +4747,7 @@ function GodSystemWindow:onPrimaryAction()
             end
         end
         if not hasSelected then
-            GodSystem.notify(GodSystem.text("Notify_SelectWaistItem", "Select waist space items first"))
+            GodSystem.notify(GodSystem.text("Notify_SelectWaistItem", "Select space terminal items first"))
             return
         end
         self:prepareActionSelection(payload)
@@ -4817,7 +4946,7 @@ end
 
 function GodSystemWindow:onSecondaryAction()
     if self.mode == "attribute" then
-        self:showAttributeAmountDialog("targetLevel", self:getSelectedPayload())
+        self:showAttributeNextLevelConfirm(self:getSelectedPayload())
         return
     end
     if self.mode == "companion" then

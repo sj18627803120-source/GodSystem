@@ -1,20 +1,20 @@
-# 神级系统 v1.16.53 Workshop 上传包说明
+# 神级系统 v1.16.54 Workshop 上传包说明
 
 上传时选择本目录，也就是包含 `workshop.txt`、`preview.png`、`Contents` 的这一层。
 
 正确结构：
 
 ```text
-GodSystemWorkshopUpload_v1.16.53\workshop.txt
-GodSystemWorkshopUpload_v1.16.53\preview.png
-GodSystemWorkshopUpload_v1.16.53\Contents\mods\GodSystem\mod.info
-GodSystemWorkshopUpload_v1.16.53\Contents\mods\GodSystem\42\mod.info
-GodSystemWorkshopUpload_v1.16.53\Contents\mods\GodSystem\42\media\...
+GodSystemWorkshopUpload_v1.16.54\workshop.txt
+GodSystemWorkshopUpload_v1.16.54\preview.png
+GodSystemWorkshopUpload_v1.16.54\Contents\mods\GodSystem\mod.info
+GodSystemWorkshopUpload_v1.16.54\Contents\mods\GodSystem\42\mod.info
+GodSystemWorkshopUpload_v1.16.54\Contents\mods\GodSystem\42\media\...
 ```
 
 ## 本次更新
 
-- v1.16.53：系统腰包升级为无人物模型、独立穿戴位置的“系统空间终端”，容量扩展至 Lv.12，并支持单人/多人旧腰包迁移；新增属性分页，可使用系统币购买原版及标准 PerkFactory MOD 技能经验；新增售价 5000 的系统车辆修复模块；单人浮游机器人新增震荡、灼蚀、标记、连锁和爆裂五项顺序解锁特效。多人属性交易增加精确扣款、退款兜底、超时重试幂等和 XP 同步恢复保护。
+- v1.16.54：修复系统空间终端独立穿戴位置，终端最高 Lv.8、容量49；统一终端页面、商城与快捷操作名称；属性页增加“升到下一级”确认；分类和说明行不再可选；左侧导航均衡分页；守护与过载爆裂增加可见特效。保留 v1.16.53 的属性经验、车辆修复模块和同伴攻击特效。
 - v1.16.48：新增原生沙盒默认配置；修复多人理财在线进度不增长；快捷栏拆分腰包回收和腰包回收并上架；隐藏旧回收页，并在原版库存右键菜单提供精确实例的回收、回收并上架和仅上架。
 - v1.16.52：浮游机器人改为直接绘制的蓝色双层菱形，使用红色方向传感器和青色双帧推进器；移除 16 张 PNG 与不兼容的 `SpriteRenderer.render(Texture,...)` 调用，统一复用 B42.19 已验证的 `renderline()`。保留蓝白照明、红色长光束、灵视和守护能力。
 - v1.16.47：商店新增一次性“系统修复组件”和“耐久强化核心”。修复组件完整恢复当前右手物品的主耐久、头部耐久和锋利度；强化核心永久增加当前右手物品 2 点主耐久上限，并同步增加 2 点当前耐久。支持采用标准耐久接口的 MOD 物品，双手物品有效，两件道具不进入抽奖奖池。

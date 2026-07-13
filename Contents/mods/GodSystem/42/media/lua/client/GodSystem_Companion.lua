@@ -1,7 +1,6 @@
 if (isClient and isClient()) or (isServer and isServer()) then return end
 
 require "GodSystem_CompanionConfig"
-require "ISCoordConversion"
 
 GodSystem = GodSystem or {}
 GodSystemCompanion = GodSystemCompanion or {}
@@ -397,10 +396,22 @@ local function findAttackTarget(player, data)
 end
 
 local function queueEffectVisual(kind, source, target, durationMs)
+    local sourceX = source and source.getX and source:getX() or nil
+    local sourceY = source and source.getY and source:getY() or nil
+    local sourceZ = source and source.getZ and source:getZ() or nil
+    local targetX = target and target.getX and target:getX() or nil
+    local targetY = target and target.getY and target:getY() or nil
+    local targetZ = target and target.getZ and target:getZ() or nil
     Companion.runtime.effectVisuals[#Companion.runtime.effectVisuals + 1] = {
         kind = kind,
         source = source,
         target = target,
+        x = sourceX,
+        y = sourceY,
+        z = sourceZ,
+        targetX = targetX,
+        targetY = targetY,
+        targetZ = targetZ,
         createdAt = nowMs(),
         expiresAt = nowMs() + math.max(80, tonumber(durationMs) or 250),
     }
@@ -510,18 +521,17 @@ local function applyDirectEffects(target, player, data, directDamage)
     end
 
     if effects.blast then
+        queueEffectVisual("blast", target, nil, 420)
         local candidates = collectEffectTargets(player, target, Config.BlastRadius)
-        local applied = 0
         for index = 1, #candidates do
             if occupied >= Config.BlastTargetCap then break end
             local zombie = candidates[index].zombie
             if not used[zombie] then
                 used[zombie] = true
                 occupied = occupied + 1
-                if applyCompanionDamage(zombie, player, directDamage * Config.BlastDamageRatio) then applied = applied + 1 end
+                applyCompanionDamage(zombie, player, directDamage * Config.BlastDamageRatio)
             end
         end
-        if applied > 0 then queueEffectVisual("blast", target, nil, 420) end
     end
 end
 
@@ -621,6 +631,7 @@ local function triggerGuardian(player, data)
     end
     if knocked > 0 then
         data.cooldowns.guardian = Config.getStatValue(data, "guardianCooldown") or 180
+        queueEffectVisual("guardian", player, nil, 450)
         notify("Notify_CompanionGuardianTriggered", "Guardian triggered")
         saveSoon(true)
     end
@@ -903,6 +914,7 @@ local function updateCompanion(player)
 end
 
 local function screenPoint(x, y, z)
+    if not ISCoordConversion or not ISCoordConversion.ToScreen then return nil, nil, nil end
     local sx, sy = ISCoordConversion.ToScreen(x, y, z)
     local zoom = getCore():getZoom(0)
     return sx / zoom, sy / zoom, zoom
@@ -914,6 +926,7 @@ end
 
 local function renderCornerBox(renderer, texture, zombie, red, green, blue, alpha)
     local sx, sy, zoom = screenPoint(zombie:getX(), zombie:getY(), zombie:getZ())
+    if not sx or not sy or not zoom then return end
     local halfW, halfH = 18 / zoom, 38 / zoom
     local arm = 8 / zoom
     sy = sy - 38 / zoom
@@ -929,20 +942,56 @@ local function renderCornerBox(renderer, texture, zombie, red, green, blue, alph
     line(right, bottom, right - arm, bottom); line(right, bottom, right, bottom - arm)
 end
 
+local function renderEffectRing(renderer, texture, sx, sy, radius, red, green, blue, alpha)
+    local segments = 12
+    local previousX = sx + radius
+    local previousY = sy
+    for index = 1, segments do
+        local angle = (math.pi * 2 * index) / segments
+        local nextX = sx + math.cos(angle) * radius
+        local nextY = sy + math.sin(angle) * radius * 0.55
+        drawColoredLine(renderer, texture, previousX, previousY, nextX, nextY, red, green, blue, alpha)
+        previousX, previousY = nextX, nextY
+    end
+end
+
 local function renderEffectVisual(renderer, texture, visual)
-    local source = visual and visual.source or nil
-    if not source or not source.getX then return end
+    if not visual then return end
+    local source = visual.source
     local now = nowMs()
     local duration = math.max(1, (visual.expiresAt or now) - (visual.createdAt or now))
     local progress = math.max(0, math.min(1, (now - (visual.createdAt or now)) / duration))
     local alpha = math.max(0.08, 1 - progress)
-    local sx, sy, zoom = screenPoint(source:getX(), source:getY(), source:getZ())
-    sy = sy - 38 / zoom
-    if visual.kind == "chain" and visual.target and visual.target.getX then
-        local tx, ty, targetZoom = screenPoint(visual.target:getX(), visual.target:getY(), visual.target:getZ())
+    local sourceX = visual.x or (source and source.getX and source:getX())
+    local sourceY = visual.y or (source and source.getY and source:getY())
+    local sourceZ = visual.z or (source and source.getZ and source:getZ())
+    if sourceX == nil or sourceY == nil or sourceZ == nil then return end
+    local sx, sy, zoom = screenPoint(sourceX, sourceY, sourceZ)
+    if not sx or not sy or not zoom then return end
+    sy = sy - ((visual.kind == "guardian" and 12 or 38) / zoom)
+    if visual.kind == "chain" then
+        local target = visual.target
+        local txWorld = visual.targetX or (target and target.getX and target:getX())
+        local tyWorld = visual.targetY or (target and target.getY and target:getY())
+        local tzWorld = visual.targetZ or (target and target.getZ and target:getZ())
+        if txWorld == nil or tyWorld == nil or tzWorld == nil then return end
+        local tx, ty, targetZoom = screenPoint(txWorld, tyWorld, tzWorld)
+        if not tx or not ty or not targetZoom then return end
         ty = ty - 38 / targetZoom
         drawColoredLine(renderer, texture, sx, sy, tx, ty, 0.20, 0.92, 1.0, alpha)
         drawColoredLine(renderer, texture, sx + 1, sy, tx + 1, ty, 0.72, 1.0, 1.0, alpha * 0.8)
+        return
+    end
+    if visual.kind == "guardian" then
+        local radius = (14 + progress * 42) / zoom
+        renderEffectRing(renderer, texture, sx, sy, radius, 0.42, 0.86, 1.0, alpha)
+        renderEffectRing(renderer, texture, sx, sy, math.max(2, radius - 2 / zoom), 0.82, 0.96, 1.0, alpha * 0.72)
+        return
+    end
+    if visual.kind == "blast" then
+        local radius = (12 + progress * 30) / zoom
+        renderEffectRing(renderer, texture, sx, sy, radius, 1.0, 0.12, 0.04, alpha)
+        renderEffectRing(renderer, texture, sx, sy, math.max(2, radius - 2 / zoom), 1.0, 0.52, 0.12, alpha * 0.70)
         return
     end
     local radius = (visual.kind == "blast" and (12 + progress * 24) or (7 + progress * 8)) / zoom
@@ -961,6 +1010,7 @@ local function renderProjectile(renderer, texture, entry)
     local progress = math.min(1, (entry.elapsed or 0) / math.max(0.01, entry.duration or Config.ProjectileTravelSeconds))
     local sourceX, sourceY, sourceZoom = screenPoint(entry.startX, entry.startY, entry.startZ)
     local targetX, targetY, targetZoom = screenPoint(target:getX(), target:getY(), target:getZ())
+    if not sourceX or not sourceY or not sourceZoom or not targetX or not targetY or not targetZoom then return end
     sourceY = sourceY - 48 / sourceZoom
     targetY = targetY - 38 / targetZoom
     local currentX = sourceX + (targetX - sourceX) * progress
@@ -985,6 +1035,7 @@ local function renderRobot(renderer, texture, data)
     local direction = nowMs() < (runtime.attackFacingUntilMs or 0)
         and runtime.attackDirection or runtime.direction or "SE"
     local sx, sy, zoom = screenPoint(runtime.robotX, runtime.robotY, runtime.robotZ)
+    if not sx or not sy or not zoom then return end
     local bob = math.sin(runtime.bobPhase or 0) * Config.RobotBobPixels / zoom
     local pulse = 0.90 + (math.sin((runtime.bobPhase or 0) * 0.75) + 1) * 0.05
     local cx = math.floor(sx + 0.5)
@@ -1031,6 +1082,7 @@ end
 
 local function renderCompanionEffects()
     if not isIngameState or not isIngameState() then return end
+    if not ISCoordConversion or not ISCoordConversion.ToScreen then return end
     local player = playerObject()
     local data = companionData()
     if not player or not data or not data.unlocked or Companion.runtime.vehicleSuspended then return end

@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.53"
+GodSystemConfig.Version = "1.16.54"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -102,12 +102,6 @@ GodSystemConfig.AllowRecycleContainers = false
 GodSystemConfig.AutoRecyclerFullType = "GodSystem.SystemSpaceTerminal"
 GodSystemConfig.AutoRecyclerFullTypes = {
     ["GodSystem.SystemSpaceTerminal"] = true,
-    ["Base.Bag_FannyPackFront"] = true,
-    ["Base.Bag_FannyPackBack"] = true,
-}
-GodSystemConfig.AutoRecyclerLegacyFullTypes = {
-    ["Base.Bag_FannyPackFront"] = true,
-    ["Base.Bag_FannyPackBack"] = true,
 }
 GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
 GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
@@ -125,17 +119,11 @@ GodSystemConfig.AutoRecyclerLevels = {
     { level = 6, capacity = 35, weightReduction = 80, upgradeCost = 550 },
     { level = 7, capacity = 42, weightReduction = 90, upgradeCost = 800 },
     { level = 8, capacity = 49, weightReduction = 99, upgradeCost = 1100 },
-    { level = 9, capacity = 60, weightReduction = 99, upgradeCost = 1500 },
-    { level = 10, capacity = 75, weightReduction = 99, upgradeCost = 2100 },
-    { level = 11, capacity = 90, weightReduction = 99, upgradeCost = 3000 },
-    { level = 12, capacity = 100, weightReduction = 99, upgradeCost = 4500 },
 }
 GodSystemConfig.AutoRecyclerRecoverCosts = {
     { maxLevel = 3, cost = 10 },
     { maxLevel = 6, cost = 35 },
     { maxLevel = 8, cost = 80 },
-    { maxLevel = 10, cost = 150 },
-    { maxLevel = 12, cost = 300 },
 }
 GodSystemConfig.AutoUnlockShopFromRecycle = true
 GodSystemConfig.AutoShopAllowAnyModule = true
@@ -361,8 +349,6 @@ GodSystemConfig.AutoShopBlacklist = {
     ["GodSystem.DurabilityCore"] = true,
     ["GodSystem.SystemVehicleRepairModule"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
-    ["Base.Bag_FannyPackFront"] = true,
-    ["Base.Bag_FannyPackBack"] = true,
 }
 
 GodSystemConfig.FloatingButton = {
@@ -379,8 +365,6 @@ GodSystemConfig.RecycleBlacklist = {
     ["GodSystem.SystemCoin10"] = true,
     ["GodSystem.SystemCoin100"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
-    ["Base.Bag_FannyPackFront"] = true,
-    ["Base.Bag_FannyPackBack"] = true,
 }
 
 GodSystemConfig.ShopItems = {

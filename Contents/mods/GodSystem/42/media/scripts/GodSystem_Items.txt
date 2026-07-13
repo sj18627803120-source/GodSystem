@@ -69,6 +69,7 @@ module GodSystem
         Weight = 0.1,
         Capacity = 10,
         WeightReduction = 50,
+        BodyLocation = GodSystem:GodSystemTerminal,
         CanBeEquipped = GodSystem:GodSystemTerminal,
         ClothingItem = SystemSpaceTerminal,
         CloseSound = CloseFannyPack,
