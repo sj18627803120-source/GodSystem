@@ -1,0 +1,190 @@
+---
+name: pz-mod-dev
+description: Project Zomboid mod development workflow for Build 42/B42.19 and similar versions. Use when Codex needs to inspect, modify, debug, localize, package, or document a Project Zomboid mod, especially Lua client/server/shared code, Workshop folder structure, SP/MP compatibility, item scripts, UI, tasks, economy, teleport, reference-mod research, or GodSystem-style development handoff work.
+---
+
+# Project Zomboid MOD Development
+
+## Core Workflow
+
+1. Confirm the target game version, mod directory, and whether the user wants live-test edits or stable backup edits.
+2. Use Superpowers as the default process layer for GodSystem work; do not treat a "small change" label as a reason to skip it. Use `brainstorming` before new features, unclear requirements, UI/MP/economy behavior changes, or scope expansion; use `writing-plans` before multi-file or risky changes; use `subagent-driven-development` when executing a planned complex change with separable workstreams; use `dispatching-parallel-agents` for independent research/review tasks or disjoint write scopes when subagents are authorized; use `systematic-debugging` for any bug, red error, regression, encoding issue, or test failure; use `verification-before-completion` before claiming the handoff is complete.
+3. Read the existing mod before designing changes. Prefer `rg`, `rg --files`, and focused file reads.
+4. Check same-version official docs or vanilla files first when available; then inspect same-version reference mods; then use older docs/mods only as weaker evidence.
+5. Make the smallest change that matches the existing mod style. Do not refactor unrelated systems while fixing one feature.
+6. Preserve single-player behavior unless the user explicitly asks to redesign it.
+7. For functional changes, bump the mod version and update handoff notes/changelogs.
+8. When the MOD is in Git, use focused commits and user-confirmed stable tags as the primary version history. Create rolling ZIP backups only when the user explicitly requests them or before a risky directory/package migration; do not infer that every version bump needs a ZIP.
+9. Run static checks after edits: command parity, version consistency, encoding sanity, path/package structure, and obvious Lua string/block issues.
+10. Do not replace stable backups or zip packages until the user confirms the live build is stable.
+
+For detailed patterns learned from GodSystem and reference mods, read `references/pz-b42-patterns.md` when working on multiplayer, packaging, localization, item scripts, or UI stability.
+
+## Superpowers Coordination
+
+Use Superpowers to turn broad requests into bounded work instead of jumping straight into Lua edits:
+
+- Run `brainstorming` when the user asks for a new feature, UI change, economy change, multiplayer behavior, or any request with unclear acceptance criteria.
+- Run `writing-plans` before touching code for changes that span multiple files, alter MP/SP contracts, touch economy persistence, or require staged validation.
+- Prefer `subagent-driven-development` for an approved plan whose tasks can be separated and reviewed independently.
+- Use `dispatching-parallel-agents` for independent fact-finding: compare reference mods, inspect vanilla B42 files, audit localization coverage, check packaging, or review a risky diff. Keep prompts narrow and self-contained.
+- Use `systematic-debugging` before proposing fixes for red errors, UI disappearing, MP desync, encoding corruption, task progress regressions, or player feedback that might be a real bug.
+- Use `verification-before-completion` at the end of every handoff, including documentation-only work, and report what was actually checked.
+
+Subagent boundaries:
+
+- Subagents may research, compare reference mods, audit docs/code, or implement a bounded task with a disjoint file ownership set when the user has authorized subagent work.
+- Do not let multiple subagents edit the same Lua files in parallel.
+- Do not let a subagent bypass the main plan, decide final architecture alone, overwrite user edits, or replace main-agent verification.
+- The main agent owns integration, version bump decisions, Git/backup decisions, final static checks, and the final explanation to the user.
+
+## Directory Checklist
+
+Use this common Workshop shape:
+
+```text
+WorkshopRoot/
+  workshop.txt
+  preview.png
+  Contents/
+    mods/
+      ModFolder/
+        mod.info
+        42/
+          mod.info
+          media/
+            lua/
+              client/
+              server/
+              shared/
+            scripts/
+            textures/
+            ui/
+```
+
+Check both root `mod.info` and `42/mod.info` when bumping versions. Keep `id=` stable unless the user asks for a new Workshop entry.
+
+## Lua Placement
+
+- `shared`: config, prices, localization fallback, data definitions safe for both sides.
+- `client`: UI, local inventory scanning, local-only SP logic, MP network bridge.
+- `server`: MP authoritative or semi-authoritative operations, persistent MP `ModData`, command handlers.
+
+Guard environment-specific files:
+
+```lua
+if not (isClient and isClient()) then return end
+if not (isServer and isServer()) then return end
+```
+
+## Multiplayer Design
+
+Choose MP authority based on the user's goal:
+
+- Strict economy: server validates most state and sends state snapshots.
+- Compatibility-first: client computes low-risk progress, server validates only real item/currency receive/remove operations.
+
+For compatibility-first B42 mods:
+
+- Trust client progress for kill, move, survive, spend, buy, and similar non-item tasks.
+- Validate real items for buy, sell, recycle, waist/container actions, and item-turn-in tasks.
+- Use command handlers for operations that change inventory or persistent data.
+- Avoid requesting server state on every UI tab switch. Sync on UI open, key operations, and a low-frequency background timer.
+- Batch frequent signals such as zombie kills; do not send every update tick.
+- Treat client operation IDs as transaction identifiers for paid or consumable commands. Generate IDs that remain unique across reconnects and Lua reloads, bind each ID to a normalized request fingerprint, and persist a bounded `processing/done/unknown` result cache under stable player identity in server `ModData`. On server restart, convert leftover `processing` entries to `unknown`; retry an identical timed-out request with the same ID, but reject the same ID with different payload instead of charging twice.
+- When a transaction draws from multiple sources, retain the exact bank/cash split. Refund the original sources on failure; if physical currency restoration fails, preserve the value by crediting the bank balance and report the degraded refund path honestly.
+
+## B42 Attribute XP
+
+- Enumerate standard and standard-compatible MOD perks with `Perks.getMaxIndex()`, `Perks.fromIndex()`, and `PerkFactory.getPerk(perk)`. Read the registered perk object's parent, name, and `getTotalXpForLevel()` curve; skip category nodes and incomplete custom XP systems.
+- B42.19's own player-stats UI applies no-multiplier XP with `player:getXp():AddXP(perk, amount, false, false, false, false)`. Re-read XP after the call and settle against the actual delta rather than assuming the requested amount was applied.
+- In MP, re-resolve the perk, XP curve, price, balance, and actual payment sources on the server. Call `SyncXp(player)` after mutation; if synchronization fails after XP was already applied, keep the purchase authoritative, record a pending resync, and retry on reconnect instead of refunding and granting free XP.
+- Unless same-version evidence proves otherwise, advertise compatibility only with the standard ten-level `PerkFactory` XP model.
+
+## B42 Vehicle Repair
+
+- Resolve multiplayer vehicles on the server with `getVehicleById(vehicleId)`, then validate the real consumable, floor, distance, and vehicle state before mutation.
+- B42.19's vanilla server vehicle command ultimately calls `vehicle:repair()`. A paid MOD item may call that server-side method after its own validation; do not expose a client-authoritative repair path, and do not claim compatibility with vehicles that replace `BaseVehicle` repair behavior.
+
+## UI Stability
+
+- Do not trigger server refreshes from list drawing or page population.
+- Avoid clearing selection without restoring by stable payload IDs such as `taskId`, `fullType`, or shop `id`.
+- For long text pages such as history/info, prefer single-column wrapped text over split detail panes.
+- Hide ordinary manual refresh controls in MP when automatic/key-operation sync is enough.
+- Use local cached data for display when possible, then let key operations refresh from the server.
+
+## Single-Player Visual Companions
+
+- Put an SP-only hard return at the top of every runtime and shortcut-UI file: return when `isClient()` or `isServer()` is true. Shared number/config modules may load on both sides but must not register events.
+- Prefer a render-only companion for decorative or combat-assist visuals. Keep logical world coordinates and render textures from `OnPreUIDraw`; do not create an `IsoZombie`, world item, or interactive object unless real entity behavior is an explicit requirement.
+- GodSystem v1.16.49 proved that a zombie-backed shell remains visible to vanilla and third-party zombie systems despite no-teeth, useless, target, aggro, collision, and lunge suppression. It can still cause bites, panic, stress, knockdown, and corpse-state problems. Do not reuse that architecture for a harmless companion.
+- For old saves, a one-time startup cleanup may remove legacy entities marked in ModData, but the active runtime must not retain the spawn endpoint.
+- Validate candidate visual positions on the player's current floor and visible, non-solid squares. Smooth logical movement, retarget at a low frequency, and recall after teleport, floor change, or excessive distance.
+- Throttle attack target searches; keep large-radius sight scans manual and capped. Skip guardian scans entirely while the ability is cooling down.
+- Create `IsoLightSource` only when tile/radius/visibility changes and always retain the owning cell for `removeLamppost()` cleanup.
+- For short screen effects, use same-version `ISCoordConversion.ToScreen()`, current zoom correction, and `renderline()` from `OnPreUIDraw`.
+- For direct companion damage, call `setAttackedBy(player)` before damage and enter the B42 death path with `Kill(player)`; only correct `setZombieKills()` when the original kill path did not increment it.
+- Route direct, damage-over-time, chain, and area companion damage through one ownership/death helper. Secondary damage must not recursively trigger marks, chains, blasts, or other on-hit effects.
+
+## Lua 5.1 Limits
+
+- Lua 5.1 main chunks are limited to 200 local variables. Large monolithic server files can hit this limit even when each helper is small. Before adding a top-level `local`, check the current file with the project's Lua 5.1 `luac -p`; place related helpers on an existing module namespace or inside command functions when the main chunk is near the limit.
+
+## UI Prototyping
+
+For complex GodSystem UI redesigns, prototype first in local HTML/CSS, then port the approved design to PZ Lua.
+
+- Keep prototypes constrained to PZ-friendly primitives: fixed-size panels, simple borders, flat/tiled textures, icon images, list rows, progress bars, and button states.
+- Avoid browser-only effects as core design requirements: blur filters, complex shadows, continuous animations, responsive layout tricks, CSS grid dependencies that cannot map to fixed Lua coordinates, and text scaling by viewport width.
+- Use the current `GodSystem_UITheme.lua` values as the starting token source: window size, colors, spacing, row heights, action heights, detail widths, tab order, and icon paths.
+- Produce a migration spec with every prototype: color table, dimensions, component states, task/shop/bank row layout, detail sections, and the exact Lua/theme functions or constants to update.
+- Treat the HTML screenshot as a design target, not the implementation source of truth. Final behavior must still preserve PZ UI stability rules, selection restore, MP light sync, and localization fallback behavior.
+- For external visual resources, use direct assets only when the license is explicit and redistributable. Prefer CC0/public-domain assets; for CC BY assets, add attribution in Workshop notes/readme; for unclear or mixed-license sources, use them for inspiration only and do not package them.
+
+## Localization
+
+- Check all localization layers used by the mod. Some mods rely on `Translate/*`; others also use Lua fallback tables.
+- For B42 third-party localization patches, check whether the original mod uses JSON translations such as `Translate/EN/UI.json` or legacy text tables such as `UI_EN.txt`. If the original uses JSON, generate matching `CN/*.json` files as well as `_CN.txt` files when stability matters.
+- Keep the live test mod directory synchronized with the workshop/source directory. On Windows PZ tests often load `C:\Users\Admin\Zomboid\mods\<ModId>` while the editable Workshop source may be under `C:\Users\Admin\Zomboid\Workshop\...\Contents\mods\<ModId>`.
+- When a dedicated localization patch is used alongside broad translation packs, place the dedicated patch after the broad packs in active `mods.txt` so its keys win load-order conflicts.
+- If a Lua fallback override is the runtime source of truth, update it with every new UI key.
+- Avoid direct Chinese in Lua bridge/patch files for third-party localization. Prefer ASCII-only Lua that calls `getText("...")`, and keep Chinese text in Translate files.
+- For hardcoded English context menus, patch the actual B42 `ISContextMenu:addOption`/`addOptionOnTop` methods and retry installation from menu-related events such as `OnFillWorldObjectContextMenu`; one early `OnGameStart` attempt may miss the class.
+- In MP, prefer structured `{ code, args }` history/notify payloads and localize on the client. Avoid sending full localized Chinese sentences from the server.
+- For GodSystem-style MP results, add new server outcomes as stable `code` plus optional `args`, then add `NotifyMP_*` or `HistoryMP_*` localization keys on the client side. Keep direct server Chinese only in legacy paths that are intentionally left as fallback.
+- For GodSystem localization, treat the UTF-8 YAML text source plus generator as the source of truth when present. Add or change UI text in the YAML, rerun the generator, and commit the generated `Translate\CN`, `Translate\CH`, and Lua fallback together.
+- Before finishing, check for UTF-8 replacement characters (`U+FFFD`) and accidental mojibake introduced by shell commands.
+- Do not judge Chinese files by PowerShell console display. Always read/write with explicit UTF-8 APIs or `apply_patch`, and validate with a script.
+- In `GodSystem_Localization_Override.lua`, prefer generated escaped UTF-8 byte strings for new Chinese fallback values when they are loaded directly by Lua; do not hand-type fallback Chinese unless there is no generator for that mod.
+- For Translate files and Markdown docs, UTF-8 text is acceptable; still scan for replacement characters and common mojibake fragments after edits.
+
+## Packaging and Backup Discipline
+
+- Edit live test directories only when the user asks for direct testing.
+- Keep stable zip backups untouched until the user says the new version is stable.
+- Prefer Git commits for routine development history and add a tag only when the version's status is clear. Create or prune rolling backup ZIPs only under the user's current project rule or explicit request; never delete user-confirmed stable packages as part of cleanup.
+- When packaging, verify the zip root contains `Contents`, `workshop.txt`, `preview.png`, and any upload notes expected by the project.
+- Do not repack third-party dependency mods unless license and user request explicitly allow it.
+
+## Validation Commands
+
+Use PowerShell-safe commands on Windows:
+
+```powershell
+rg -n "1\.16\.5|modversion=|GodSystemConfig.Version" "C:\path\to\mod"
+rg -n 'send\("[A-Za-z0-9_]+"' "C:\path\to\client.lua"
+rg -n 'function Commands\.[A-Za-z0-9_]+' "C:\path\to\server.lua"
+```
+
+For UTF-8 replacement checks:
+
+```powershell
+$files = Get-ChildItem -LiteralPath "C:\path\to\media\lua" -Recurse -Filter *.lua
+foreach($f in $files){
+  $text=[System.IO.File]::ReadAllText($f.FullName,[System.Text.Encoding]::UTF8)
+  if($text.Contains([char]0xFFFD)){ Write-Output $f.FullName }
+}
+```
+
+If `lua`/`luac` are unavailable, state that compile checking could not be run and report the static checks that did run.

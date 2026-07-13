@@ -1,0 +1,4 @@
+interface:
+  display_name: "PZ MOD Development"
+  short_description: "Project Zomboid B42 mod workflow"
+  default_prompt: "Use $pz-mod-dev to inspect and modify a Project Zomboid Build 42 mod safely."
