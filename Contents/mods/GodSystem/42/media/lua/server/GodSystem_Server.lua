@@ -3466,9 +3466,8 @@ function Commands.useMaintenanceItem(_, _, player, args)
             if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, container, consumable) end
             if container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
 
-            local repaired = pcall(function() vehicle:repair() end)
-            local after = GodSystemMaintenance.vehicleDamageSummary(vehicle)
-            if not repaired or after.damaged > 0 then
+            local repaired = GodSystemMaintenance.repairVehicle(vehicle)
+            if not repaired then
                 local refunded = giveItem(player, expectedType, 1)
                 return finishCode(player, false, refunded and "VehicleRepairFailedRefunded" or "VehicleRepairFailed")
             end

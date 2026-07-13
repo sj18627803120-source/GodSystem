@@ -385,6 +385,7 @@ function GodSystemFloatingButton:new(x, y, width, height)
     local o = ISPanel.new(self, x, y, width, height)
     o.backgroundColor = { r = 0.05, g = 0.06, b = 0.07, a = 0.88 }
     o.borderColor = { r = 0.95, g = 0.68, b = 0.22, a = 0.95 }
+    o.iconTexture = getTexture and getTexture("media/textures/GodSystem_OpenIcon.png") or nil
     o.dragging = false
     o.moved = false
     return o
@@ -393,9 +394,12 @@ end
 function GodSystemFloatingButton:prerender()
     ISPanel.prerender(self)
     self:drawRectBorder(0, 0, self.width, self.height, 0.95, 0.95, 0.68, 0.22)
-    local points = GodSystem.getCurrencyTotal()
-    local text = gsTruncateText(GodSystem.text("Title", "God System") .. " " .. gsFormatCompactNumber(points), UIFont.Small, math.max(40, (self.width or 100) - 10))
-    gsDrawTextCentre(self, text, 0, 9, self.width, 1, 0.86, 0.36, 1, UIFont.Small)
+    if self.iconTexture and self.drawTextureScaled then
+        local inset = 4
+        self:drawTextureScaled(self.iconTexture, inset, inset, self.width - inset * 2, self.height - inset * 2, 1)
+    else
+        gsDrawTextCentre(self, "GS", 0, math.max(4, math.floor((self.height - 18) / 2)), self.width, 1, 0.74, 0.22, 1, UIFont.Medium)
+    end
 end
 
 function GodSystemFloatingButton:onMouseDown(x, y)
@@ -967,10 +971,15 @@ function GodSystemBankAmountDialog:onConfirm()
     if self.owner and self.owner.finishMultiplayerCommand then
         self.owner:finishMultiplayerCommand(sent)
     end
-    self:onCancel()
+    self:onCancel(payload.kind == "attribute" and sent ~= false)
 end
 
-function GodSystemBankAmountDialog:onCancel()
+function GodSystemBankAmountDialog:onCancel(preserveActionSelection)
+    local payload = self.payload or {}
+    if preserveActionSelection ~= true and payload.kind == "attribute"
+        and self.owner and self.owner.clearPendingActionSelection then
+        self.owner:clearPendingActionSelection()
+    end
     self:setVisible(false)
     if self.removeFromUIManager then
         self:removeFromUIManager()
@@ -1094,6 +1103,10 @@ function GodSystemWindow:new(x, y, width, height)
     o.navPageIndex = 1
     o.lastSelectableListRow = 0
     o.lastSelectableActiveRow = 0
+    o.pendingRestoreSelectedId = nil
+    o.pendingRestoreSelectedTaskList = nil
+    o.pendingRestoreMode = nil
+    o.pendingRestoreScroll = nil
     o.lotteryCategoryKey = "all"
     o.lotteryCustomCount = 10
     o.latestLotteryResult = nil
@@ -1191,8 +1204,9 @@ function GodSystemWindow:setupLayoutMetrics()
     self.navItemGap = self:S(win.navItemGap or 8)
     self.navToolH = self:S(win.navToolHeight or 30)
     self.navPageButtonH = self:S(28)
+    self.navBottomInset = self:S(8)
     self.navViewportY = self.navY + self.navPageButtonH + self.navItemGap
-    self.navViewportH = math.max(self.navItemH, self.navH - (self.navPageButtonH * 2) - (self.navItemGap * 2))
+    self.navViewportH = math.max(self.navItemH, self.navH - (self.navPageButtonH * 2) - (self.navItemGap * 2) - self.navBottomInset)
     self.contentX = self:S(content.x or 236)
     self.contentY = self:S(content.y or 100)
     self.contentW = self:S(content.w or 980)
@@ -1221,7 +1235,16 @@ function GodSystemWindow:getNavPageLayout()
     local count = math.max(0, math.floor(tonumber(self.navNormalCount) or 0))
     local itemH = self.navItemH or self:S(56)
     local gap = self.navItemGap or self:S(8)
-    local viewportH = math.max(itemH, self.navViewportH or self.navH or itemH)
+    local fullViewportH = math.max(itemH, (self.navH or itemH) - (gap * 2))
+    local fullCapacity = math.max(1, math.floor((fullViewportH + gap) / math.max(1, itemH + gap)))
+    if count <= fullCapacity then
+        return math.max(1, count), 1
+    end
+    local viewportH = math.max(itemH,
+        (self.navH or itemH)
+        - ((self.navPageButtonH or self:S(28)) * 2)
+        - (gap * 2)
+        - (self.navBottomInset or self:S(8)))
     local capacity = math.max(1, math.floor((viewportH + gap) / math.max(1, itemH + gap)))
     local pageCount = math.max(1, math.ceil(count / capacity))
     local perPage = math.max(1, math.ceil(count / pageCount))
@@ -1441,24 +1464,30 @@ function GodSystemWindow:applyStaticLayout()
     if self.pageTitleLabel then
         gsSetBounds(self.pageTitleLabel, self.contentX + self:S(16), self.contentY + self:S(10), nil, nil)
     end
+    local pageCount = self:getNavPageCount()
+    local pageButtonH = self.navPageButtonH or self:S(28)
+    local navGap = self.navItemGap or self:S(8)
+    local navViewportY
+    if pageCount <= 1 then
+        navViewportY = self.navY + navGap
+    else
+        navViewportY = self.navY + pageButtonH + navGap
+    end
+    self.navViewportY = navViewportY
     if self.navPageUpButton then
-        gsSetBounds(self.navPageUpButton, self.navX + self:S(10), self.navY, self.navW - self:S(20), self.navPageButtonH or self:S(28))
+        gsSetBounds(self.navPageUpButton, self.navX + self:S(10), self.navY, self.navW - self:S(20), pageButtonH)
         gsSetButtonTitle(self.navPageUpButton, gsTruncateText(GodSystem.text("Nav_PageUp", "Page up"), UIFont.Small, self.navW - self:S(30)))
     end
     if self.navPageDownButton then
-        gsSetBounds(self.navPageDownButton, self.navX + self:S(10), self.navY + self.navH - (self.navPageButtonH or self:S(28)), self.navW - self:S(20), self.navPageButtonH or self:S(28))
+        gsSetBounds(self.navPageDownButton, self.navX + self:S(10),
+            self.navY + self.navH - pageButtonH - (self.navBottomInset or self:S(8)),
+            self.navW - self:S(20), pageButtonH)
         gsSetButtonTitle(self.navPageDownButton, gsTruncateText(GodSystem.text("Nav_PageDown", "Page down"), UIFont.Small, self.navW - self:S(30)))
     end
     if self.modeButtons then
         local page = self:clampNavPage()
         local perPage = self:getNavItemsPerPage()
         local first = ((page - 1) * perPage) + 1
-        local last = math.min(math.floor(tonumber(self.navNormalCount) or 0), first + perPage - 1)
-        local pageItemCount = math.max(0, last - first + 1)
-        local itemH = self.navItemH or self:S(56)
-        local viewportH = self.navViewportH or self.navH or itemH
-        local availableGap = math.max(0, viewportH - (pageItemCount * itemH))
-        local distributedGap = pageItemCount > 0 and math.floor(availableGap / (pageItemCount + 1)) or 0
         for _, button in pairs(self.modeButtons) do
             local index = button.navIndex or 1
             local isTool = button.navTool == true
@@ -1475,8 +1504,7 @@ function GodSystemWindow:applyStaticLayout()
                 local normalIndex = button.navNormalIndex or index
                 local displayIndex = normalIndex - first + 1
                 local y = (self.navViewportY or self.navY)
-                    + (math.max(1, displayIndex) * math.max(gap, distributedGap))
-                    + ((math.max(1, displayIndex) - 1) * buttonH)
+                    + ((math.max(1, displayIndex) - 1) * (buttonH + gap))
                 gsSetBounds(button, self.navX + self:S(10), y, self.navW - self:S(20), buttonH)
             end
             if button.setTitle then
@@ -2044,16 +2072,29 @@ function GodSystemWindow:captureScrollState()
 end
 
 function GodSystemWindow:restoreScrollState()
-    if self.restoreScrollMode ~= self.mode then return end
+    local pending = self.pendingRestoreMode == self.mode and self.pendingRestoreScroll or nil
+    local restoreMode = pending and pending.mode or self.restoreScrollMode
+    local restoreCategory = pending and pending.category or self.restoreScrollCategory
+    local restoreShopSearch = pending and pending.shopSearch or self.restoreScrollShopSearch
+    local restoreRecycleSearch = pending and pending.recycleSearch or self.restoreScrollRecycleSearch
+    local restoreY = pending and pending.y or self.restoreScrollY
+    if restoreMode ~= self.mode then return end
     if self.mode == "shop" then
-        if self.restoreScrollCategory ~= self.shopCategoryKey then return end
-        if self.restoreScrollShopSearch ~= self.shopSearchText then return end
+        if restoreCategory ~= self.shopCategoryKey then return end
+        if restoreShopSearch ~= self.shopSearchText then return end
     elseif self.mode == "recycle" then
-        if self.restoreScrollRecycleSearch ~= self.recycleSearchText then return end
+        if restoreRecycleSearch ~= self.recycleSearchText then return end
     end
-    if self.list and self.list.setYScroll and self.restoreScrollY then
-        self.list:setYScroll(self.restoreScrollY)
+    if self.list and self.list.setYScroll and restoreY then
+        self.list:setYScroll(restoreY)
     end
+end
+
+function GodSystemWindow:clearPendingActionSelection()
+    self.pendingRestoreSelectedId = nil
+    self.pendingRestoreSelectedTaskList = nil
+    self.pendingRestoreMode = nil
+    self.pendingRestoreScroll = nil
 end
 
 function GodSystemWindow:resetScrollingListState(list)
@@ -2247,21 +2288,36 @@ function GodSystemWindow:getPayloadId(payload)
 end
 
 function GodSystemWindow:captureSelection()
+    if self.pendingRestoreSelectedId and self.pendingRestoreMode == self.mode then
+        return
+    end
     local payload = self:getSelectedPayload()
     self.restoreSelectedId = self:getPayloadId(payload)
     self.restoreSelectedTaskList = self.selectedTaskList
 end
 
 function GodSystemWindow:prepareActionSelection(payload)
-    self.restoreSelectedId = self:getPayloadId(payload or self:getSelectedPayload())
+    local selectedId = self:getPayloadId(payload or self:getSelectedPayload())
+    if not selectedId or selectedId == "" then return end
+    self.pendingRestoreSelectedId = selectedId
+    self.pendingRestoreSelectedTaskList = self.selectedTaskList
+    self.pendingRestoreMode = self.mode
+    self.restoreSelectedId = selectedId
     self.restoreSelectedTaskList = self.selectedTaskList
     self:captureScrollState()
+    self.pendingRestoreScroll = {
+        mode = self.restoreScrollMode,
+        category = self.restoreScrollCategory,
+        shopSearch = self.restoreScrollShopSearch,
+        recycleSearch = self.restoreScrollRecycleSearch,
+        y = self.restoreScrollY,
+    }
 end
 
 function GodSystemWindow:restoreSelection()
-    local selectedId = self.restoreSelectedId
+    local selectedId = self.pendingRestoreMode == self.mode and self.pendingRestoreSelectedId or self.restoreSelectedId
     if not selectedId or selectedId == "" then
-        return
+        return false
     end
     local function selectInList(list)
         if not list or not list.items then
@@ -2283,17 +2339,19 @@ function GodSystemWindow:restoreSelection()
     end
     if self.mode == "tasks" and self.restoreSelectedTaskList == "active" and selectInList(self.activeList) then
         self:clearOppositeTaskSelection("active")
-        return
+        return true
     end
     if selectInList(self.list) then
         if self.mode == "tasks" then
             self:clearOppositeTaskSelection("open")
         end
-        return
+        return true
     end
     if self.mode == "tasks" and selectInList(self.activeList) then
         self:clearOppositeTaskSelection("active")
+        return true
     end
+    return false
 end
 
 function GodSystemWindow:addSyncPlaceholder(detail)
@@ -3861,8 +3919,11 @@ function GodSystemWindow:populateList()
     else
         self:setStandardActionBar()
     end
-    self:restoreSelection()
+    local selectionRestored = self:restoreSelection()
     self:restoreScrollState()
+    if selectionRestored and self.pendingRestoreMode == self.mode then
+        self:clearPendingActionSelection()
+    end
     self:updateDetail()
     self:consumeLotteryResult()
 end
@@ -4443,6 +4504,7 @@ function GodSystemWindow:showAttributeAmountDialog(payload)
         GodSystem.notify(GodSystem.text(row and "Notify_AttributeMaxed" or "Notify_AttributeSelect", row and "This skill is already maxed" or "Select a skill first"))
         return
     end
+    self:prepareActionSelection(payload)
     local title = GodSystem.text("Attribute_BuyXP", "Buy XP")
     local message = GodSystem.text("Attribute_AmountPrompt", "Enter the amount of currency to spend")
     local w, h = 380, 150
@@ -4467,6 +4529,7 @@ function GodSystemWindow:showAttributeNextLevelConfirm(payload)
         GodSystem.notify(GodSystem.text(row and "Notify_AttributeMaxed" or "Notify_AttributeSelect", row and "This skill is already maxed" or "Select a skill first"))
         return
     end
+    self:prepareActionSelection(payload)
     local currentLevel = math.max(0, math.floor(tonumber(row.currentLevel) or 0))
     local quote = GodSystem.getAttributeQuote(row.index, "targetLevel", currentLevel + 1)
     if not quote or (tonumber(quote.actualXp) or 0) <= 0 then
@@ -4493,9 +4556,13 @@ function GodSystemWindow:showAttributeNextLevelConfirm(payload)
 end
 
 function GodSystemWindow:onAttributeNextLevelConfirm(button, payload)
-    if not button or button.internal ~= "YES" or not payload then return end
+    if not button or button.internal ~= "YES" or not payload then
+        self:clearPendingActionSelection()
+        return
+    end
     local sent = GodSystem.performAttributePurchase(payload.perkIndex, "targetLevel", payload.targetLevel)
     self:finishMultiplayerCommand(sent)
+    if sent == false then self:clearPendingActionSelection() end
 end
 
 function GodSystemWindow:showAdminSettingDialog(payload)
@@ -4672,7 +4739,12 @@ function GodSystemWindow:onPrimaryAction()
             GodSystem.notify(GodSystem.text("Notify_CompanionSelectAbility", "Select a companion ability"))
             return
         end
-        if GodSystem.purchaseCompanionNode(payload.id) then self:populateList() end
+        self:prepareActionSelection(payload)
+        if GodSystem.purchaseCompanionNode(payload.id) then
+            self:populateList()
+        else
+            self:clearPendingActionSelection()
+        end
         return
     end
     if self.mode == "admin" then

@@ -80,7 +80,14 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 
 - Vanilla `ISVehicleMechanics` sends the server `vehicle/repair` command, and `VehicleCommands` resolves the vehicle before calling `vehicle:repair()`. Use `getVehicleById()` on the server for MOD requests and validate item ownership, distance, floor, and vehicle state first.
 - The vanilla command is admin/cheat oriented. A paid repair consumable should keep its own server-authoritative business checks and call `vehicle:repair()` only after those checks; never trust a client-side repair result.
+- If SP direct client repair is ineffective, load a guarded SP server bridge and reuse the same consumable command. Consume before repair, refund on verified failure, and return the same structured result shape used by MP.
+- After `vehicle:repair()`, refresh part/bullet statistics and transmit part condition, item, and ModData when available. Re-read the damage summary before success; a successful Java call is not by itself proof that a custom vehicle accepted the repair.
 - Treat `vehicle:repair()` as `BaseVehicle` compatibility. Do not promise support for MOD vehicles that replace the standard part or repair system.
+
+## B42.19 Wearable Containers
+
+- A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`; a missing script `BodyLocation` yields a null runtime location even when the registry and `CanBeEquipped` exist.
+- Static agreement across those declarations does not replace a live wear test. If the target patch still rejects the custom location, switch the unpublished item to a verified vanilla slot and remove the custom registry rather than preserving compatibility for a build that was never released.
 
 ## Sandbox Defaults
 
@@ -106,6 +113,7 @@ Recommended trust split:
 - Page population functions should be pure display work. Avoid server requests inside drawing/populate functions except an initial "state missing" bootstrap.
 - UI drawing and resize paths must not call recursive inventory scans, price table rebuilds, or server syncs. If a player carries thousands of stack items, these paths run on the main thread and can make clicks, page switches, and unrelated actions feel delayed.
 - Capture selection before list rebuild and restore by stable IDs.
+- Before an action that waits for server state, keep a separate one-shot pending ID and scroll snapshot. Sync placeholders and empty transient lists must not replace it with `nil`; clear it only after the real row is found again.
 - Do not assume `ISScrollingListBox:clear()` resets scroll state in B42. When reusing list boxes across pages, also reset `setYScroll(0)`, `setScrollHeight(0)`, `smoothScrollTargetY`, and `smoothScrollY`; otherwise rows can exist and remain selectable while rendering outside the visible area.
 - When changing a reused `ISScrollingListBox` width or height, also update its child `vscroll` geometry. B42 initializes `vscroll.x = parent.width - 16` and `vscroll.height = parent.height` once, and `setWidth/setHeight` on the parent does not reattach the scrollbar. `ISScrollingListBox:prerender()` uses `self.vscroll.x + 3` as the stencil width when the scrollbar is visible, so stale scrollbar geometry can make long lists render black/empty while short filtered lists still display. For heavily reused custom UI list boxes, install a local safe `prerender` wrapper that resyncs scrollbar geometry immediately before and after vanilla `ISScrollingListBox.prerender()`, and apply it to every list instance, not only the page where the bug was first seen.
 - For custom `ISScrollingListBox` row rendering, store display text in the row payload as a fallback such as `displayText`; do not rely only on the wrapper's `item.text`.

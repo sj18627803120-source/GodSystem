@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.54"
+GodSystemConfig.Version = "1.16.55"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -354,8 +354,8 @@ GodSystemConfig.AutoShopBlacklist = {
 GodSystemConfig.FloatingButton = {
     x = 40,
     y = 220,
-    width = 108,
-    height = 36,
+    width = 48,
+    height = 48,
 }
 
 GodSystemConfig.RecycleBlacklist = {

@@ -1,19 +1,20 @@
-# 神级系统 v1.16.54 Workshop 上传包说明
+# 神级系统 v1.16.55 Workshop 上传包说明
 
 上传时选择本目录，也就是包含 `workshop.txt`、`preview.png`、`Contents` 的这一层。
 
 正确结构：
 
 ```text
-GodSystemWorkshopUpload_v1.16.54\workshop.txt
-GodSystemWorkshopUpload_v1.16.54\preview.png
-GodSystemWorkshopUpload_v1.16.54\Contents\mods\GodSystem\mod.info
-GodSystemWorkshopUpload_v1.16.54\Contents\mods\GodSystem\42\mod.info
-GodSystemWorkshopUpload_v1.16.54\Contents\mods\GodSystem\42\media\...
+GodSystemWorkshopUpload_v1.16.55\workshop.txt
+GodSystemWorkshopUpload_v1.16.55\preview.png
+GodSystemWorkshopUpload_v1.16.55\Contents\mods\GodSystem\mod.info
+GodSystemWorkshopUpload_v1.16.55\Contents\mods\GodSystem\42\mod.info
+GodSystemWorkshopUpload_v1.16.55\Contents\mods\GodSystem\42\media\...
 ```
 
 ## 本次更新
 
+- v1.16.55：系统空间终端改用原版项链槽；左侧导航改为自适应紧凑分页；悬浮入口改为黑金图标；同伴降低移动速度、增加停顿并允许在不可见区域继续活动，同时扩大灵视范围、缩短守护冷却；同伴和属性升级后保留选中项；车辆修复模块价格修正为5000，并统一走服务端修复流程。
 - v1.16.54：修复系统空间终端独立穿戴位置，终端最高 Lv.8、容量49；统一终端页面、商城与快捷操作名称；属性页增加“升到下一级”确认；分类和说明行不再可选；左侧导航均衡分页；守护与过载爆裂增加可见特效。保留 v1.16.53 的属性经验、车辆修复模块和同伴攻击特效。
 - v1.16.48：新增原生沙盒默认配置；修复多人理财在线进度不增长；快捷栏拆分腰包回收和腰包回收并上架；隐藏旧回收页，并在原版库存右键菜单提供精确实例的回收、回收并上架和仅上架。
 - v1.16.52：浮游机器人改为直接绘制的蓝色双层菱形，使用红色方向传感器和青色双帧推进器；移除 16 张 PNG 与不兼容的 `SpriteRenderer.render(Texture,...)` 调用，统一复用 B42.19 已验证的 `renderline()`。保留蓝白照明、红色长光束、灵视和守护能力。

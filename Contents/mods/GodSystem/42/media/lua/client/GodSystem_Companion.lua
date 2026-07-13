@@ -22,6 +22,8 @@ Companion.runtime = {
     animationElapsed = 0,
     bobPhase = 0,
     nextOrbitRetargetMs = 0,
+    idleUntilMs = 0,
+    combatUntilMs = 0,
     light = nil,
     lightCell = nil,
     lightX = nil,
@@ -156,6 +158,7 @@ local function resetRobotNear(player)
     runtime.robotZ = player:getZ()
     runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
     runtime.nextOrbitRetargetMs = 0
+    runtime.idleUntilMs = 0
     runtime.direction = "SE"
 end
 
@@ -172,7 +175,14 @@ local function pointVisibleToPlayer(square, player)
     return false
 end
 
-local function validRobotPoint(player, x, y, z)
+local function robotPointVisible(player, x, y, z)
+    if not player then return false end
+    local cell = getCell and getCell() or nil
+    local square = cell and cell:getGridSquare(math.floor(x), math.floor(y), math.floor((tonumber(z) or 0) + 0.1)) or nil
+    return square ~= nil and pointVisibleToPlayer(square, player)
+end
+
+local function validRobotPoint(player, x, y, z, requireVisible)
     if not player or math.floor((tonumber(z) or -99) + 0.1) ~= math.floor(player:getZ() + 0.1) then return false end
     local cell = getCell and getCell() or nil
     if not cell then return false end
@@ -181,7 +191,7 @@ local function validRobotPoint(player, x, y, z)
     if square.isSolid and square:isSolid() then return false end
     if square.isSolidTrans and square:isSolidTrans() then return false end
     if square.TreatAsSolidFloor and not square:TreatAsSolidFloor() then return false end
-    return pointVisibleToPlayer(square, player)
+    return requireVisible ~= true or pointVisibleToPlayer(square, player)
 end
 
 local function directionFromVector(dx, dy)
@@ -209,13 +219,10 @@ end
 local function setRobotTarget(x, y, z, now)
     local runtime = Companion.runtime
     runtime.targetX, runtime.targetY, runtime.targetZ = x, y, z
-    runtime.nextOrbitRetargetMs = now + randomBetween(
-        Config.RobotOrbitRetargetMinSeconds,
-        Config.RobotOrbitRetargetMaxSeconds
-    ) * 1000
+    runtime.nextOrbitRetargetMs = now
 end
 
-local function chooseRobotOrbitTarget(player, data, now)
+local function chooseRobotOrbitTargetPass(player, data, now, requireVisible)
     local baseX, baseY, baseZ = player:getX(), player:getY(), player:getZ()
     local minimum, maximum
     if data.followMode == "guard" and data.guardPoint then
@@ -230,12 +237,24 @@ local function chooseRobotOrbitTarget(player, data, now)
         local radius = randomBetween(minimum, maximum)
         local x = baseX + math.cos(angle) * radius
         local y = baseY + math.sin(angle) * radius
-        if validRobotPoint(player, x, y, baseZ) then
+        if validRobotPoint(player, x, y, baseZ, requireVisible) then
             setRobotTarget(x, y, baseZ, now)
             return true
         end
     end
-    if validRobotPoint(player, baseX, baseY, baseZ) then
+    return false
+end
+
+local function chooseRobotOrbitTarget(player, data, now)
+    if chooseRobotOrbitTargetPass(player, data, now, true) then return true end
+    if chooseRobotOrbitTargetPass(player, data, now, false) then return true end
+    local baseX, baseY, baseZ = player:getX(), player:getY(), player:getZ()
+    if data.followMode == "guard" and data.guardPoint then
+        baseX = tonumber(data.guardPoint.x) or baseX
+        baseY = tonumber(data.guardPoint.y) or baseY
+        baseZ = tonumber(data.guardPoint.z) or baseZ
+    end
+    if validRobotPoint(player, baseX, baseY, baseZ, false) then
         setRobotTarget(baseX, baseY, baseZ, now)
         return true
     end
@@ -268,18 +287,21 @@ local function updateRobotPosition(player, data, delta, now)
     local playerDistance = math.sqrt(distanceSquared(runtime.robotX, runtime.robotY, player:getX(), player:getY()))
     local catchup = data.followMode ~= "guard" and playerDistance > band.maximum + Config.RobotCatchupMargin
     if catchup then
+        runtime.idleUntilMs = 0
         local offsetX = runtime.robotX - player:getX()
         local offsetY = runtime.robotY - player:getY()
         local offsetLength = math.max(0.001, math.sqrt(offsetX * offsetX + offsetY * offsetY))
         local trailingDistance = math.max(1, band.minimum)
         local x = player:getX() + offsetX / offsetLength * trailingDistance
         local y = player:getY() + offsetY / offsetLength * trailingDistance
-        if validRobotPoint(player, x, y, player:getZ()) then
+        if validRobotPoint(player, x, y, player:getZ(), false) then
             runtime.targetX, runtime.targetY, runtime.targetZ = x, y, player:getZ()
         else
             runtime.targetX, runtime.targetY, runtime.targetZ = player:getX(), player:getY(), player:getZ()
         end
-    elseif not runtime.targetX or now >= (runtime.nextOrbitRetargetMs or 0) then
+    elseif now < (runtime.idleUntilMs or 0) then
+        return
+    elseif not runtime.targetX and now >= (runtime.nextOrbitRetargetMs or 0) then
         chooseRobotOrbitTarget(player, data, now)
     end
 
@@ -288,14 +310,22 @@ local function updateRobotPosition(player, data, delta, now)
     local dx, dy = tx - runtime.robotX, ty - runtime.robotY
     local distance = math.sqrt(dx * dx + dy * dy)
     if distance <= 0.05 then
-        if not catchup then chooseRobotOrbitTarget(player, data, now) end
+        runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
+        if not catchup then
+            if now < (runtime.combatUntilMs or 0) then
+                chooseRobotOrbitTarget(player, data, now)
+            else
+                runtime.idleUntilMs = now + randomBetween(Config.RobotIdleMinSeconds, Config.RobotIdleMaxSeconds) * 1000
+            end
+        end
         return
     end
     local speed = catchup and Config.RobotCatchupSpeed or Config.RobotNormalSpeed
     local step = math.min(distance, math.max(0.01, delta * speed))
     local nx = runtime.robotX + dx / distance * step
     local ny = runtime.robotY + dy / distance * step
-    if not validRobotPoint(player, nx, ny, tz) then
+    if not validRobotPoint(player, nx, ny, tz, false) then
+        runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
         chooseRobotOrbitTarget(player, data, now)
         return
     end
@@ -601,6 +631,8 @@ local function fireAttack(player, data)
     if not runtime.robotX then resetRobotNear(player) end
     runtime.attackDirection = directionFromVector(target:getX() - runtime.robotX, target:getY() - runtime.robotY)
     runtime.attackFacingUntilMs = now + Config.ProjectileTravelSeconds * 1000
+    runtime.combatUntilMs = now + Config.RobotCombatGraceSeconds * 1000
+    runtime.idleUntilMs = 0
     runtime.projectiles[#runtime.projectiles + 1] = {
         target = target,
         startX = runtime.robotX,
@@ -631,6 +663,8 @@ local function triggerGuardian(player, data)
     end
     if knocked > 0 then
         data.cooldowns.guardian = Config.getStatValue(data, "guardianCooldown") or 180
+        Companion.runtime.combatUntilMs = nowMs() + Config.RobotCombatGraceSeconds * 1000
+        Companion.runtime.idleUntilMs = 0
         queueEffectVisual("guardian", player, nil, 450)
         notify("Notify_CompanionGuardianTriggered", "Guardian triggered")
         saveSoon(true)
@@ -1029,9 +1063,10 @@ local function renderProjectile(renderer, texture, entry)
         RED_BEAM_CORE_R, RED_BEAM_CORE_G, RED_BEAM_CORE_B, 0.98)
 end
 
-local function renderRobot(renderer, texture, data)
+local function renderRobot(renderer, texture, data, player)
     local runtime = Companion.runtime
     if not data.visible or not runtime.robotX then return end
+    if not robotPointVisible(player, runtime.robotX, runtime.robotY, runtime.robotZ) then return end
     local direction = nowMs() < (runtime.attackFacingUntilMs or 0)
         and runtime.attackDirection or runtime.direction or "SE"
     local sx, sy, zoom = screenPoint(runtime.robotX, runtime.robotY, runtime.robotZ)
@@ -1089,7 +1124,7 @@ local function renderCompanionEffects()
     local renderer = getRenderer and getRenderer() or nil
     local lineTexture = getTexture and getTexture("media/textures/mask_white.png") or nil
     if not renderer or not lineTexture then return end
-    renderRobot(renderer, lineTexture, data)
+    renderRobot(renderer, lineTexture, data, player)
     for i = 1, #Companion.runtime.sightTargets do
         local zombie = Companion.runtime.sightTargets[i].zombie
         if validZombie(zombie, player) then renderCornerBox(renderer, lineTexture, zombie) end

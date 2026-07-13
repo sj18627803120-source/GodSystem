@@ -1,10 +1,13 @@
 require "GodSystem_Core"
 require "GodSystem_Maintenance"
+require "GodSystem_Protocol"
 require "ISUI/ISModalDialog"
 
 GodSystemMaintenanceContext = GodSystemMaintenanceContext or {}
 
 local Context = GodSystemMaintenanceContext
+local Protocol = GodSystemProtocol or {}
+local MODULE = Protocol.Module or "GodSystem"
 
 local function text(key, fallback)
     if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
@@ -123,53 +126,39 @@ local function removeConsumable(player, consumable)
 end
 
 function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
-    if isClient and isClient() then
-        notifyCode("MaintenanceFailed")
-        return false
-    end
     local player = getPlayer and getPlayer() or nil
     if action == "repairVehicle" then
         local vehicleId = math.floor(tonumber(targetItemId) or -1)
-        local vehicle = vehicleId >= 0 and getVehicleById and getVehicleById(vehicleId) or nil
-        if not player or not vehicle then
+        local consumableItemId = GodSystemMaintenance.itemId(consumable)
+        if not player or vehicleId < 0 then
             notifyCode("VehicleRepairInvalid")
             return false
         end
-        if not consumable or not containsItem(player:getInventory(), consumable) or consumable:getFullType() ~= GodSystemMaintenance.VehicleRepairItemType then
+        if not consumableItemId or not consumable or not containsItem(player:getInventory(), consumable)
+            or consumable:getFullType() ~= GodSystemMaintenance.VehicleRepairItemType then
             notifyCode("MaintenanceConsumableMissing")
             return false
         end
-        if player:getVehicle() ~= vehicle then
-            if math.floor(tonumber(player:getZ()) or 0) ~= math.floor(tonumber(vehicle:getZ()) or 0) then
-                notifyCode("VehicleRepairWrongFloor")
-                return false
+        local args = {
+            action = action,
+            consumableItemId = consumableItemId,
+            vehicleId = vehicleId,
+        }
+        local command = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
+        if isClient and isClient() then
+            if sendClientCommand then
+                sendClientCommand(player, MODULE, command, args)
+                return true
             end
-            local dx = (tonumber(player:getX()) or 0) - (tonumber(vehicle:getX()) or 0)
-            local dy = (tonumber(player:getY()) or 0) - (tonumber(vehicle:getY()) or 0)
-            if (dx * dx + dy * dy) > 16 then
-                notifyCode("VehicleRepairTooFar")
-                return false
-            end
-        end
-        local before = GodSystemMaintenance.vehicleDamageSummary(vehicle)
-        if before.damaged <= 0 then
-            notifyCode("VehicleAlreadyFull")
-            return false
-        end
-        if not removeConsumable(player, consumable) then
             notifyCode("MaintenanceFailed")
             return false
         end
-        local repaired = pcall(function() vehicle:repair() end)
-        local after = GodSystemMaintenance.vehicleDamageSummary(vehicle)
-        if not repaired or after.damaged > 0 then
-            local replacement = player:getInventory():AddItem(GodSystemMaintenance.VehicleRepairItemType)
-            if replacement and triggerEvent then pcall(triggerEvent, "OnContainerUpdate") end
-            notifyCode(replacement and "VehicleRepairFailedRefunded" or "VehicleRepairFailed")
-            return false
+        if triggerEvent then
+            local dispatched = pcall(triggerEvent, "OnClientCommand", MODULE, command, player, args)
+            if dispatched then return true end
         end
-        notifyCode("VehicleRepaired", { before.damaged, before.missing })
-        return true
+        notifyCode("MaintenanceFailed")
+        return false
     end
     local target = player and player:getPrimaryHandItem() or nil
     if not target then
@@ -202,6 +191,14 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
     end
     notifyCode(code, { displayName(target), numberText(result.after.condition), numberText(result.after.conditionMax) })
     return true
+end
+
+function Context.onServerCommand(module, command, args)
+    if (isClient and isClient()) or (isServer and isServer()) then return end
+    if module ~= MODULE or command ~= ((Protocol.S2C and Protocol.S2C.Result) or "result") then return end
+    local payload = args and args.payload or nil
+    if not payload or payload.kind ~= "maintenanceItem" or payload.action ~= "repairVehicle" then return end
+    notifyCode(args.code or (args.ok == true and "VehicleRepaired" or "VehicleRepairFailed"), args.args or {})
 end
 
 function Context:onConfirm(button, payload)
@@ -257,3 +254,7 @@ function Context.fillInventoryMenu(playerNum, context, items)
 end
 
 Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)
+if Events.OnServerCommand then
+    Events.OnServerCommand.Remove(Context.onServerCommand)
+    Events.OnServerCommand.Add(Context.onServerCommand)
+end

@@ -5,6 +5,7 @@ GodSystemConfig.PriceTableVersion = "B42.19-generated-2026-06-14"
 GodSystemConfig.VanillaItemBuyPrices = {
     ["GodSystem.SystemRepairKit"] = 300,
     ["GodSystem.DurabilityCore"] = 1200,
+    ["GodSystem.SystemVehicleRepairModule"] = 5000,
     ["Base.3030Box"] = 80,
     ["Base.3030Bullets"] = 5,
     ["Base.3030Carton"] = 320,

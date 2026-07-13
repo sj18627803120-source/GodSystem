@@ -19,6 +19,7 @@ $AdminConfigPath = Join-Path $Lua 'shared\GodSystem_AdminConfig.lua'
 $AttributesPath = Join-Path $Lua 'shared\GodSystem_Attributes.lua'
 $ProtocolPath = Join-Path $Lua 'shared\GodSystem_Protocol.lua'
 $CompanionConfigPath = Join-Path $Lua 'shared\GodSystem_CompanionConfig.lua'
+$MaintenancePath = Join-Path $Lua 'shared\GodSystem_Maintenance.lua'
 $CorePath = Join-Path $Lua 'client\GodSystem_Core.lua'
 $UiPath = Join-Path $Lua 'client\GodSystem_UI.lua'
 $CompanionPath = Join-Path $Lua 'client\GodSystem_Companion.lua'
@@ -48,6 +49,7 @@ $admin = Read-Utf8 $AdminConfigPath
 $attributes = Read-Utf8 $AttributesPath
 $protocol = Read-Utf8 $ProtocolPath
 $companionConfig = Read-Utf8 $CompanionConfigPath
+$maintenance = Read-Utf8 $MaintenancePath
 $core = Read-Utf8 $CorePath
 $ui = Read-Utf8 $UiPath
 $companion = Read-Utf8 $CompanionPath
@@ -79,15 +81,19 @@ Require-Text $generator 'Expected 68 admin settings' 'Localization generator mus
 Require-Text $config 'AutoRecyclerFullType\s*=\s*"GodSystem\.SystemSpaceTerminal"' 'Primary system container must be SystemSpaceTerminal'
 Require-Text $config '\["GodSystem\.SystemSpaceTerminal"\]\s*=\s*true' 'SystemSpaceTerminal alias missing'
 Require-Text $items 'item\s+SystemSpaceTerminal\b' 'SystemSpaceTerminal item definition missing'
-Require-Text $items 'CanBeEquipped\s*=\s*GodSystem:GodSystemTerminal' 'System terminal body location missing'
-Require-Text (Read-Utf8 (Join-Path $Media 'registries.lua')) 'ItemBodyLocation\.register\("GodSystem:GodSystemTerminal"\)' 'System terminal registry entry missing'
 if (-not $SkipLegacyTerminalChecks) {
+    Require-Text $items 'CanBeEquipped\s*=\s*GodSystem:GodSystemTerminal' 'System terminal body location missing'
+    Require-Text (Read-Utf8 (Join-Path $Media 'registries.lua')) 'ItemBodyLocation\.register\("GodSystem:GodSystemTerminal"\)' 'System terminal registry entry missing'
     Require-Text $config 'level\s*=\s*9[^\r\n]*capacity\s*=\s*60[^\r\n]*upgradeCost\s*=\s*1500' 'Level 9 terminal values missing'
     Require-Text $config 'level\s*=\s*10[^\r\n]*capacity\s*=\s*75[^\r\n]*upgradeCost\s*=\s*2100' 'Level 10 terminal values missing'
     Require-Text $config 'level\s*=\s*11[^\r\n]*capacity\s*=\s*90[^\r\n]*upgradeCost\s*=\s*3000' 'Level 11 terminal values missing'
     Require-Text $config 'level\s*=\s*12[^\r\n]*capacity\s*=\s*100[^\r\n]*upgradeCost\s*=\s*4500' 'Level 12 terminal values missing'
     Require-Text $core 'migrateSystemSpaceTerminal' 'SP terminal migration entry missing'
     Require-Text $server 'migrateSystemSpaceTerminal' 'MP terminal migration entry missing'
+}
+else {
+    Require-Text $items 'CanBeEquipped\s*=\s*base:necklace' 'Current system terminal must use the vanilla necklace slot'
+    if (Test-Path -LiteralPath (Join-Path $Media 'registries.lua')) { throw 'Legacy terminal registry must be absent when legacy checks are skipped' }
 }
 Require-Text $core 'function\s+GodSystem\.removeCurrency[\s\S]*GodSystem\.removeCurrencyItem\(' 'SP currency removal must verify each exact item removal'
 Require-Text $server 'local function removeCurrency[\s\S]*if\s+not\s+removeItemFromContainer\(' 'MP currency removal must verify each exact item removal'
@@ -157,7 +163,13 @@ Require-Text $config 'SystemVehicleRepairModule' 'Vehicle repair module shop ent
 Require-Text $config 'price\s*=\s*5000' 'Vehicle repair module default price must be 5000'
 Require-Text $server 'action\s*==\s*"repairVehicle"' 'Server vehicle repair action missing'
 Require-Text $server 'getVehicleById\s*\(' 'Server vehicle lookup by ID missing'
-Require-Text $server ':repair\s*\(' 'Server vehicle repair call missing'
+if ($SkipLegacyTerminalChecks) {
+    Require-Text $server 'GodSystemMaintenance\.repairVehicle\s*\(' 'Server shared vehicle repair call missing'
+    Require-Text $maintenance 'call\(vehicle,\s*"repair"\)' 'Shared vehicle repair helper must call the BaseVehicle repair method'
+}
+else {
+    Require-Text $server ':repair\s*\(' 'Server vehicle repair call missing'
+}
 Require-Text $server 'VehicleRepairTooFar|VehicleRepairWrongFloor' 'Server vehicle range validation missing'
 Require-Text $server 'giveItem\([^\r\n]*SystemVehicleRepairModule|giveItem\([^\r\n]*expectedType' 'Vehicle repair failure must refund a module'
 $vehicleContextFiles = @(Get-ChildItem -LiteralPath (Join-Path $Lua 'client') -Filter '*Vehicle*Context*.lua' -File)

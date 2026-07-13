@@ -56,6 +56,43 @@ local function call(object, methodName, ...)
     end)
 end
 
+local function syncVehiclePart(vehicle, part)
+    if not vehicle or not part then return end
+    local okItem, item = call(part, "getInventoryItem")
+    if okItem and item then call(item, "syncItemFields") end
+    call(vehicle, "transmitPartCondition", part)
+    call(vehicle, "transmitPartItem", part)
+    call(vehicle, "transmitPartModData", part)
+end
+
+function GodSystemMaintenance.repairVehicle(vehicle)
+    local before = GodSystemMaintenance.vehicleDamageSummary(vehicle)
+    if not vehicle then return false, "VehicleRepairInvalid", before, before end
+    if before.damaged <= 0 then return false, "VehicleAlreadyFull", before, before end
+
+    local repaired, repairError = call(vehicle, "repair")
+    if not repaired then
+        return false, "VehicleRepairFailed", before, GodSystemMaintenance.vehicleDamageSummary(vehicle), repairError
+    end
+
+    call(vehicle, "updatePartStats")
+    call(vehicle, "updateBulletStats")
+    call(vehicle, "updateDamageOverlay")
+
+    local okCount, count = call(vehicle, "getPartCount")
+    count = okCount and math.max(0, math.floor(tonumber(count) or 0)) or 0
+    for index = 0, count - 1 do
+        local okPart, part = call(vehicle, "getPartByIndex", index)
+        if okPart and part then syncVehiclePart(vehicle, part) end
+    end
+
+    local after = GodSystemMaintenance.vehicleDamageSummary(vehicle)
+    if after.damaged > 0 then
+        return false, "VehicleRepairFailed", before, after
+    end
+    return true, "VehicleRepaired", before, after
+end
+
 local function number(value)
     value = tonumber(value)
     if not value or value ~= value then return nil end

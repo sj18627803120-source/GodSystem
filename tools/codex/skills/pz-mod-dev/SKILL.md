@@ -105,10 +105,13 @@ For compatibility-first B42 mods:
 
 - Resolve multiplayer vehicles on the server with `getVehicleById(vehicleId)`, then validate the real consumable, floor, distance, and vehicle state before mutation.
 - B42.19's vanilla server vehicle command ultimately calls `vehicle:repair()`. A paid MOD item may call that server-side method after its own validation; do not expose a client-authoritative repair path, and do not claim compatibility with vehicles that replace `BaseVehicle` repair behavior.
+- Keep SP paid repair behind the same command boundary when direct client mutation proves ineffective. A guarded SP server Lua file can handle the existing command locally, consume/refund the real item, call the shared repair helper, and return a structured result without adding a second business path.
+- After full repair, refresh part and bullet statistics and transmit each part's condition, inventory item, and ModData where those methods exist. Verify the real post-repair damage summary before reporting success.
 
 ## B42 Wearable Containers
 
 - A custom wearable container needs the same registered namespaced location in all three places: `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`. `CanBeEquipped` alone can leave the worn-item location null and crash both context-menu tooltip checks and the wear timed action.
+- Treat those three declarations as necessary, not sufficient. If the target B42 patch still rejects the custom slot in a live wear test, use a verified vanilla body location such as `base:necklace` and remove the unpublished registry instead of layering migrations around a broken prototype.
 - B42.19 rejects `ItemContainer.setCapacity()` values above 50. Keep dynamic container capacity at 49 or below and verify the game log; wrapping the call in `pcall` does not make an over-limit assignment succeed.
 - When a custom container has a unique full type, identify it by that full type instead of retaining name-based recognition and vanilla-container aliases from an unpublished prototype.
 
@@ -116,6 +119,7 @@ For compatibility-first B42 mods:
 
 - Do not trigger server refreshes from list drawing or page population.
 - Avoid clearing selection without restoring by stable payload IDs such as `taskId`, `fullType`, or shop `id`.
+- For actions followed by an MP state round trip, store a one-shot pending stable ID and scroll position before sending. Do not let a temporary syncing/empty list overwrite that pending selection; clear it only after the rebuilt real list restores the row.
 - For long text pages such as history/info, prefer single-column wrapped text over split detail panes.
 - Hide ordinary manual refresh controls in MP when automatic/key-operation sync is enough.
 - Use local cached data for display when possible, then let key operations refresh from the server.
@@ -126,7 +130,7 @@ For compatibility-first B42 mods:
 - Prefer a render-only companion for decorative or combat-assist visuals. Keep logical world coordinates and render textures from `OnPreUIDraw`; do not create an `IsoZombie`, world item, or interactive object unless real entity behavior is an explicit requirement.
 - GodSystem v1.16.49 proved that a zombie-backed shell remains visible to vanilla and third-party zombie systems despite no-teeth, useless, target, aggro, collision, and lunge suppression. It can still cause bites, panic, stress, knockdown, and corpse-state problems. Do not reuse that architecture for a harmless companion.
 - For old saves, a one-time startup cleanup may remove legacy entities marked in ModData, but the active runtime must not retain the spawn endpoint.
-- Validate candidate visual positions on the player's current floor and visible, non-solid squares. Smooth logical movement, retarget at a low frequency, and recall after teleport, floor change, or excessive distance.
+- Validate candidate visual positions on the player's current floor, loaded squares, and non-solid geometry. Visibility may be a preference rather than a hard movement requirement: keep logical movement active off-screen, pause only body rendering while unseen, and recall only after teleport, floor change, or excessive distance.
 - Throttle attack target searches; keep large-radius sight scans manual and capped. Skip guardian scans entirely while the ability is cooling down.
 - Create `IsoLightSource` only when tile/radius/visibility changes and always retain the owning cell for `removeLamppost()` cleanup.
 - For short screen effects, use same-version `ISCoordConversion.ToScreen()`, current zoom correction, and `renderline()` from `OnPreUIDraw`.
