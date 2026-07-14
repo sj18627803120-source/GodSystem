@@ -1247,8 +1247,7 @@ function GodSystemWindow:getNavPageLayout()
         - (self.navBottomInset or self:S(8)))
     local capacity = math.max(1, math.floor((viewportH + gap) / math.max(1, itemH + gap)))
     local pageCount = math.max(1, math.ceil(count / capacity))
-    local perPage = math.max(1, math.ceil(count / pageCount))
-    return perPage, pageCount
+    return capacity, pageCount
 end
 
 function GodSystemWindow:getNavItemsPerPage()
@@ -1465,15 +1464,22 @@ function GodSystemWindow:applyStaticLayout()
         gsSetBounds(self.pageTitleLabel, self.contentX + self:S(16), self.contentY + self:S(10), nil, nil)
     end
     local pageCount = self:getNavPageCount()
+    local perPage = self:getNavItemsPerPage()
     local pageButtonH = self.navPageButtonH or self:S(28)
     local navGap = self.navItemGap or self:S(8)
     local navViewportY
     if pageCount <= 1 then
         navViewportY = self.navY + navGap
     else
+        local itemH = self.navItemH or self:S(56)
+        local availableH = (self.navH or itemH)
+            - (pageButtonH * 2)
+            - (self.navBottomInset or self:S(8))
+        navGap = math.max(navGap, (availableH - (perPage * itemH)) / (perPage + 1))
         navViewportY = self.navY + pageButtonH + navGap
     end
     self.navViewportY = navViewportY
+    self.navLayoutGap = navGap
     if self.navPageUpButton then
         gsSetBounds(self.navPageUpButton, self.navX + self:S(10), self.navY, self.navW - self:S(20), pageButtonH)
         gsSetButtonTitle(self.navPageUpButton, gsTruncateText(GodSystem.text("Nav_PageUp", "Page up"), UIFont.Small, self.navW - self:S(30)))
@@ -1486,7 +1492,6 @@ function GodSystemWindow:applyStaticLayout()
     end
     if self.modeButtons then
         local page = self:clampNavPage()
-        local perPage = self:getNavItemsPerPage()
         local first = ((page - 1) * perPage) + 1
         for _, button in pairs(self.modeButtons) do
             local index = button.navIndex or 1
@@ -1500,7 +1505,7 @@ function GodSystemWindow:applyStaticLayout()
                 gsSetBounds(button, x, self.contentY + self:S(8), toolW, buttonH)
                 button:setVisible(true)
             else
-                local gap = self.navItemGap or 8
+                local gap = self.navLayoutGap or self.navItemGap or 8
                 local normalIndex = button.navNormalIndex or index
                 local displayIndex = normalIndex - first + 1
                 local y = (self.navViewportY or self.navY)

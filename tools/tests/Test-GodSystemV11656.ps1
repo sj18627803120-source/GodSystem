@@ -58,6 +58,31 @@ foreach ($row in $rows) {
     if ($row.Length -ne 32) { throw "Pixel hull row width must be 32; found $($row.Length)" }
 }
 
+$hullSegmentCount = 0
+foreach ($row in $rows) {
+    $hullSegmentCount += [regex]::Matches($row, '([A-Z])\1*').Count
+}
+$segmentPattern = '\{\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*,\s*"[A-Z]"\s*\}'
+$coreBlock = [regex]::Match($visual, '(?s)local CORE_SEGMENTS\s*=\s*\{(?<body>.*?)\r?\n\}').Groups['body'].Value
+$coreSegmentCount = [regex]::Matches($coreBlock, $segmentPattern).Count
+$frameBlock = [regex]::Match($visual, '(?s)local FRAME_OVERLAYS\s*=\s*\{(?<body>.*?)\r?\n\}\r?\n\r?\nlocal DIRECTION_OVERLAYS').Groups['body'].Value
+$frameSegmentMaximum = 0
+foreach ($frame in [regex]::Matches($frameBlock, '(?s)\[\d+\]\s*=\s*\{(?<body>.*?)\r?\n\s*\},?')) {
+    $frameSegmentMaximum = [math]::Max($frameSegmentMaximum,
+        [regex]::Matches($frame.Groups['body'].Value, $segmentPattern).Count)
+}
+$directionBlock = [regex]::Match($visual, '(?s)local DIRECTION_OVERLAYS\s*=\s*\{(?<body>.*?)\r?\n\}\r?\n\r?\nlocal GUARDIAN_OVERLAY').Groups['body'].Value
+$directionSegmentMaximum = 0
+foreach ($direction in [regex]::Matches($directionBlock, '(?m)^\s*[A-Z]{1,2}\s*=\s*\{(?<body>.*?)\},?\s*$')) {
+    $directionSegmentMaximum = [math]::Max($directionSegmentMaximum,
+        [regex]::Matches($direction.Groups['body'].Value, $segmentPattern).Count)
+}
+$declaredSegmentBudget = [int][regex]::Match($visual, 'Visual\.MaxBodySegments\s*=\s*(?<value>\d+)').Groups['value'].Value
+$compiledSegmentCount = $hullSegmentCount + $coreSegmentCount + $frameSegmentMaximum + $directionSegmentMaximum
+if ($compiledSegmentCount -gt $declaredSegmentBudget) {
+    throw "Pixel body compiles to $compiledSegmentCount segments, exceeding budget $declaredSegmentBudget"
+}
+
 Require-Text $visual 'local particles\s*=\s*\{\}' 'Fixed particle pool storage is missing'
 Require-Text $visual 'for index\s*=\s*1,\s*Visual\.ParticleCap' 'Particle pool must be preallocated'
 Require-Text $visual 'nextParticle\s*=\s*nextParticle\s*%\s*Visual\.ParticleCap\s*\+\s*1' 'Particle pool must recycle slots'

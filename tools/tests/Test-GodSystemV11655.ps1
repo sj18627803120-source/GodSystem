@@ -53,10 +53,12 @@ if (Test-Path -LiteralPath (Join-Path $Media 'registries.lua')) { throw 'Obsolet
 
 Require-Text $ui 'function\s+GodSystemWindow:getNavPageLayout\b' 'Adaptive navigation page helper missing'
 Require-Text $ui 'math\.floor\(\(viewportH\s*\+\s*gap\)\s*/\s*math\.max\(1,\s*itemH\s*\+\s*gap\)\)' 'Navigation capacity must be derived from available height'
-Require-Text $ui 'math\.ceil\(count\s*/\s*pageCount\)' 'Navigation pages must balance item counts'
+Require-Text $ui 'return\s+capacity\s*,\s*pageCount' 'Navigation pages must fill each page to its available capacity'
+Reject-Text $ui 'math\.ceil\(count\s*/\s*pageCount\)' 'Navigation must not rebalance full pages into equal item counts'
 Require-Text $ui 'navBottomInset' 'Navigation bottom inset is missing'
 Require-Text $ui 'pageCount\s*<=\s*1' 'Single-page navigation must reclaim pager space'
-Reject-Text $ui 'availableGap|distributedGap' 'Navigation must not distribute leftover height into large gaps'
+Require-Text $ui '\(availableH\s*-\s*\(perPage\s*\*\s*itemH\)\)\s*/\s*\(perPage\s*\+\s*1\)' 'Full navigation pages must use equal outer and inner spacing'
+Require-Text $ui 'self\.navLayoutGap' 'Navigation must apply its computed equal page spacing to item positions'
 
 Require-Text $config '(?s)GodSystemConfig\.FloatingButton\s*=\s*\{[^}]*width\s*=\s*48[^}]*height\s*=\s*48' 'Floating entry must be 48x48'
 Require-Text $ui 'GodSystem_OpenIcon\.png' 'Floating entry icon texture is not referenced'
