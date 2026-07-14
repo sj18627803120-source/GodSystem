@@ -233,5 +233,8 @@ if ($LuaExe) {
     & $LuaExePath (Join-Path $PSScriptRoot 'Test-GodSystemV11653Runtime.lua') (Join-Path $Lua 'shared')
     if ($LASTEXITCODE -ne 0) { throw 'v1.16.53 Lua runtime test failed' }
 }
+else {
+    Write-Warning 'Lua executable was not found; v1.16.53 runtime validation was skipped.'
+}
 
 Write-Output 'Test-GodSystemV11653 passed'

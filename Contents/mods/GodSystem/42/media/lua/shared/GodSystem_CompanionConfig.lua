@@ -51,6 +51,14 @@ Config.RobotBobPixels = 3
 Config.RobotDrawHalfWidth = 16
 Config.RobotDrawHalfHeight = 13
 Config.RobotSensorOffset = 3
+Config.RobotChargeSeconds = 0.20
+Config.RobotRecoverySeconds = 0.15
+Config.RobotLookMinSeconds = 0.8
+Config.RobotLookMaxSeconds = 1.4
+Config.RobotNearPatrolChance = 0.25
+Config.RobotCombatStrafeMinSeconds = 1.2
+Config.RobotCombatStrafeMaxSeconds = 2.0
+Config.RobotTrailSeconds = 0.12
 Config.RobotDirections = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
 Config.RobotFollowBands = {
     follow3 = { minimum = 1.5, maximum = 3 },

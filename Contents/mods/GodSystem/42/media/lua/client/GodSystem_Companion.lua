@@ -1,12 +1,14 @@
 if (isClient and isClient()) or (isServer and isServer()) then return end
 
 require "GodSystem_CompanionConfig"
+require "GodSystem_CompanionVisual"
 
 GodSystem = GodSystem or {}
 GodSystemCompanion = GodSystemCompanion or {}
 
 local Companion = GodSystemCompanion
 local Config = GodSystemCompanionConfig
+local Visual = GodSystemCompanionVisual
 
 Companion.runtime = {
     robotX = nil,
@@ -18,6 +20,21 @@ Companion.runtime = {
     direction = "SE",
     attackDirection = nil,
     attackFacingUntilMs = 0,
+    behaviorState = "idle",
+    pendingAttack = nil,
+    chargeStartedMs = 0,
+    chargeEndsMs = 0,
+    recoveryUntilMs = 0,
+    recoilUntilMs = 0,
+    fireFlashUntilMs = 0,
+    sightFlashUntilMs = 0,
+    guardianFlashUntilMs = 0,
+    nextLookMs = 0,
+    nextStrafeMs = 0,
+    nextTrailMs = 0,
+    nextChargeParticleMs = 0,
+    lastCombatTarget = nil,
+    lastCombatTargetExpiresMs = 0,
     animationFrame = 0,
     animationElapsed = 0,
     bobPhase = 0,
@@ -42,21 +59,13 @@ Companion.runtime = {
     lastSaveMs = 0,
     dirty = false,
     vehicleSuspended = false,
+    pauseSuspended = false,
 }
 
 local LIGHT_R, LIGHT_G, LIGHT_B = 0.38, 0.68, 1.0
 local CYAN_R, CYAN_G, CYAN_B = 0.18, 0.92, 1.0
-local ROBOT_BLUE_R, ROBOT_BLUE_G, ROBOT_BLUE_B = 0.08, 0.48, 1.0
-local ROBOT_BLUE_INNER_R, ROBOT_BLUE_INNER_G, ROBOT_BLUE_INNER_B = 0.35, 0.82, 1.0
-local ROBOT_SENSOR_R, ROBOT_SENSOR_G, ROBOT_SENSOR_B = 1.0, 0.08, 0.10
-local ROBOT_THRUSTER_R, ROBOT_THRUSTER_G, ROBOT_THRUSTER_B = 0.10, 0.95, 1.0
 local RED_BEAM_OUTER_R, RED_BEAM_OUTER_G, RED_BEAM_OUTER_B = 0.45, 0.02, 0.03
 local RED_BEAM_CORE_R, RED_BEAM_CORE_G, RED_BEAM_CORE_B = 1.0, 0.10, 0.12
-
-local ROBOT_DIRECTION_VECTOR = {
-    N = { 0, -1 }, NE = { 0.707, -0.707 }, E = { 1, 0 }, SE = { 0.707, 0.707 },
-    S = { 0, 1 }, SW = { -0.707, 0.707 }, W = { -1, 0 }, NW = { -0.707, -0.707 },
-}
 
 local function nowMs()
     if getTimestampMs then return getTimestampMs() end
@@ -134,14 +143,37 @@ local function removeLight()
     runtime.lightRadius = nil
 end
 
+local function cancelPendingAttack(nextState)
+    local runtime = Companion.runtime
+    runtime.pendingAttack = nil
+    runtime.chargeStartedMs = 0
+    runtime.chargeEndsMs = 0
+    runtime.nextChargeParticleMs = 0
+    runtime.attackDirection = nil
+    runtime.attackFacingUntilMs = 0
+    if runtime.behaviorState == "charging" then runtime.behaviorState = nextState or "idle" end
+end
+
 local function clearTransientEffects(clearSight)
     removeLight()
     local runtime = Companion.runtime
+    cancelPendingAttack("idle")
     runtime.projectiles = {}
     runtime.shockCooldowns = {}
     runtime.corrosionStates = {}
     runtime.markStates = {}
     runtime.effectVisuals = {}
+    runtime.recoveryUntilMs = 0
+    runtime.recoilUntilMs = 0
+    runtime.fireFlashUntilMs = 0
+    runtime.sightFlashUntilMs = 0
+    runtime.guardianFlashUntilMs = 0
+    runtime.lastCombatTarget = nil
+    runtime.lastCombatTargetExpiresMs = 0
+    runtime.nextStrafeMs = 0
+    runtime.nextTrailMs = 0
+    runtime.behaviorState = "idle"
+    if Visual and Visual.reset then Visual.reset() end
     if clearSight then runtime.sightTargets = {} end
 end
 
@@ -159,6 +191,18 @@ local function resetRobotNear(player)
     runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
     runtime.nextOrbitRetargetMs = 0
     runtime.idleUntilMs = 0
+    runtime.nextLookMs = 0
+    runtime.nextStrafeMs = 0
+    runtime.nextTrailMs = 0
+    runtime.combatUntilMs = 0
+    runtime.lastCombatTarget = nil
+    runtime.lastCombatTargetExpiresMs = 0
+    runtime.recoveryUntilMs = 0
+    runtime.recoilUntilMs = 0
+    runtime.fireFlashUntilMs = 0
+    runtime.behaviorState = "idle"
+    cancelPendingAttack("idle")
+    if Visual and Visual.reset then Visual.reset() end
     runtime.direction = "SE"
 end
 
@@ -231,6 +275,9 @@ local function chooseRobotOrbitTargetPass(player, data, now, requireVisible)
     else
         local band = followBand(data)
         minimum, maximum = band.minimum, band.maximum
+        if randomBetween(0, 1) < Config.RobotNearPatrolChance then
+            maximum = minimum + (maximum - minimum) * 0.5
+        end
     end
     for _ = 1, 12 do
         local angle = randomBetween(0, math.pi * 2)
@@ -244,6 +291,14 @@ local function chooseRobotOrbitTargetPass(player, data, now, requireVisible)
     end
     return false
 end
+
+local function chooseIdleDirection()
+    local directions = Config.RobotDirections
+    local index = math.floor(randomBetween(1, #directions + 0.999))
+    return directions[math.max(1, math.min(#directions, index))]
+end
+
+local chooseCombatStrafeTarget
 
 local function chooseRobotOrbitTarget(player, data, now)
     if chooseRobotOrbitTargetPass(player, data, now, true) then return true end
@@ -283,10 +338,20 @@ local function updateRobotPosition(player, data, delta, now)
         resetRobotNear(player)
     end
 
+    if runtime.pendingAttack then
+        runtime.behaviorState = "charging"
+        return
+    end
+    if now < (runtime.recoveryUntilMs or 0) then
+        runtime.behaviorState = "recovery"
+        return
+    end
+
     local band = followBand(data)
     local playerDistance = math.sqrt(distanceSquared(runtime.robotX, runtime.robotY, player:getX(), player:getY()))
     local catchup = data.followMode ~= "guard" and playerDistance > band.maximum + Config.RobotCatchupMargin
     if catchup then
+        runtime.behaviorState = "catchup"
         runtime.idleUntilMs = 0
         local offsetX = runtime.robotX - player:getX()
         local offsetY = runtime.robotY - player:getY()
@@ -299,7 +364,15 @@ local function updateRobotPosition(player, data, delta, now)
         else
             runtime.targetX, runtime.targetY, runtime.targetZ = player:getX(), player:getY(), player:getZ()
         end
+    elseif now < (runtime.combatUntilMs or 0) and data.followMode ~= "guard"
+        and now >= (runtime.nextStrafeMs or 0) and chooseCombatStrafeTarget(player, data, now) then
+        runtime.behaviorState = "patrol"
     elseif now < (runtime.idleUntilMs or 0) then
+        runtime.behaviorState = data.followMode == "guard" and "guard" or "idle"
+        if now >= (runtime.nextLookMs or 0) then
+            runtime.direction = chooseIdleDirection()
+            runtime.nextLookMs = now + randomBetween(Config.RobotLookMinSeconds, Config.RobotLookMaxSeconds) * 1000
+        end
         return
     elseif not runtime.targetX and now >= (runtime.nextOrbitRetargetMs or 0) then
         chooseRobotOrbitTarget(player, data, now)
@@ -307,6 +380,7 @@ local function updateRobotPosition(player, data, delta, now)
 
     local tx, ty, tz = runtime.targetX, runtime.targetY, runtime.targetZ
     if not tx then return end
+    if not catchup then runtime.behaviorState = data.followMode == "guard" and "guard" or "patrol" end
     local dx, dy = tx - runtime.robotX, ty - runtime.robotY
     local distance = math.sqrt(dx * dx + dy * dy)
     if distance <= 0.05 then
@@ -316,6 +390,7 @@ local function updateRobotPosition(player, data, delta, now)
                 chooseRobotOrbitTarget(player, data, now)
             else
                 runtime.idleUntilMs = now + randomBetween(Config.RobotIdleMinSeconds, Config.RobotIdleMaxSeconds) * 1000
+                runtime.nextLookMs = now + randomBetween(Config.RobotLookMinSeconds, Config.RobotLookMaxSeconds) * 1000
             end
         end
         return
@@ -331,6 +406,10 @@ local function updateRobotPosition(player, data, delta, now)
     end
     updateFacing(nx - runtime.robotX, ny - runtime.robotY)
     runtime.robotX, runtime.robotY, runtime.robotZ = nx, ny, tz
+    if data.visible and Visual and Visual.emit and now >= (runtime.nextTrailMs or 0) then
+        Visual.emit(catchup and "catchup" or "trail", runtime.robotX, runtime.robotY, runtime.robotZ)
+        runtime.nextTrailMs = now + Config.RobotTrailSeconds * 1000
+    end
 end
 
 local function ensureLight(player, data)
@@ -353,6 +432,32 @@ end
 
 local function validZombie(zombie, player)
     return zombie and not isLegacyProjection(zombie) and not isDeadZombie(zombie) and sameFloor(zombie, player)
+end
+
+chooseCombatStrafeTarget = function(player, data, now)
+    local runtime = Companion.runtime
+    local target = runtime.lastCombatTarget
+    if not target or now >= (runtime.lastCombatTargetExpiresMs or 0) or not validZombie(target, player) then
+        runtime.lastCombatTarget = nil
+        return false
+    end
+    local dx, dy = target:getX() - player:getX(), target:getY() - player:getY()
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0.01 then return false end
+    local band = followBand(data)
+    local radius = math.max(band.minimum, math.min(band.maximum, 2.5))
+    local side = randomBetween(0, 1) < 0.5 and -1 or 1
+    local x = player:getX() - dy / length * radius * side
+    local y = player:getY() + dx / length * radius * side
+    if validRobotPoint(player, x, y, player:getZ(), false) then
+        setRobotTarget(x, y, player:getZ(), now)
+        runtime.nextStrafeMs = now + randomBetween(
+            Config.RobotCombatStrafeMinSeconds,
+            Config.RobotCombatStrafeMaxSeconds
+        ) * 1000
+        return true
+    end
+    return false
 end
 
 local function collectZombies(player, radius, visibleOnly, earlyLimit)
@@ -413,14 +518,25 @@ local function isSightMarked(zombie)
     return false
 end
 
+local function attackRadius(data)
+    return data.combatMode == "defensive" and 5 or (Config.getStatValue(data, "attackRange") or 6)
+end
+
+local function isAttackTargetValid(player, data, zombie)
+    if not player or not data or data.combatMode == "ceasefire" or not validZombie(zombie, player) then return false end
+    local radius = attackRadius(data)
+    if distanceSquared(player:getX(), player:getY(), zombie:getX(), zombie:getY()) > radius * radius then return false end
+    if isSightMarked(zombie) then return true end
+    local okSee, visible = pcall(function() return player:CanSee(zombie) end)
+    return okSee and visible == true
+end
+
 local function findAttackTarget(player, data)
-    local radius = data.combatMode == "defensive" and 5 or (Config.getStatValue(data, "attackRange") or 6)
+    local radius = attackRadius(data)
     local candidates = collectZombies(player, radius, false, nil)
     for i = 1, #candidates do
         local zombie = candidates[i].zombie
-        if isSightMarked(zombie) then return zombie end
-        local okSee, visible = pcall(function() return player:CanSee(zombie) end)
-        if okSee and visible then return zombie end
+        if isAttackTargetValid(player, data, zombie) then return zombie end
     end
     return nil
 end
@@ -620,19 +736,34 @@ local function updateProjectiles(delta, player, data)
     end
 end
 
-local function fireAttack(player, data)
-    if data.combatMode == "ceasefire" or not data.unlocks.attack or data.cooldowns.attack > 0 then return end
-    local now = nowMs()
-    if now < (Companion.runtime.nextAttackSearchMs or 0) then return end
-    Companion.runtime.nextAttackSearchMs = now + Config.AttackSearchSeconds * 1000
-    local target = findAttackTarget(player, data)
-    if not target then return end
+local function beginAttack(player, target, now)
     local runtime = Companion.runtime
     if not runtime.robotX then resetRobotNear(player) end
+    runtime.pendingAttack = { target = target }
+    runtime.chargeStartedMs = now
+    runtime.chargeEndsMs = now + Config.RobotChargeSeconds * 1000
+    runtime.nextChargeParticleMs = now
     runtime.attackDirection = directionFromVector(target:getX() - runtime.robotX, target:getY() - runtime.robotY)
-    runtime.attackFacingUntilMs = now + Config.ProjectileTravelSeconds * 1000
-    runtime.combatUntilMs = now + Config.RobotCombatGraceSeconds * 1000
+    runtime.attackFacingUntilMs = runtime.chargeEndsMs + Config.ProjectileTravelSeconds * 1000
+    runtime.combatUntilMs = runtime.chargeEndsMs + Config.RobotCombatGraceSeconds * 1000
+    runtime.lastCombatTarget = target
+    runtime.lastCombatTargetExpiresMs = runtime.combatUntilMs
     runtime.idleUntilMs = 0
+    runtime.behaviorState = "charging"
+end
+
+local function launchPendingAttack(data, now)
+    local runtime = Companion.runtime
+    local pending = runtime.pendingAttack
+    local target = pending and pending.target or nil
+    if not target then cancelPendingAttack("idle"); return end
+    local attackDirection = runtime.attackDirection
+    runtime.pendingAttack = nil
+    runtime.chargeStartedMs = 0
+    runtime.chargeEndsMs = 0
+    runtime.nextChargeParticleMs = 0
+    runtime.attackDirection = attackDirection
+    runtime.attackFacingUntilMs = now + Config.ProjectileTravelSeconds * 1000
     runtime.projectiles[#runtime.projectiles + 1] = {
         target = target,
         startX = runtime.robotX,
@@ -642,7 +773,42 @@ local function fireAttack(player, data)
         duration = Config.ProjectileTravelSeconds,
     }
     data.cooldowns.attack = Config.getStatValue(data, "attackCooldown") or 4
+    runtime.behaviorState = "recovery"
+    runtime.recoveryUntilMs = now + Config.RobotRecoverySeconds * 1000
+    runtime.recoilUntilMs = now + math.min(0.10, Config.RobotRecoverySeconds) * 1000
+    runtime.fireFlashUntilMs = now + 120
+    runtime.combatUntilMs = now + Config.RobotCombatGraceSeconds * 1000
+    runtime.lastCombatTarget = target
+    runtime.lastCombatTargetExpiresMs = runtime.combatUntilMs
+    if data.visible and Visual and Visual.emit then
+        Visual.emit("fire", runtime.robotX, runtime.robotY, runtime.robotZ)
+    end
     saveSoon(false)
+end
+
+local function updateAttackState(player, data, now)
+    local runtime = Companion.runtime
+    if runtime.pendingAttack then
+        local target = runtime.pendingAttack.target
+        if not data.unlocks.attack or not isAttackTargetValid(player, data, target) then
+            cancelPendingAttack(data.followMode == "guard" and "guard" or "idle")
+            return
+        end
+        runtime.attackDirection = directionFromVector(target:getX() - runtime.robotX, target:getY() - runtime.robotY)
+        runtime.behaviorState = "charging"
+        if data.visible and Visual and Visual.emit and now >= (runtime.nextChargeParticleMs or 0) then
+            Visual.emit("charge", runtime.robotX, runtime.robotY, runtime.robotZ)
+            runtime.nextChargeParticleMs = now + 60
+        end
+        if now >= (runtime.chargeEndsMs or 0) then launchPendingAttack(data, now) end
+        return
+    end
+    if now < (runtime.recoveryUntilMs or 0) then runtime.behaviorState = "recovery"; return end
+    if data.combatMode == "ceasefire" or not data.unlocks.attack or data.cooldowns.attack > 0 then return end
+    if now < (runtime.nextAttackSearchMs or 0) then return end
+    runtime.nextAttackSearchMs = now + Config.AttackSearchSeconds * 1000
+    local target = findAttackTarget(player, data)
+    if target then beginAttack(player, target, now) end
 end
 
 local function triggerGuardian(player, data)
@@ -663,8 +829,14 @@ local function triggerGuardian(player, data)
     end
     if knocked > 0 then
         data.cooldowns.guardian = Config.getStatValue(data, "guardianCooldown") or 180
-        Companion.runtime.combatUntilMs = nowMs() + Config.RobotCombatGraceSeconds * 1000
-        Companion.runtime.idleUntilMs = 0
+        local runtime = Companion.runtime
+        local now = nowMs()
+        runtime.combatUntilMs = now + Config.RobotCombatGraceSeconds * 1000
+        runtime.guardianFlashUntilMs = now + 450
+        runtime.idleUntilMs = 0
+        if data.visible and runtime.robotX and Visual and Visual.emit then
+            Visual.emit("guardian", runtime.robotX, runtime.robotY, runtime.robotZ)
+        end
         queueEffectVisual("guardian", player, nil, 450)
         notify("Notify_CompanionGuardianTriggered", "Guardian triggered")
         saveSoon(true)
@@ -706,6 +878,11 @@ function Companion.activateSight()
         Companion.runtime.sightTargets[#Companion.runtime.sightTargets + 1] = { zombie = targets[i].zombie, expiresAt = expiresAt }
     end
     data.cooldowns.sight = Config.getStatValue(data, "sightCooldown") or 120
+    local runtime = Companion.runtime
+    runtime.sightFlashUntilMs = nowMs() + 460
+    if data.visible and runtime.robotX and Visual and Visual.emit then
+        Visual.emit("sight", runtime.robotX, runtime.robotY, runtime.robotZ)
+    end
     saveSoon(true)
     notify("Notify_CompanionSightActivated", "Spirit sight activated")
     return true
@@ -716,6 +893,13 @@ function Companion.setCombatMode(mode)
     local data = companionData()
     if not data or not data.unlocked then return false end
     data.combatMode = mode
+    if mode == "ceasefire" then
+        cancelPendingAttack(data.followMode == "guard" and "guard" or "idle")
+        Companion.runtime.combatUntilMs = 0
+        Companion.runtime.lastCombatTarget = nil
+        Companion.runtime.lastCombatTargetExpiresMs = 0
+        Companion.runtime.nextStrafeMs = 0
+    end
     saveSoon(true)
     return true
 end
@@ -750,7 +934,15 @@ function Companion.toggleVisible()
     local data = companionData()
     if not data or not data.unlocked then return false end
     data.visible = not data.visible
-    if not data.visible then removeLight() end
+    if not data.visible then
+        removeLight()
+        cancelPendingAttack(data.followMode == "guard" and "guard" or "idle")
+        Companion.runtime.combatUntilMs = 0
+        Companion.runtime.lastCombatTarget = nil
+        Companion.runtime.lastCombatTargetExpiresMs = 0
+        Companion.runtime.nextStrafeMs = 0
+        if Visual and Visual.reset then Visual.reset() end
+    end
     saveSoon(true)
     return true
 end
@@ -761,8 +953,12 @@ function Companion.recall()
     if not player or not data or not data.unlocked then return false end
     data.followMode = "follow5"
     data.guardPoint = nil
+    if Visual and Visual.reset then Visual.reset() end
     resetRobotNear(player)
     removeLight()
+    if data.visible and Visual and Visual.emit then
+        Visual.emit("recall", Companion.runtime.robotX, Companion.runtime.robotY, Companion.runtime.robotZ)
+    end
     saveSoon(true)
     return true
 end
@@ -896,6 +1092,7 @@ function GodSystemCompanion.shutdown()
     runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
     runtime.lastUpdateMs = nil
     runtime.vehicleSuspended = false
+    runtime.pauseSuspended = false
     if runtime.dirty and GodSystem and GodSystem.save then GodSystem.save() end
     runtime.dirty = false
 end
@@ -919,7 +1116,19 @@ local function updateCompanion(player)
     local previous = runtime.lastUpdateMs or now
     runtime.lastUpdateMs = now
     local delta = math.min(0.25, math.max(0, (now - previous) / 1000))
-    if isGamePaused and isGamePaused() then return end
+    if isGamePaused and isGamePaused() then
+        if not runtime.pauseSuspended then
+            cancelPendingAttack(data.followMode == "guard" and "guard" or "idle")
+            runtime.combatUntilMs = 0
+            runtime.lastCombatTarget = nil
+            runtime.lastCombatTargetExpiresMs = 0
+            runtime.nextStrafeMs = 0
+            if Visual and Visual.reset then Visual.reset() end
+            runtime.pauseSuspended = true
+        end
+        return
+    end
+    runtime.pauseSuspended = false
 
     local inVehicle = player.getVehicle and player:getVehicle() ~= nil
     if inVehicle then
@@ -936,10 +1145,11 @@ local function updateCompanion(player)
     cleanSightTargets(player, data)
     updateEffectStates(player)
     updateProjectiles(delta, player, data)
+    updateAttackState(player, data, now)
     updateRobotPosition(player, data, delta, now)
     updateAnimation(delta)
+    if Visual and Visual.update then Visual.update(delta) end
     ensureLight(player, data)
-    fireAttack(player, data)
     if now - (runtime.lastGuardianScanMs or 0) >= Config.GuardianScanSeconds * 1000 then
         runtime.lastGuardianScanMs = now
         triggerGuardian(player, data)
@@ -1067,52 +1277,8 @@ local function renderRobot(renderer, texture, data, player)
     local runtime = Companion.runtime
     if not data.visible or not runtime.robotX then return end
     if not robotPointVisible(player, runtime.robotX, runtime.robotY, runtime.robotZ) then return end
-    local direction = nowMs() < (runtime.attackFacingUntilMs or 0)
-        and runtime.attackDirection or runtime.direction or "SE"
-    local sx, sy, zoom = screenPoint(runtime.robotX, runtime.robotY, runtime.robotZ)
-    if not sx or not sy or not zoom then return end
-    local bob = math.sin(runtime.bobPhase or 0) * Config.RobotBobPixels / zoom
-    local pulse = 0.90 + (math.sin((runtime.bobPhase or 0) * 0.75) + 1) * 0.05
-    local cx = math.floor(sx + 0.5)
-    local cy = math.floor(sy - 48 / zoom + bob + 0.5)
-    local halfW = math.max(9, math.floor(Config.RobotDrawHalfWidth / zoom + 0.5))
-    local halfH = math.max(7, math.floor(Config.RobotDrawHalfHeight / zoom + 0.5))
-    local innerW = math.max(5, math.floor(halfW * 0.58))
-    local innerH = math.max(4, math.floor(halfH * 0.58))
-
-    local function line(x1, y1, x2, y2, r, g, b, alpha)
-        drawColoredLine(renderer, texture, x1, y1, x2, y2, r, g, b, alpha)
-    end
-
-    line(cx, cy - halfH, cx + halfW, cy, ROBOT_BLUE_R, ROBOT_BLUE_G, ROBOT_BLUE_B, pulse)
-    line(cx + halfW, cy, cx, cy + halfH, ROBOT_BLUE_R, ROBOT_BLUE_G, ROBOT_BLUE_B, pulse)
-    line(cx, cy + halfH, cx - halfW, cy, ROBOT_BLUE_R, ROBOT_BLUE_G, ROBOT_BLUE_B, pulse)
-    line(cx - halfW, cy, cx, cy - halfH, ROBOT_BLUE_R, ROBOT_BLUE_G, ROBOT_BLUE_B, pulse)
-
-    line(cx, cy - innerH, cx + innerW, cy, ROBOT_BLUE_INNER_R, ROBOT_BLUE_INNER_G, ROBOT_BLUE_INNER_B, 0.92)
-    line(cx + innerW, cy, cx, cy + innerH, ROBOT_BLUE_INNER_R, ROBOT_BLUE_INNER_G, ROBOT_BLUE_INNER_B, 0.92)
-    line(cx, cy + innerH, cx - innerW, cy, ROBOT_BLUE_INNER_R, ROBOT_BLUE_INNER_G, ROBOT_BLUE_INNER_B, 0.92)
-    line(cx - innerW, cy, cx, cy - innerH, ROBOT_BLUE_INNER_R, ROBOT_BLUE_INNER_G, ROBOT_BLUE_INNER_B, 0.92)
-    line(cx - innerW, cy, cx + innerW, cy, ROBOT_BLUE_INNER_R, ROBOT_BLUE_INNER_G, ROBOT_BLUE_INNER_B, 0.55)
-
-    local facing = ROBOT_DIRECTION_VECTOR[direction] or ROBOT_DIRECTION_VECTOR.SE
-    local sensorX = cx + facing[1] * (halfW + Config.RobotSensorOffset)
-    local sensorY = cy + facing[2] * (halfH + Config.RobotSensorOffset)
-    local sensorSize = math.max(2, math.floor(3 / zoom + 0.5))
-    line(sensorX - sensorSize, sensorY, sensorX + sensorSize, sensorY,
-        ROBOT_SENSOR_R, ROBOT_SENSOR_G, ROBOT_SENSOR_B, 1.0)
-    line(sensorX, sensorY - sensorSize, sensorX, sensorY + sensorSize,
-        ROBOT_SENSOR_R, ROBOT_SENSOR_G, ROBOT_SENSOR_B, 1.0)
-
-    local flame = math.max(3, math.floor(((runtime.animationFrame or 0) == 0 and 5 or 8) / zoom + 0.5))
-    local nozzleY = cy + halfH
-    local flameY = nozzleY + flame
-    line(cx - 4 / zoom, nozzleY, cx, flameY,
-        ROBOT_THRUSTER_R, ROBOT_THRUSTER_G, ROBOT_THRUSTER_B, 0.82)
-    line(cx + 4 / zoom, nozzleY, cx, flameY,
-        ROBOT_THRUSTER_R, ROBOT_THRUSTER_G, ROBOT_THRUSTER_B, 0.82)
-    line(cx, nozzleY, cx, flameY + 2 / zoom,
-        ROBOT_THRUSTER_R, ROBOT_THRUSTER_G, ROBOT_THRUSTER_B, pulse)
+    if Visual and Visual.renderRobot then Visual.renderRobot(renderer, texture, runtime, data) end
+    return true
 end
 
 local function renderCompanionEffects()
@@ -1122,9 +1288,10 @@ local function renderCompanionEffects()
     local data = companionData()
     if not player or not data or not data.unlocked or Companion.runtime.vehicleSuspended then return end
     local renderer = getRenderer and getRenderer() or nil
-    local lineTexture = getTexture and getTexture("media/textures/mask_white.png") or nil
+    local now = nowMs()
+    local lineTexture = Visual and Visual.getLineTexture and Visual.getLineTexture(now) or nil
     if not renderer or not lineTexture then return end
-    renderRobot(renderer, lineTexture, data, player)
+    local robotRendered = renderRobot(renderer, lineTexture, data, player)
     for i = 1, #Companion.runtime.sightTargets do
         local zombie = Companion.runtime.sightTargets[i].zombie
         if validZombie(zombie, player) then renderCornerBox(renderer, lineTexture, zombie) end
@@ -1140,6 +1307,7 @@ local function renderCompanionEffects()
     for i = 1, #Companion.runtime.effectVisuals do
         renderEffectVisual(renderer, lineTexture, Companion.runtime.effectVisuals[i])
     end
+    if robotRendered and Visual and Visual.renderParticles then Visual.renderParticles(renderer, lineTexture) end
 end
 
 local function onGameStart()

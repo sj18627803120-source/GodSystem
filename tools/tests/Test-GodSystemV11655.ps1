@@ -1,5 +1,6 @@
 param(
-    [string]$Root = ""
+    [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.55"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,10 +40,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.55"' 'Config version must be 1.16.55'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.55\r?$' 'Root mod.info version must be 1.16.55'
-Require-Text $b42Info '(?m)^modversion=1\.16\.55\r?$' 'B42 mod.info version must be 1.16.55'
-Require-Text $workshop '(?m)^description=v1\.16\.55\r?$' 'Workshop metadata must mention v1.16.55'
+$escapedVersion = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $escapedVersion + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 Require-Text $items 'BodyLocation\s*=\s*base:necklace\s*,' 'System terminal must use the vanilla necklace body location'
 Require-Text $items 'CanBeEquipped\s*=\s*base:necklace\s*,' 'System terminal must equip in the vanilla necklace body location'
