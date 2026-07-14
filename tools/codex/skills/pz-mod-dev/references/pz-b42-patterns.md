@@ -110,6 +110,8 @@ Recommended trust split:
 
 ## UI and Selection
 
+- Read the same-version dialog class before writing callback signatures. B42.19 `ISModalDialog:new(..., target, onclick, player, param1, param2)` later calls `onclick(target, button, param1, param2)`; `player` becomes `button.player` and does not occupy a callback argument. If the payload was passed as `param1`, the callback is `function(target, button, payload)`. A wrong arity can silently return behind a `button.internal` or `payload` guard while the dialog itself appears normal.
+- For a visible-but-inert action, instrument each boundary separately: confirmation callback entry, client dispatch, server receipt, validation, mutation, and result. Compare log and deployed-file timestamps before concluding the instrumented build was tested.
 - Page population functions should be pure display work. Avoid server requests inside drawing/populate functions except an initial "state missing" bootstrap.
 - UI drawing and resize paths must not call recursive inventory scans, price table rebuilds, or server syncs. If a player carries thousands of stack items, these paths run on the main thread and can make clicks, page switches, and unrelated actions feel delayed.
 - Capture selection before list rebuild and restore by stable IDs.

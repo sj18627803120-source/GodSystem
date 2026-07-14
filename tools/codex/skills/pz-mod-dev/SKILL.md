@@ -117,6 +117,7 @@ For compatibility-first B42 mods:
 
 ## UI Stability
 
+- B42.19 `ISModalDialog:new(..., target, onclick, player, param1, param2)` invokes `onclick(target, button, param1, param2)`. The `player` argument is assigned to `button.player`; it is not inserted into the callback's positional arguments. When payload is `param1`, use a callback shaped like `function(target, button, payload)`. A visible dialog proves only creation, not that the callback or command ran.
 - Do not trigger server refreshes from list drawing or page population.
 - Avoid clearing selection without restoring by stable payload IDs such as `taskId`, `fullType`, or shop `id`.
 - For actions followed by an MP state round trip, store a one-shot pending stable ID and scroll position before sending. Do not let a temporary syncing/empty list overwrite that pending selection; clear it only after the rebuilt real list restores the row.

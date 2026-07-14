@@ -37,6 +37,8 @@ $vehicleRepairContext = Read-Utf8 (Join-Path $Lua 'client\GodSystem_VehicleRepai
 $server = Read-Utf8 (Join-Path $Lua 'server\GodSystem_Server.lua')
 $spVehicleServer = Read-Utf8 (Join-Path $Lua 'server\GodSystem_SPVehicleRepair.lua')
 $items = Read-Utf8 (Join-Path $Media 'scripts\GodSystem_Items.txt')
+$pzSkill = Read-Utf8 (Join-Path $Root 'tools\codex\skills\pz-mod-dev\SKILL.md')
+$pzPatterns = Read-Utf8 (Join-Path $Root 'tools\codex\skills\pz-mod-dev\references\pz-b42-patterns.md')
 $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
@@ -119,6 +121,8 @@ Require-Text $ui '(?s)purchaseCompanionNode\(payload\.id\).*?clearPendingActionS
 Require-Text $prices '\["GodSystem\.SystemVehicleRepairModule"\]\s*=\s*5000' 'Vehicle repair module explicit price must be 5000'
 Require-Text $maintenance 'function\s+GodSystemMaintenance\.repairVehicle\b' 'Shared authoritative vehicle-repair helper missing'
 Require-Text $vehicleRepairContext 'function\s+Context\.onConfirm\(target,\s*button,\s*payload\)' 'Vehicle repair confirmation must receive its payload from ISModalDialog param1'
+Require-Text $pzSkill 'onclick\(target,\s*button,\s*param1,\s*param2\)' 'Portable PZ skill must document the B42 ISModalDialog callback contract'
+Require-Text $pzPatterns 'onclick\(target,\s*button,\s*param1,\s*param2\)' 'B42 pattern reference must document the ISModalDialog callback contract'
 Reject-Text $maintenanceClient 'vehicle:repair\(\)' 'SP client must not directly repair vehicles'
 Require-Text $maintenanceClient 'pcall\(sendClientCommand,\s*player,\s*MODULE,\s*command,\s*args\)' 'SP vehicle repair must use the same client-command route as the vanilla debug repair action'
 Reject-Text $maintenanceClient 'pcall\(triggerEvent,\s*"OnClientCommand"' 'SP vehicle repair must not treat an unhandled local event as a successful command'
