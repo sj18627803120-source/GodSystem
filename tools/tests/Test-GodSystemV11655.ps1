@@ -33,6 +33,7 @@ $maintenance = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Maintenance.lua')
 $ui = Read-Utf8 (Join-Path $Lua 'client\GodSystem_UI.lua')
 $companion = Read-Utf8 (Join-Path $Lua 'client\GodSystem_Companion.lua')
 $maintenanceClient = Read-Utf8 (Join-Path $Lua 'client\GodSystem_MaintenanceContext.lua')
+$vehicleRepairContext = Read-Utf8 (Join-Path $Lua 'client\GodSystem_VehicleRepairContext.lua')
 $server = Read-Utf8 (Join-Path $Lua 'server\GodSystem_Server.lua')
 $spVehicleServer = Read-Utf8 (Join-Path $Lua 'server\GodSystem_SPVehicleRepair.lua')
 $items = Read-Utf8 (Join-Path $Media 'scripts\GodSystem_Items.txt')
@@ -117,6 +118,7 @@ Require-Text $ui '(?s)purchaseCompanionNode\(payload\.id\).*?clearPendingActionS
 
 Require-Text $prices '\["GodSystem\.SystemVehicleRepairModule"\]\s*=\s*5000' 'Vehicle repair module explicit price must be 5000'
 Require-Text $maintenance 'function\s+GodSystemMaintenance\.repairVehicle\b' 'Shared authoritative vehicle-repair helper missing'
+Require-Text $vehicleRepairContext 'function\s+Context\.onConfirm\(target,\s*button,\s*playerNum,\s*payload\)' 'Vehicle repair confirmation must accept the ISModalDialog target before the clicked button'
 Reject-Text $maintenanceClient 'vehicle:repair\(\)' 'SP client must not directly repair vehicles'
 Require-Text $maintenanceClient 'pcall\(sendClientCommand,\s*player,\s*MODULE,\s*command,\s*args\)' 'SP vehicle repair must use the same client-command route as the vanilla debug repair action'
 Reject-Text $maintenanceClient 'pcall\(triggerEvent,\s*"OnClientCommand"' 'SP vehicle repair must not treat an unhandled local event as a successful command'
