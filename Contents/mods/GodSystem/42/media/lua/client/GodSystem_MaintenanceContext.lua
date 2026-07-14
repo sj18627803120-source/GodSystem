@@ -145,16 +145,8 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
             vehicleId = vehicleId,
         }
         local command = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
-        if isClient and isClient() then
-            if sendClientCommand then
-                sendClientCommand(player, MODULE, command, args)
-                return true
-            end
-            notifyCode("MaintenanceFailed")
-            return false
-        end
-        if triggerEvent then
-            local dispatched = pcall(triggerEvent, "OnClientCommand", MODULE, command, player, args)
+        if sendClientCommand then
+            local dispatched = pcall(sendClientCommand, player, MODULE, command, args)
             if dispatched then return true end
         end
         notifyCode("MaintenanceFailed")
