@@ -42,7 +42,7 @@ local function vehicleName(vehicle)
     return okName and tostring(name) or text("VehicleRepair_UnknownVehicle", "Vehicle")
 end
 
-function Context.onConfirm(target, button, playerNum, payload)
+function Context.onConfirm(target, button, payload)
     if not button or button.internal ~= "YES" or not payload then return end
     local player = getSpecificPlayer and getSpecificPlayer(payload.playerNum) or getPlayer()
     local module = findModule(player)
