@@ -11,6 +11,12 @@ local MODULE = Protocol.Module or "GodSystem"
 local COMMAND = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
 local RESULT = (Protocol.S2C and Protocol.S2C.Result) or "result"
 
+local function trace(message)
+    print("[GodSystem][VehicleRepair][SP] " .. tostring(message or ""))
+end
+
+trace("bridge loaded")
+
 local function itemId(item)
     return GodSystemMaintenance.itemId(item)
 end
@@ -80,8 +86,10 @@ function Bridge.onClientCommand(module, command, player, args)
     if tostring(args and args.action or "") ~= "repairVehicle" then return end
 
     local vehicleId = math.floor(tonumber(args and args.vehicleId) or -1)
+    trace("command received vehicleId=" .. tostring(vehicleId))
     local payload = maintenancePayload(vehicleId)
     if not player or vehicleId < 0 then
+        trace("invalid player or vehicle id")
         sendResult(player, false, "VehicleRepairInvalid", nil, payload)
         return
     end
@@ -89,6 +97,7 @@ function Bridge.onClientCommand(module, command, player, args)
     local consumableId = tostring(args and args.consumableItemId or "")
     local consumable, container = inventoryItemById(player:getInventory(), consumableId)
     if not consumable or not container or consumable:getFullType() ~= GodSystemMaintenance.VehicleRepairItemType then
+        trace("consumable validation failed")
         sendResult(player, false, "MaintenanceConsumableMissing", nil, payload)
         return
     end
@@ -96,11 +105,13 @@ function Bridge.onClientCommand(module, command, player, args)
     local vehicle = getVehicleById and getVehicleById(vehicleId) or nil
     local inRange, rangeCode = vehicleInRange(player, vehicle)
     if not inRange then
+        trace("vehicle validation failed code=" .. tostring(rangeCode))
         sendResult(player, false, rangeCode, nil, payload)
         return
     end
 
     local before = GodSystemMaintenance.vehicleDamageSummary(vehicle)
+    trace("damage before=" .. tostring(before.damaged) .. " missing=" .. tostring(before.missing))
     if before.damaged <= 0 then
         sendResult(player, false, "VehicleAlreadyFull", nil, payload)
         return
@@ -109,13 +120,16 @@ function Bridge.onClientCommand(module, command, player, args)
     local removed = pcall(function() container:Remove(consumable) end)
     local stillOwned = inventoryItemById(player:getInventory(), consumableId) ~= nil
     if not removed or stillOwned then
+        trace("consumable removal failed")
         sendResult(player, false, "MaintenanceFailed", nil, payload)
         return
     end
     if container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
     if triggerEvent then pcall(triggerEvent, "OnContainerUpdate") end
 
-    local repaired = GodSystemMaintenance.repairVehicle(vehicle)
+    local repaired, repairCode, _, after = GodSystemMaintenance.repairVehicle(vehicle)
+    trace("repair result=" .. tostring(repaired) .. " code=" .. tostring(repairCode)
+        .. " remaining=" .. tostring(after and after.damaged or "unknown"))
     if not repaired then
         local refunded = refundModule(player)
         sendResult(player, false, refunded and "VehicleRepairFailedRefunded" or "VehicleRepairFailed", nil, payload)
@@ -128,4 +142,7 @@ end
 if Events.OnClientCommand then
     Events.OnClientCommand.Remove(Bridge.onClientCommand)
     Events.OnClientCommand.Add(Bridge.onClientCommand)
+    trace("OnClientCommand handler registered")
+else
+    trace("OnClientCommand event unavailable")
 end

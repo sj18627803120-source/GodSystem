@@ -9,6 +9,10 @@ local Context = GodSystemMaintenanceContext
 local Protocol = GodSystemProtocol or {}
 local MODULE = Protocol.Module or "GodSystem"
 
+local function traceVehicle(message)
+    print("[GodSystem][VehicleRepair][Client] " .. tostring(message or ""))
+end
+
 local function text(key, fallback)
     if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
     return fallback or key
@@ -130,6 +134,7 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
     if action == "repairVehicle" then
         local vehicleId = math.floor(tonumber(targetItemId) or -1)
         local consumableItemId = GodSystemMaintenance.itemId(consumable)
+        traceVehicle("request vehicleId=" .. tostring(vehicleId))
         if not player or vehicleId < 0 then
             notifyCode("VehicleRepairInvalid")
             return false
@@ -147,8 +152,10 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
         local command = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
         if sendClientCommand then
             local dispatched = pcall(sendClientCommand, player, MODULE, command, args)
+            traceVehicle("sendClientCommand dispatched=" .. tostring(dispatched))
             if dispatched then return true end
         end
+        traceVehicle("sendClientCommand unavailable or failed")
         notifyCode("MaintenanceFailed")
         return false
     end
