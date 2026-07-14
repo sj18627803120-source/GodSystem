@@ -60,6 +60,12 @@ Require-Text $ui 'pageCount\s*<=\s*1' 'Single-page navigation must reclaim pager
 Require-Text $ui '\(availableH\s*-\s*\(perPage\s*\*\s*itemH\)\)\s*/\s*\(perPage\s*\+\s*1\)' 'Full navigation pages must use equal outer and inner spacing'
 Require-Text $ui 'self\.navLayoutGap' 'Navigation must apply its computed equal page spacing to item positions'
 
+$actionReset = [regex]::Match($ui, '(?s)function\s+GodSystemWindow:resetActionButtonEnabledState\(\)(?<body>.*?)\nend').Groups['body'].Value
+Require-Text $actionReset '\{\s*"primary"\s*,\s*"secondary"\s*,\s*"third"\s*,\s*"fourth"\s*,\s*"fifth"\s*\}' 'Shared action reset must cover all five bottom buttons'
+Require-Text $actionReset 'control\.enable\s*=\s*true' 'Shared action reset must clear disabled state from the previous page'
+$populateList = [regex]::Match($ui, '(?s)function\s+GodSystemWindow:populateList\(\)(?<body>.*?)\nend').Groups['body'].Value
+Require-Text $populateList '^\s*self:resetActionButtonEnabledState\(\)' 'Every page population must reset inherited action-button state before applying page rules'
+
 Require-Text $config '(?s)GodSystemConfig\.FloatingButton\s*=\s*\{[^}]*width\s*=\s*48[^}]*height\s*=\s*48' 'Floating entry must be 48x48'
 Require-Text $ui 'GodSystem_OpenIcon\.png' 'Floating entry icon texture is not referenced'
 $floatingRender = [regex]::Match($ui, '(?s)function\s+GodSystemFloatingButton:prerender\(\)(?<body>.*?)\nend').Groups['body'].Value

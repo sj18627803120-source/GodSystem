@@ -2418,6 +2418,14 @@ function GodSystemWindow:getActionControl(id)
     return nil
 end
 
+function GodSystemWindow:resetActionButtonEnabledState()
+    local ids = { "primary", "secondary", "third", "fourth", "fifth" }
+    for i = 1, #ids do
+        local control = self:getActionControl(ids[i])
+        if control then control.enable = true end
+    end
+end
+
 function GodSystemWindow:hideActionControls()
     local ids = { "primary", "secondary", "third", "fourth", "fifth", "category", "searchLabel", "searchBox" }
     for i = 1, #ids do
@@ -3848,6 +3856,7 @@ function GodSystemWindow:populateAdmin()
 end
 
 function GodSystemWindow:populateList()
+    self:resetActionButtonEnabledState()
     if self.mode == "recycle" then
         self.mode = "shop"
     end
