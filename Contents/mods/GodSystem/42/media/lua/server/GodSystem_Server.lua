@@ -7,6 +7,8 @@ require "GodSystem_Protocol"
 require "GodSystem_AdminConfig"
 require "GodSystem_Maintenance"
 require "GodSystem_Attributes"
+require "GodSystem_CarryCapacity"
+require "GodSystem_TransactionOps"
 
 if not (isServer and isServer()) then return end
 
@@ -102,8 +104,9 @@ end
 
 local function transmitStore()
     if ModData and ModData.transmit then
-        pcall(ModData.transmit, STORE_KEY)
+        return pcall(ModData.transmit, STORE_KEY)
     end
+    return true
 end
 
 local function adminConfigStore()
@@ -266,6 +269,7 @@ local function playerData(player)
     data.upgrades.maxActiveTasks = math.min(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTaskLimit or 10)
     data.upgrades.dailyTaskCount = math.max(GodSystemConfig.DailyTaskCount or 5, floor(data.upgrades.dailyTaskCount, GodSystemConfig.DailyTaskCount or 5))
     data.upgrades.dailyTaskCount = math.min(data.upgrades.dailyTaskCount, GodSystemConfig.MaxDailyTaskLimit or 20)
+    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.normalizeLevel(data.upgrades.carryCapacityLevel)
     data.homeSystem = data.homeSystem or {}
     data.homeSystem.tempSlots = data.homeSystem.tempSlots or {}
     data.homeSystem.returnPoint = data.homeSystem.returnPoint or nil
@@ -2472,6 +2476,7 @@ function Commands.hello(_, _, player)
         if okSync then data.attributeSyncPending = nil end
     end
     generateDailyTasks(data, false)
+    GodSystemCarryCapacity.apply(player, GodSystemCarryCapacity.getLevel(data))
     sendState(player)
 end
 
@@ -2814,50 +2819,86 @@ local function restoreRecycleSelection(player, removed)
 end
 
 local function recycleSelectedInternal(player, args)
+    local data = playerData(player)
+    local txKind = "recycleSelectedItems"
+    local txRoot = store()
+    local txOwner = userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+        end
+    end
     if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted, persistError = transmitStore()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return errorMessage(player, tostring(persistError))
+    end
     local ok, err = pcall(function()
-        local data = playerData(player)
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
+        end
         local mode = tostring(args and args.mode or "")
         if mode ~= "recycle" and mode ~= "recycleAndList" and mode ~= "listOnly" then
-            return finishCode(player, false, "RecycleSelectionInvalid")
+            return complete(false, "RecycleSelectionInvalid")
         end
         local selected = {}
         local seen = {}
         local types = {}
         local typeOrder = {}
+        local skipped = math.min(10000, math.max(0, floor(args and args.clientSkipped, 0)))
         for i = 1, #(args and args.itemIds or {}) do
             local id = tostring(args.itemIds[i] or "")
             if id ~= "" and not seen[id] then
                 seen[id] = true
                 local item, container = inventoryItemById(player, id)
-                if not item or not container then return finishCode(player, false, "RecycleSelectionChanged") end
+                if not item or not container then return complete(false, "RecycleSelectionChanged") end
                 local allowed = canContextRecycleItem(item)
-                if not allowed then return finishCode(player, false, "RecycleSelectionProtected") end
                 local fullType = item:getFullType()
-                if mode ~= "recycle" then
+                local eligible = allowed == true
+                if eligible and mode ~= "recycle" then
                     local listable, reason = canContextListItem(data, item)
                     if not listable then
-                        return finishCode(player, false, reason == "alreadyListed" and "RecycleSelectionAlreadyListed" or "RecycleSelectionNotListable")
+                        eligible = false
                     end
                 end
-                if mode ~= "listOnly" then
+                if not eligible then
+                    skipped = skipped + 1
+                elseif mode ~= "listOnly" then
                     local signatures = type(args.containerContentSignatures) == "table" and args.containerContentSignatures or {}
                     local expected = signatures[id]
                     local hasContents = itemInventoryCount(item) > 0
                     if (hasContents or expected) and (args.allowDestroyContents ~= true or not expected or GodSystemServerContainerContentSignature(item) ~= expected) then
-                        return finishCode(player, false, "RecycleSelectionContainerChanged")
+                        return complete(false, "RecycleSelectionContainerChanged")
                     end
                 end
-                selected[#selected + 1] = { item = item, container = container, fullType = fullType }
-                if not types[fullType] then
-                    types[fullType] = { item = item, raw = 0, count = 0 }
-                    typeOrder[#typeOrder + 1] = fullType
+                if eligible then
+                    selected[#selected + 1] = { item = item, container = container, fullType = fullType }
+                    if not types[fullType] then
+                        types[fullType] = { item = item, raw = 0, count = 0 }
+                        typeOrder[#typeOrder + 1] = fullType
+                    end
+                    types[fullType].raw = types[fullType].raw + recycleValue(item, true)
+                    types[fullType].count = types[fullType].count + 1
                 end
-                types[fullType].raw = types[fullType].raw + recycleValue(item, true)
-                types[fullType].count = types[fullType].count + 1
             end
         end
-        if #selected <= 0 then return finishCode(player, false, "RecycleSelectionEmpty") end
+        if #selected <= 0 then return complete(false, "RecycleSelectionEmptySkipped", { skipped }, { processedCount = 0, skippedCount = skipped }) end
 
         if mode == "listOnly" then
             local totalCost = 0
@@ -2870,21 +2911,23 @@ local function recycleSelectedInternal(player, args)
                 totalCost = totalCost + cost
                 rows[#rows + 1] = { fullType = fullType, item = row.item, sellValue = sellValue, buyPrice = buyPrice }
             end
-            if not canAfford(player, totalCost, data) or not addPoints(player, -totalCost, data) then
-                return finishCode(player, false, "ListOnlyInsufficient")
+            local paid, fromBank, fromCash = spendCurrency(player, data, totalCost)
+            if not paid then
+                return complete(false, "ListOnlyInsufficient")
             end
             local unlocked = {}
             for i = 1, #rows do
                 local row = rows[i]
                 if not unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), row.sellValue) then
                     for j = 1, #unlocked do data.unlockedShopItems[unlocked[j]] = nil end
-                    addPoints(player, totalCost, data)
-                    return finishCode(player, false, "RecycleSelectionChanged")
+                    GodSystemServer.refundCurrencySources(player, data, fromBank, fromCash)
+                    return complete(false, "RecycleSelectionChanged")
                 end
                 unlocked[#unlocked + 1] = row.fullType
             end
             appendHistory(data, historyEntry("shop", "RecycleSelectionListOnly", { #rows, totalCost }))
-            return finishCode(player, true, "RecycleSelectionListOnly", { #rows, totalCost })
+            local resultCode = skipped > 0 and "RecycleSelectionListOnlyPartial" or "RecycleSelectionListOnly"
+            return complete(true, resultCode, { #rows, totalCost, skipped }, { processedCount = #rows, skippedCount = skipped, cost = totalCost })
         end
 
         local rawPayout = 0
@@ -2893,7 +2936,7 @@ local function recycleSelectedInternal(player, args)
             local row = types[fullType]
             rawPayout = rawPayout + calculateRecyclePayout(fullType, row.raw, row.count)
         end
-        if rawPayout <= 0 then return finishCode(player, false, "RecycleSelectionEmpty") end
+        if rawPayout <= 0 then return complete(false, "RecycleSelectionEmpty") end
 
         local removed = {}
         local primary = player:getPrimaryHandItem()
@@ -2925,7 +2968,7 @@ local function recycleSelectedInternal(player, args)
                     removed[#removed + 1] = current
                 end
                 restoreRecycleSelection(player, removed)
-                return finishCode(player, false, "RecycleSelectionFailed")
+                return complete(false, "RecycleSelectionFailed")
             end
             removed[#removed + 1] = {
                 item = item,
@@ -2943,7 +2986,7 @@ local function recycleSelectedInternal(player, args)
             data.recycleLimitDay = oldLimitDay
             data.recycleLimitUsed = oldLimitUsed
             restoreRecycleSelection(player, removed)
-            return finishCode(player, false, "RecycleSelectionFailed")
+            return complete(false, "RecycleSelectionFailed")
         end
         if mode == "recycleAndList" then
             for i = 1, #typeOrder do
@@ -2954,12 +2997,21 @@ local function recycleSelectedInternal(player, args)
         end
         data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
         data.stats.recycledPoints = (data.stats.recycledPoints or 0) + payout
-        local code = mode == "recycleAndList" and "RecycleSelectionAndList" or "RecycleSelectionSuccess"
-        appendHistory(data, historyEntry("recycle", code, { #removed, payout }))
-        return finishCode(player, true, code, { #removed, payout })
+        local historyCode = mode == "recycleAndList" and "RecycleSelectionAndList" or "RecycleSelectionSuccess"
+        local code = skipped > 0 and (historyCode .. "Partial") or historyCode
+        appendHistory(data, historyEntry("recycle", historyCode, { #removed, payout }))
+        return complete(true, code, { #removed, payout, skipped }, { processedCount = #removed, skippedCount = skipped, payout = payout })
     end)
     unguard(player)
-    if not ok then errorMessage(player, tostring(err)) end
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        local persisted, persistError = transmitStore()
+        if not persisted then
+            GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+            return errorMessage(player, tostring(persistError))
+        end
+        errorMessage(player, tostring(err))
+    end
 end
 
 function Commands.recycle(_, _, player, args)
@@ -3515,6 +3567,75 @@ end
 function Commands.upgradeSystem(_, _, player, args)
     local data = playerData(player)
     local t = args and args.upgradeType
+    if t == "carryCapacity" then
+        local txKind = "upgradeSystem"
+        local txRoot = store()
+        local txOwner = userKey(player)
+        local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+        if cached then
+            local status = tostring(cached.status or "")
+            if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+            if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+            if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+            if status == "done" then
+                local payload = type(cached.payload) == "table" and cached.payload or {}
+                payload.opId = args and args.opId
+                return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+            end
+        end
+        if not guard(player) then return end
+        if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+            unguard(player)
+            return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+        end
+        local persisted, persistError = transmitStore()
+        if not persisted then
+            GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+            unguard(player)
+            return errorMessage(player, tostring(persistError))
+        end
+        local ok, err = pcall(function()
+            local function complete(okValue, code, codeArgs, payload)
+                payload = type(payload) == "table" and payload or {}
+                payload.opId = args and args.opId
+                GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+                return finishCode(player, okValue, code, codeArgs, payload)
+            end
+            local currentLevel = GodSystemCarryCapacity.getLevel(data)
+            local nextLevel = currentLevel + 1
+            local cost = GodSystemCarryCapacity.getNextCost(currentLevel)
+            if not cost then return complete(false, "CarryCapacityCostOverflow") end
+            local applied, reason = GodSystemCarryCapacity.apply(player, nextLevel)
+            if not applied then return complete(false, "CarryCapacityApplyFailed", { tostring(reason or "unknown") }) end
+            if not addPoints(player, -cost, data) then
+                GodSystemCarryCapacity.apply(player, currentLevel)
+                return complete(false, "CurrencyNotEnough")
+            end
+            data.upgrades.carryCapacityLevel = nextLevel
+            data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+            appendHistory(data, historyEntry("upgrade", "CarryCapacityUpgrade", {
+                nextLevel,
+                GodSystemCarryCapacity.getBonus(nextLevel) or 0,
+                cost,
+            }))
+            return complete(true, "CarryCapacityUpgraded", {
+                nextLevel,
+                GodSystemCarryCapacity.getBonus(nextLevel) or 0,
+                cost,
+            }, {
+                kind = "carryCapacity",
+                level = nextLevel,
+            })
+        end)
+        unguard(player)
+        if not ok then
+            GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+            local persisted, persistError = transmitStore()
+            if not persisted then return errorMessage(player, tostring(persistError)) end
+            return errorMessage(player, tostring(err))
+        end
+        return
+    end
     local current, maxValue, nextValue, cost
     if t == "activeTasks" then
         current = maxActiveTasks(data)
@@ -3539,6 +3660,27 @@ function Commands.upgradeSystem(_, _, player, args)
     data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
     appendHistory(data, historyEntry("upgrade", "UpgradeSystem", { t, current, nextValue, cost }))
     finish(player, true, "系统升级成功")
+end
+
+function Commands.refreshCarryCapacity(_, _, player)
+    if not guard(player) then return end
+    local ok, err = pcall(function()
+        local data = playerData(player)
+        local level = GodSystemCarryCapacity.getLevel(data)
+        local applied, reason = GodSystemCarryCapacity.apply(player, level)
+        if not applied then
+            return finishCode(player, false, "CarryCapacityRefreshFailed", { tostring(reason or "unknown") })
+        end
+        finishCode(player, true, "CarryCapacityRefreshed", {
+            level,
+            GodSystemCarryCapacity.getBonus(level) or 0,
+        }, {
+            kind = "carryCapacityRefresh",
+            level = level,
+        })
+    end)
+    unguard(player)
+    if not ok then errorMessage(player, tostring(err)) end
 end
 
 function Commands.task(_, _, player, args)

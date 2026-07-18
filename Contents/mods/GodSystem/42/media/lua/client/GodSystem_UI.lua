@@ -3464,12 +3464,22 @@ function GodSystemWindow:populateUpgrades()
     self.secondaryButton:setVisible(not gsIsMultiplayer())
     self.thirdButton:setVisible(false)
 
-    local upgrades = { "activeTasks", "dailyTasks" }
+    local upgrades = { "activeTasks", "dailyTasks", "carryCapacity" }
     for i = 1, #upgrades do
         local info = GodSystem.getSystemUpgradeInfo(upgrades[i])
         if info then
-            local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_Maxed", "Maxed")
-            local detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
+            local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c"))
+                or (info.upgradeType == "carryCapacity" and GodSystem.text("Upgrade_CostOverflow", "Unavailable") or GodSystem.text("Upgrade_Maxed", "Maxed"))
+            local detail = nil
+            if info.upgradeType == "carryCapacity" then
+                local status = info.carryStatus or {}
+                detail = GodSystem.text("Upgrade_CarryBase", "Current base") .. "(" .. tostring(status.base or "?") .. ")"
+                    .. " | " .. GodSystem.text("Upgrade_CarryBonus", "System bonus") .. "(+" .. tostring(status.bonus or 0) .. ")"
+                    .. " | " .. GodSystem.text("Upgrade_CarryTotal", "Final carry") .. "(" .. tostring(status.total or "?") .. ")"
+                    .. " | Lv." .. tostring(info.current) .. " | " .. costText
+            else
+                detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
+            end
             self:addListItem(info.label, { kind = "upgrade", data = info, detail = detail })
         end
     end
@@ -3533,7 +3543,8 @@ end
 
 function GodSystemWindow:applyUpgradeActionBar(payload)
     self.primaryButton:setVisible(true)
-    self.secondaryButton:setVisible(not gsIsMultiplayer())
+    local carrySelected = payload and payload.kind == "upgrade" and payload.data and payload.data.upgradeType == "carryCapacity"
+    self.secondaryButton:setVisible(carrySelected or not gsIsMultiplayer())
     self.thirdButton:setVisible(false)
     self.fourthButton:setVisible(false)
     self.fifthButton:setVisible(false)
@@ -3544,7 +3555,7 @@ function GodSystemWindow:applyUpgradeActionBar(payload)
         self.secondaryButton:setVisible(false)
     else
         gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_UpgradeSystem", "Upgrade"))
-        gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
+        gsSetButtonTitle(self.secondaryButton, carrySelected and GodSystem.text("Btn_RefreshCarryCapacity", "Refresh bonus") or GodSystem.text("Btn_RefreshDisplay", "Refresh"))
     end
     self:setStandardActionBar()
 end
@@ -5104,6 +5115,12 @@ function GodSystemWindow:onSecondaryAction()
         end
         self:populateList()
     elseif self.mode == "upgrades" then
+        local payload = self:getSelectedPayload()
+        if payload and payload.kind == "upgrade" and payload.data and payload.data.upgradeType == "carryCapacity" then
+            local sent = GodSystem.refreshCarryCapacity()
+            self:finishMultiplayerCommand(sent)
+            return
+        end
         if self:requestServerRefresh() then
             return
         end

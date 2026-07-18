@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.56"
+GodSystemConfig.Version = "1.16.57"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -42,6 +42,9 @@ GodSystemConfig.ActiveTaskUpgradeCosts = {
     [9] = 560,
     [10] = 750,
 }
+GodSystemConfig.CarryCapacityPerLevel = 2
+GodSystemConfig.CarryCapacityBaseCost = 2000
+GodSystemConfig.CarryCapacityCostMultiplier = 1.5
 GodSystemConfig.RefreshTaskCost = 30
 GodSystemConfig.DefaultTaskLimitHours = 24
 GodSystemConfig.MedicalCheckInfectionCost = 50

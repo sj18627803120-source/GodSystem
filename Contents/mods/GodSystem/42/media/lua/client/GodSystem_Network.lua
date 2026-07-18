@@ -36,6 +36,7 @@ local pendingKeyCommand = nil
 local pendingOperationId = nil
 local pendingOperationStartedMs = 0
 local pendingOperationPayload = nil
+local timedOutTransactionOperation = nil
 local timedOutAttributeOperation = nil
 local operationSeq = math.max(0, tonumber(GodSystemNetwork.operationSeq) or 0)
 local operationSessionId = tostring(GodSystemNetwork.operationSessionId or "")
@@ -156,6 +157,45 @@ local function copyPayload(args)
     return payload
 end
 
+local function transactionFingerprint(command, args)
+    args = type(args) == "table" and args or {}
+    local attributeCommand = (Protocol.C2S and Protocol.C2S.Attribute) or "attribute"
+    local upgradeCommand = (Protocol.C2S and Protocol.C2S.UpgradeSystem) or "upgradeSystem"
+    local recycleCommand = (Protocol.C2S and Protocol.C2S.Recycle) or "recycle"
+    if command == attributeCommand then
+        return table.concat({
+            "attribute",
+            tostring(args.perkIndex or ""),
+            tostring(args.mode or ""),
+            tostring(args.value or ""),
+        }, "|")
+    end
+    if command == upgradeCommand and tostring(args.upgradeType or "") == "carryCapacity" then
+        return "upgrade|carryCapacity"
+    end
+    if command == recycleCommand and type(args.itemIds) == "table" then
+        local parts = {
+            "recycle",
+            tostring(args.mode or ""),
+            args.allowDestroyContents == true and "1" or "0",
+        }
+        local ids = {}
+        for i = 1, #args.itemIds do ids[#ids + 1] = tostring(args.itemIds[i] or "") end
+        table.sort(ids)
+        for i = 1, #ids do parts[#parts + 1] = "i:" .. ids[i] end
+        local signatures = type(args.containerContentSignatures) == "table" and args.containerContentSignatures or {}
+        local signatureIds = {}
+        for id in pairs(signatures) do signatureIds[#signatureIds + 1] = tostring(id) end
+        table.sort(signatureIds)
+        for i = 1, #signatureIds do
+            local id = signatureIds[i]
+            parts[#parts + 1] = "s:" .. id .. "=" .. tostring(signatures[id] or "")
+        end
+        return table.concat(parts, "|")
+    end
+    return nil
+end
+
 local function sameAttributePayload(a, b)
     if type(a) ~= "table" or type(b) ~= "table" then return false end
     return math.floor(tonumber(a.perkIndex) or -1) == math.floor(tonumber(b.perkIndex) or -1)
@@ -247,12 +287,18 @@ local function checkPendingTimeout()
     local elapsed = nowMs() - started
     if elapsed < KEY_COMMAND_TIMEOUT_MS then return false end
     local command = pendingKeyCommand
-    if command == ((Protocol.C2S and Protocol.C2S.Attribute) or "attribute") and pendingOperationId ~= nil then
-        timedOutAttributeOperation = {
+    local fingerprint = transactionFingerprint(command, pendingOperationPayload)
+    if fingerprint and pendingOperationId ~= nil then
+        timedOutTransactionOperation = {
             opId = pendingOperationId,
             payload = copyPayload(pendingOperationPayload),
+            command = command,
+            fingerprint = fingerprint,
             expiredAtMs = nowMs(),
         }
+        if command == ((Protocol.C2S and Protocol.C2S.Attribute) or "attribute") then
+            timedOutAttributeOperation = timedOutTransactionOperation
+        end
     end
     GodSystemNetwork.pendingTimeouts = (GodSystemNetwork.pendingTimeouts or 0) + 1
     GodSystemNetwork.lastPendingTimeoutCommand = command
@@ -281,15 +327,17 @@ send = function(command, args)
     end
     local payload = copyPayload(args)
     if keyCommand then
-        local attributeCommand = (Protocol.C2S and Protocol.C2S.Attribute) or "attribute"
+        local fingerprint = transactionFingerprint(command, payload)
         local reusedOpId = nil
-        if command == attributeCommand and timedOutAttributeOperation
-            and nowMs() - (tonumber(timedOutAttributeOperation.expiredAtMs) or 0) <= 60000
-            and sameAttributePayload(payload, timedOutAttributeOperation.payload) then
-            reusedOpId = timedOutAttributeOperation.opId
+        if fingerprint and timedOutTransactionOperation
+            and command == timedOutTransactionOperation.command
+            and nowMs() - (tonumber(timedOutTransactionOperation.expiredAtMs) or 0) <= 60000
+            and fingerprint == timedOutTransactionOperation.fingerprint
+            and (command ~= ((Protocol.C2S and Protocol.C2S.Attribute) or "attribute") or sameAttributePayload(payload, timedOutTransactionOperation.payload)) then
+            reusedOpId = timedOutTransactionOperation.opId
         end
         if reusedOpId == nil then
-            if command == attributeCommand then
+            if fingerprint then
                 reusedOpId = nextAttributeOperationId()
             else
                 operationSeq = operationSeq + 1
@@ -297,7 +345,10 @@ send = function(command, args)
                 reusedOpId = operationSeq
             end
         end
-        if command == attributeCommand then timedOutAttributeOperation = nil end
+        if fingerprint then
+            timedOutTransactionOperation = nil
+            if command == ((Protocol.C2S and Protocol.C2S.Attribute) or "attribute") then timedOutAttributeOperation = nil end
+        end
         pendingKeyCommand = command
         pendingOperationId = reusedOpId
         pendingOperationStartedMs = nowMs()
@@ -580,6 +631,9 @@ local function OnServerCommand(module, command, args)
         if args and type(args.data) == "table" then
             args.data = mergeLocalTaskProgress(args.data)
             GodSystem.data = args.data
+            if GodSystem and GodSystem.applyCarryCapacity then
+                pcall(GodSystem.applyCarryCapacity, player(), args.data)
+            end
         end
         GodSystemNetwork.hasServerState = true
         GodSystemNetwork.pendingState = false
@@ -621,8 +675,9 @@ local function OnServerCommand(module, command, args)
             end
         end
         local resultOpId = args and args.payload and args.payload.opId or nil
-        if resultOpId ~= nil and timedOutAttributeOperation
-            and tostring(resultOpId) == tostring(timedOutAttributeOperation.opId) then
+        if resultOpId ~= nil and timedOutTransactionOperation
+            and tostring(resultOpId) == tostring(timedOutTransactionOperation.opId) then
+            timedOutTransactionOperation = nil
             timedOutAttributeOperation = nil
         end
         if resultOpId == nil or pendingOperationId == nil or tostring(resultOpId) == tostring(pendingOperationId) then
@@ -785,6 +840,7 @@ end
 
 function GodSystemNetwork.onPlayerDeath(p)
     if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
+    if GodSystemCarryCapacity then GodSystemCarryCapacity.clearRuntime(p or player()) end
     if GodSystem and GodSystem.updateMoveDistance then
         GodSystem.updateMoveDistance(p or player())
     end
@@ -911,12 +967,13 @@ wrap("recycleInventoryItems", function(fullType, count)
     return send("recycle", { fullType = fullType, count = count or 1 })
 end)
 
-wrap("recycleSelectedItems", function(mode, itemIds, allowDestroyContents, containerContentSignatures)
+wrap("recycleSelectedItems", function(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped)
     return send("recycle", {
         mode = mode,
         itemIds = itemIds,
         allowDestroyContents = allowDestroyContents == true,
         containerContentSignatures = containerContentSignatures,
+        clientSkipped = math.min(10000, math.max(0, math.floor(tonumber(clientSkipped) or 0))),
     })
 end)
 
@@ -956,6 +1013,10 @@ end)
 
 wrap("upgradeSystem", function(upgradeType)
     return send("upgradeSystem", { upgradeType = upgradeType })
+end)
+
+wrap("refreshCarryCapacity", function()
+    return send((Protocol.C2S and Protocol.C2S.RefreshCarryCapacity) or "refreshCarryCapacity", {})
 end)
 
 wrap("performMedicalService", function(action)

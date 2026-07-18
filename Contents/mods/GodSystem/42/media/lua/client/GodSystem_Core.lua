@@ -6,6 +6,7 @@ require "GodSystem_Localization_Override"
 require "GodSystem_AdminConfig"
 require "GodSystem_CompanionConfig"
 require "GodSystem_Attributes"
+require "GodSystem_CarryCapacity"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
@@ -388,6 +389,7 @@ function GodSystem.getData()
     data.upgrades.maxActiveTasks = math.min(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTaskLimit or 10)
     data.upgrades.dailyTaskCount = math.max(GodSystemConfig.DailyTaskCount or 5, math.floor(tonumber(data.upgrades.dailyTaskCount) or (GodSystemConfig.DailyTaskCount or 5)))
     data.upgrades.dailyTaskCount = math.min(data.upgrades.dailyTaskCount, GodSystemConfig.MaxDailyTaskLimit or 20)
+    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.normalizeLevel(data.upgrades.carryCapacityLevel)
     data.homeSystem = data.homeSystem or {}
     data.homeSystem.tempSlots = data.homeSystem.tempSlots or {}
     data.homeSystem.returnPoint = data.homeSystem.returnPoint or nil
@@ -893,6 +895,30 @@ function GodSystem.getDailyTaskCount()
     return math.min(limit, math.max(base, math.floor(tonumber(value) or base)))
 end
 
+function GodSystem.getCarryCapacityLevel()
+    local data = GodSystem.getData()
+    data.upgrades = data.upgrades or {}
+    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.normalizeLevel(data.upgrades.carryCapacityLevel)
+    return data.upgrades.carryCapacityLevel
+end
+
+function GodSystem.applyCarryCapacity(player, data)
+    player = player or gsPlayer()
+    data = data or GodSystem.getData()
+    if not player or not data then return false, "noPlayer" end
+    return GodSystemCarryCapacity.apply(player, GodSystemCarryCapacity.getLevel(data))
+end
+
+function GodSystem.refreshCarryCapacity()
+    local ok, reason = GodSystem.applyCarryCapacity(gsPlayer(), GodSystem.getData())
+    if ok then
+        GodSystem.notify(GodSystem.text("Notify_CarryCapacityRefreshed", "Carry capacity bonus refreshed"))
+        return true
+    end
+    GodSystem.notify(GodSystem.text("Notify_CarryCapacityRefreshFailed", "Unable to refresh carry capacity bonus") .. " (" .. tostring(reason or "unknown") .. ")")
+    return false
+end
+
 function GodSystem.getSystemUpgradeInfo(upgradeType)
     local data = GodSystem.getData()
     data.upgrades = data.upgrades or {}
@@ -932,6 +958,21 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             desc = GodSystem.text("Upgrade_DailyTasksDesc", "Increase the number of tasks generated each day by 1. Adds one open task immediately."),
         }
     end
+    if upgradeType == "carryCapacity" then
+        local level = GodSystem.getCarryCapacityLevel()
+        local cost = GodSystemCarryCapacity.getNextCost(level)
+        local status = GodSystemCarryCapacity.getStatus(gsPlayer(), level)
+        return {
+            upgradeType = upgradeType,
+            current = level,
+            nextValue = level + 1,
+            maxValue = nil,
+            cost = cost,
+            label = GodSystem.text("Upgrade_CarryCapacity", "Carry capacity"),
+            desc = GodSystem.text("Upgrade_CarryCapacityDesc", "Permanently increase player carry capacity by 2 per level."),
+            carryStatus = status,
+        }
+    end
     return nil
 end
 
@@ -939,6 +980,18 @@ function GodSystem.getSystemUpgradeDetailText(upgradeType)
     local info = GodSystem.getSystemUpgradeInfo(upgradeType)
     if not info then
         return ""
+    end
+    if upgradeType == "carryCapacity" then
+        local status = info.carryStatus or {}
+        local base = status.base ~= nil and tostring(status.base) or "?"
+        local total = status.total ~= nil and tostring(status.total) or "?"
+        local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_CostOverflow", "Unavailable")
+        return tostring(info.desc or "")
+            .. " | " .. GodSystem.text("Upgrade_CarryBase", "Current base") .. " " .. base
+            .. " | " .. GodSystem.text("Upgrade_CarryBonus", "System bonus") .. " +" .. tostring(status.bonus or 0)
+            .. " | " .. GodSystem.text("Upgrade_CarryTotal", "Final carry") .. " " .. total
+            .. " | " .. GodSystem.text("Upgrade_Level", "Level") .. " " .. tostring(info.current)
+            .. " | " .. GodSystem.text("Upgrade_Cost", "Cost") .. " " .. costText
     end
     local nextText = info.cost and (tostring(info.current) .. " -> " .. tostring(info.nextValue)) or tostring(info.current)
     local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_Maxed", "Maxed")
@@ -951,12 +1004,50 @@ function GodSystem.upgradeSystem(upgradeType)
         return false
     end
     if not info.cost then
-        GodSystem.notify(GodSystem.text("Notify_UpgradeMaxed", "Already at max level"))
+        if upgradeType == "carryCapacity" then
+            GodSystem.notify(GodSystem.text("Notify_CarryCapacityCostOverflow", "The next cost exceeds the safe numeric range"))
+        else
+            GodSystem.notify(GodSystem.text("Notify_UpgradeMaxed", "Already at max level"))
+        end
         return false
     end
     if not GodSystem.canAfford(info.cost) then
         GodSystem.notify(GodSystem.text("Notify_CurrencyNotEnough", "Not enough currency"))
         return false
+    end
+
+    if upgradeType == "carryCapacity" then
+        local player = gsPlayer()
+        local data = GodSystem.getData()
+        local previousLevel = GodSystem.getCarryCapacityLevel()
+        local nextLevel = previousLevel + 1
+        local applied, applyReason = GodSystemCarryCapacity.apply(player, nextLevel)
+        if not applied then
+            GodSystem.notify(GodSystem.text("Notify_CarryCapacityApplyFailed", "Carry capacity upgrade could not be applied") .. " (" .. tostring(applyReason or "unknown") .. ")")
+            return false
+        end
+        if not GodSystem.addPoints(-info.cost) then
+            GodSystemCarryCapacity.apply(player, previousLevel)
+            return false
+        end
+        data.upgrades = data.upgrades or {}
+        data.upgrades.carryCapacityLevel = nextLevel
+        data.stats = data.stats or {}
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + info.cost
+        gsAppendHistory(data, {
+            kind = "upgrade",
+            text = gsFormatText(GodSystem.text("History_CarryCapacityUpgrade", "Carry capacity upgrade: Lv.{1}, bonus +{2}, cost {3}"), {
+                nextLevel,
+                GodSystemCarryCapacity.getBonus(nextLevel) or 0,
+                info.cost,
+            }),
+        })
+        GodSystem.save()
+        GodSystem.notify(gsFormatText(GodSystem.text("Notify_CarryCapacityUpgraded", "Carry capacity upgraded to Lv.{1}, bonus +{2}"), {
+            nextLevel,
+            GodSystemCarryCapacity.getBonus(nextLevel) or 0,
+        }))
+        return true
     end
     if not GodSystem.addPoints(-info.cost) then
         return false
@@ -6467,7 +6558,7 @@ local function gsRestoreContextUseState(player, row)
     if row.secondary then pcall(function() player:setSecondaryHandItem(row.item) end) end
 end
 
-function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures)
+function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped)
     mode = tostring(mode or "")
     if mode ~= "recycle" and mode ~= "recycleAndList" and mode ~= "listOnly" then return false end
     if GodSystem.isFeatureEnabled("EnableRecycle") == false then
@@ -6481,6 +6572,7 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
     local seen = {}
     local types = {}
     local typeOrder = {}
+    local skipped = math.min(10000, math.max(0, math.floor(tonumber(clientSkipped) or 0)))
     for i = 1, #(itemIds or {}) do
         local id = tostring(itemIds[i] or "")
         if id ~= "" and not seen[id] then
@@ -6491,20 +6583,17 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
                 return false
             end
             local allowed = GodSystem.canContextRecycleItem(item)
-            if not allowed then
-                GodSystem.notify(GodSystem.text("Notify_RecycleSelectionProtected", "A selected item cannot be recycled"))
-                return false
-            end
             local fullType = item:getFullType()
-            if mode ~= "recycle" then
+            local eligible = allowed == true
+            if eligible and mode ~= "recycle" then
                 local listable, reason = GodSystem.canContextListItem(item)
                 if not listable then
-                    local key = reason == "alreadyListed" and "Notify_RecycleSelectionAlreadyListed" or "Notify_RecycleSelectionNotListable"
-                    GodSystem.notify(GodSystem.text(key, "A selected item cannot be listed"))
-                    return false
+                    eligible = false
                 end
             end
-            if mode ~= "listOnly" then
+            if not eligible then
+                skipped = skipped + 1
+            elseif mode ~= "listOnly" then
                 local expected = type(containerContentSignatures) == "table" and containerContentSignatures[id] or nil
                 local hasContents = gsItemInventoryCount(item) > 0
                 if (hasContents or expected) and (allowDestroyContents ~= true or not expected or GodSystem.getContextContainerSignature(item) ~= expected) then
@@ -6512,16 +6601,21 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
                     return false
                 end
             end
-            selected[#selected + 1] = { item = item, container = container, fullType = fullType }
-            if not types[fullType] then
-                types[fullType] = { item = item, raw = 0, count = 0 }
-                typeOrder[#typeOrder + 1] = fullType
+            if eligible then
+                selected[#selected + 1] = { item = item, container = container, fullType = fullType }
+                if not types[fullType] then
+                    types[fullType] = { item = item, raw = 0, count = 0 }
+                    typeOrder[#typeOrder + 1] = fullType
+                end
+                types[fullType].raw = types[fullType].raw + GodSystem.getContextRecycleValue(item)
+                types[fullType].count = types[fullType].count + 1
             end
-            types[fullType].raw = types[fullType].raw + GodSystem.getContextRecycleValue(item)
-            types[fullType].count = types[fullType].count + 1
         end
     end
-    if #selected <= 0 then return false end
+    if #selected <= 0 then
+        GodSystem.notify(gsFormatText(GodSystem.text("Notify_RecycleSelectionEmptySkipped", "No eligible items; skipped {1}"), { skipped }))
+        return false
+    end
 
     local data = GodSystem.getData()
     if mode == "listOnly" then
@@ -6545,9 +6639,7 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
             local row = listRows[i]
             if not GodSystem.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), row.sellValue) then
                 for j = 1, #unlocked do data.unlockedShopItems[unlocked[j]] = nil end
-                local bank = GodSystem.getBank()
-                bank.current = (bank.current or 0) + (fromBank or 0)
-                if (fromCash or 0) > 0 then GodSystem.giveCurrency(fromCash) end
+                GodSystem.refundCurrencySources(fromBank, fromCash)
                 GodSystem.save()
                 GodSystem.notify(GodSystem.text("Notify_RecycleSelectionChanged", "Selected items changed; action cancelled"))
                 return false
@@ -6557,7 +6649,8 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
         local data = GodSystem.getData()
         gsAppendHistory(data, { kind = "shop", text = gsFormatText(GodSystem.text("History_RecycleSelectionListOnly", "Listed {1} item types for {2} coins"), { #listRows, totalCost }) })
         GodSystem.save()
-        GodSystem.notify(gsFormatText(GodSystem.text("Notify_RecycleSelectionListOnly", "Listed {1} item types for {2} coins"), { #listRows, totalCost }))
+        local notifyKey = skipped > 0 and "Notify_RecycleSelectionListOnlyPartial" or "Notify_RecycleSelectionListOnly"
+        GodSystem.notify(gsFormatText(GodSystem.text(notifyKey, "Listed {1} item types for {2} coins; skipped {3}"), { #listRows, totalCost, skipped }))
         return true
     end
 
@@ -6626,9 +6719,10 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
     data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
     data.stats.recycledPoints = (data.stats.recycledPoints or 0) + payout
     local key = mode == "recycleAndList" and "Notify_RecycleSelectionAndList" or "Notify_RecycleSelectionSuccess"
+    if skipped > 0 then key = key .. "Partial" end
     gsAppendHistory(data, { kind = "recycle", text = gsFormatText(GodSystem.text("History_RecycleSelection", "Recycled {1} items for {2} coins"), { #removed, payout }) })
     GodSystem.save()
-    GodSystem.notify(gsFormatText(GodSystem.text(key, "Recycled {1} items for {2} coins"), { #removed, payout }))
+    GodSystem.notify(gsFormatText(GodSystem.text(key, "Recycled {1} items for {2} coins; skipped {3}"), { #removed, payout, skipped }))
     return true
 end
 
@@ -7185,15 +7279,23 @@ function GodSystem.onPlayerDeath(player)
     if player and type(player) ~= "number" and player ~= gsPlayer() then
         return
     end
+    GodSystemCarryCapacity.clearRuntime(type(player) == "number" and nil or player)
     GodSystem.normalizeActiveKillTasks()
     GodSystem.handlePlayerDeath()
 end
 
 function GodSystem.onGameStart()
-    GodSystem.getData()
+    local data = GodSystem.getData()
+    GodSystem.applyCarryCapacity(gsPlayer(), data)
     GodSystem.ensureCurrencyInitialized()
     GodSystem.generateDailyTasks(false)
     GodSystem.refreshAutoRecyclerContainers()
+end
+
+function GodSystem.onCreatePlayer(_, player)
+    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
+    GodSystemCarryCapacity.clearRuntime(player)
+    GodSystem.applyCarryCapacity(player or gsPlayer(), GodSystem.getData())
 end
 
 function GodSystem.onInitGlobalModData()
@@ -7213,6 +7315,9 @@ if Events.OnInitGlobalModData then
 end
 if Events.OnGameStart then
     Events.OnGameStart.Add(GodSystem.onGameStart)
+end
+if Events.OnCreatePlayer then
+    Events.OnCreatePlayer.Add(GodSystem.onCreatePlayer)
 end
 if Events.OnPlayerUpdate then
     Events.OnPlayerUpdate.Add(GodSystem.onPlayerUpdate)
