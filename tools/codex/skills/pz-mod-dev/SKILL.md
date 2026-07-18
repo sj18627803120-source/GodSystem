@@ -20,6 +20,17 @@ description: Project Zomboid mod development workflow for Build 42/B42.19 and si
 
 For detailed patterns learned from GodSystem and reference mods, read `references/pz-b42-patterns.md` when working on multiplayer, packaging, localization, item scripts, or UI stability.
 
+## Reference Research Workflow
+
+When the current repository contains `docs/reference-mod-research/README.md`, read that index before relying on internet summaries or asking for local third-party source trees. The library is designed to be sufficient for a second development machine that has only the Git repository.
+
+- Select evidence by target version: same-version vanilla/official files first, then `B42.19 同版本证据`, then `旧 B42 参考`, and use `B41 弱参考` only for architecture.
+- Keep four claim types distinct: `代码确认`, `作者声明`, `合理推断`, and `待实机验证`.
+- A source comment or Workshop MP claim does not prove server authority. Trace request, server validation, mutation, synchronization, result, refund, and retry behavior.
+- Never promote an inferred risk into a confirmed defect without a reproduction, log, or explicit code path that guarantees the failure.
+- Do not copy or commit third-party source/assets. Record relative source paths, symbol names, behavior summaries, limits, search terms, and adoption guidance.
+- When a stable cross-source rule is promoted into this skill, retain a link to at least one source report in `references/pz-b42-patterns.md`.
+
 ## Superpowers Coordination
 
 Use Superpowers to turn broad requests into bounded work instead of jumping straight into Lua edits:

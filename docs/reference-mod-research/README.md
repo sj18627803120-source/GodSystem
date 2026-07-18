@@ -12,6 +12,13 @@
 4. 区分代码事实、作者声明、工程推断和待实机项目。
 5. 跨项目稳定结论以 `tools/codex/skills/pz-mod-dev/references/pz-b42-patterns.md` 为准。
 
+## 选择来源
+
+- 先看目标接口是否与来源版本一致。B42.19 功能优先使用同版本原版文件，再选带 `B42.19 同版本证据` 的报告。
+- 研究付费、库存或多人命令时，至少同时看一个服务端权威来源和一个失败/退款来源，不以“作者声明支持多人”代替调用链审计。
+- 研究容器、特质和战斗能力时，区分脚本定义、实例状态、创建期副作用和运行期事件；它们通常不是同一层能力。
+- 只有报告中的 `代码确认` 可以直接作为静态事实；`合理推断` 必须保留推断依据，`待实机验证` 不能写成已解决。
+
 ## 证据标签
 
 - `代码确认`：在本地参考源码中找到明确文件、函数、事件或字段。
@@ -27,7 +34,13 @@
 
 ## 主题索引
 
-### 商店、经济与多人
+### 多人协议与同步
+
+- [Server Shop](mods/Server-Shop.md)：服务端余额、库存预留、发货、退款、离线队列和审计。
+- [YeseMarket](mods/YeseMarket.md)：共享协议表、SP 本地 dispatcher、MP handler 和库存回滚。
+- [CaiGou's Shop](mods/CaiGou-Shop.md)：真实物品 ID 上架与快照，同时展示客户端价格信任风险。
+
+### 经济、商城与回收
 
 - [CaiGou's Shop](mods/CaiGou-Shop.md)
 - [RuinBazaar](mods/RuinBazaar.md)
@@ -37,18 +50,34 @@
 ### 容器、穿戴与重量
 
 - [Cultivation Storage Artifacts](mods/CultivationStorageArtifacts.md)
+- [More Traits](mods/MoreTraits.md)
 - [that DAMN Library](mods/damnlib.md)
 
-### 特质、技能与能力
+### 特质、技能 XP 与成长
 
 - [More Traits](mods/MoreTraits.md)
 - [Traits Purchase System](mods/TraitsPurchaseSystem.md)
 - [Psionic Awakening](mods/PsionicAwakening.md)
 
-### 分类、兼容与调试
+### 物品分类与兼容
 
 - [Extended Categories](mods/CAExtendedCategories.md)
+- [that DAMN Library](mods/damnlib.md)
 - [DebugMenu](mods/DebugMenu.md)
+
+### UI、车辆与调试
+
+- [Traits Purchase System](mods/TraitsPurchaseSystem.md)
+- [YeseMarket](mods/YeseMarket.md)
+- [DebugMenu](mods/DebugMenu.md)
+- [Server Shop](mods/Server-Shop.md)
+
+### 渲染、战斗与性能
+
+- [Psionic Awakening](mods/PsionicAwakening.md)
+- [RuinBazaar](mods/RuinBazaar.md)
+- [Extended Categories](mods/CAExtendedCategories.md)
+- [Cultivation Storage Artifacts](mods/CultivationStorageArtifacts.md)
 
 ## 全部来源
 

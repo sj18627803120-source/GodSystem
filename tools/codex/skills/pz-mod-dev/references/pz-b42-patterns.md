@@ -12,6 +12,19 @@ Use this order when designing or debugging:
 
 Version match matters. Official source wins only when it matches or clearly applies to the target version.
 
+When working in GodSystem, start with the repository's [reference MOD research index](../../../../../docs/reference-mod-research/README.md) and [version catalog](../../../../../docs/reference-mod-research/catalog.md). Reports deliberately separate `代码确认`, `作者声明`, `合理推断`, and `待实机验证`; do not collapse those labels when promoting a rule.
+
+## Cross-Source Research Rules
+
+- Server-authoritative economy means the server resolves the listing, price, stock, balance, item ownership, and final mutation. A server handler alone is insufficient when it still trusts a client price or item snapshot. Compare [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md), [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md), and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).
+- Paid delivery should reserve scarce state, record the exact payment split, perform delivery, verify the result where possible, and restore stock/payment on failure. Offline queues need both a player-created event and a client hello/retry path. See [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md).
+- Inventory mutation must resolve real item IDs on the authority side and explicitly synchronize add/remove operations. Client snapshots are display/request data, not ownership proof. See [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md) and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).
+- Apparent storage beyond the B42 container limit can be multiple standard-capacity containers, not one oversized `ItemContainer`. Recursive weight compression must store an instance base weight, restore on controlled transfer, and avoid global script mutation. See [Cultivation Storage Artifacts](../../../../../docs/reference-mod-research/mods/CultivationStorageArtifacts.md).
+- Never use `ScriptItem:DoParam()` or `scriptItem:setActualWeight()` for player-specific/per-instance state. Script items are shared prototypes; modifying one fullType can affect other instances and future spawns. Global fallback/classification MODs use this intentionally for global behavior, as shown by [that DAMN Library](../../../../../docs/reference-mod-research/mods/damnlib.md) and [Extended Categories](../../../../../docs/reference-mod-research/mods/CAExtendedCategories.md).
+- Adding a runtime trait marker does not replay creation-time items, injuries, recipes, XP boosts, or custom initialization. Enumerate standard definitions, revalidate cost/conflicts on the server, and use explicit adapters for supported side effects. See [More Traits](../../../../../docs/reference-mod-research/mods/MoreTraits.md) and [Traits Purchase System](../../../../../docs/reference-mod-research/mods/TraitsPurchaseSystem.md).
+- Keep constant-time state updates separate from target scans. Throttle full zombie-list scans, batch large square scans across ticks, and unregister temporary UI events after success. See [Psionic Awakening](../../../../../docs/reference-mod-research/mods/PsionicAwakening.md) and [Extended Categories](../../../../../docs/reference-mod-research/mods/CAExtendedCategories.md).
+- Debug/admin commands prove an engine call exists, not that it is safe for a paid player workflow. Wrap the vanilla call with real item, distance, permission, payment, failure, and synchronization checks. See [DebugMenu](../../../../../docs/reference-mod-research/mods/DebugMenu.md).
+
 ## Lessons From GodSystem
 
 - A mod can work as one SP/MP entry when client and server files are guarded correctly.
