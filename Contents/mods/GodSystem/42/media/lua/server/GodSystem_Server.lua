@@ -3567,40 +3567,40 @@ end
 function Commands.upgradeSystem(_, _, player, args)
     local data = playerData(player)
     local t = args and args.upgradeType
-    if t == "carryCapacity" then
-        local txKind = "upgradeSystem"
-        local txRoot = store()
-        local txOwner = userKey(player)
-        local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
-        if cached then
-            local status = tostring(cached.status or "")
-            if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
-            if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
-            if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
-            if status == "done" then
-                local payload = type(cached.payload) == "table" and cached.payload or {}
-                payload.opId = args and args.opId
-                return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
-            end
+    local txKind = "upgradeSystem"
+    local txRoot = store()
+    local txOwner = userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
         end
-        if not guard(player) then return end
-        if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
-            unguard(player)
-            return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted, persistError = transmitStore()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return errorMessage(player, tostring(persistError))
+    end
+    local ok, err = pcall(function()
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
         end
-        local persisted, persistError = transmitStore()
-        if not persisted then
-            GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
-            unguard(player)
-            return errorMessage(player, tostring(persistError))
-        end
-        local ok, err = pcall(function()
-            local function complete(okValue, code, codeArgs, payload)
-                payload = type(payload) == "table" and payload or {}
-                payload.opId = args and args.opId
-                GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
-                return finishCode(player, okValue, code, codeArgs, payload)
-            end
+        if t == "carryCapacity" then
             local currentLevel = GodSystemCarryCapacity.getLevel(data)
             local nextLevel = currentLevel + 1
             local cost = GodSystemCarryCapacity.getNextCost(currentLevel)
@@ -3626,40 +3626,43 @@ function Commands.upgradeSystem(_, _, player, args)
                 kind = "carryCapacity",
                 level = nextLevel,
             })
-        end)
-        unguard(player)
-        if not ok then
-            GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
-            local persisted, persistError = transmitStore()
-            if not persisted then return errorMessage(player, tostring(persistError)) end
-            return errorMessage(player, tostring(err))
         end
-        return
+        local current, maxValue, nextValue, cost
+        if t == "activeTasks" then
+            current = maxActiveTasks(data)
+            maxValue = GodSystemConfig.MaxActiveTaskLimit or 10
+            nextValue = math.min(maxValue, current + 1)
+            cost = current < maxValue and ((GodSystemConfig.ActiveTaskUpgradeCosts or {})[nextValue] or nextValue * 120) or nil
+        elseif t == "dailyTasks" then
+            current = dailyTaskCount(data)
+            maxValue = GodSystemConfig.MaxDailyTaskLimit or 20
+            nextValue = math.min(maxValue, current + 1)
+            cost = current < maxValue and ((GodSystemConfig.DailyTaskUpgradeCosts or {})[nextValue] or nextValue * 30) or nil
+        end
+        if not cost then return complete(false, "SystemUpgradeMaxed") end
+        if not addPoints(player, -cost, data) then return complete(false, "CurrencyNotEnough") end
+        if t == "activeTasks" then
+            data.upgrades.maxActiveTasks = nextValue
+        elseif t == "dailyTasks" then
+            data.upgrades.dailyTaskCount = nextValue
+            local templates = availableTaskTemplates()
+            if #templates > 0 then data.tasks[#data.tasks + 1] = generateTask(templates[randomIndex(#templates)]) end
+        end
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+        appendHistory(data, historyEntry("upgrade", "UpgradeSystem", { t, current, nextValue, cost }))
+        return complete(true, "SystemUpgradeSuccess", { t, current, nextValue, cost }, {
+            kind = "systemUpgrade",
+            upgradeType = t,
+            level = nextValue,
+        })
+    end)
+    unguard(player)
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        local errorPersisted, errorPersistError = transmitStore()
+        if not errorPersisted then return errorMessage(player, tostring(errorPersistError)) end
+        return errorMessage(player, tostring(err))
     end
-    local current, maxValue, nextValue, cost
-    if t == "activeTasks" then
-        current = maxActiveTasks(data)
-        maxValue = GodSystemConfig.MaxActiveTaskLimit or 10
-        nextValue = math.min(maxValue, current + 1)
-        cost = current < maxValue and ((GodSystemConfig.ActiveTaskUpgradeCosts or {})[nextValue] or nextValue * 120) or nil
-    elseif t == "dailyTasks" then
-        current = dailyTaskCount(data)
-        maxValue = GodSystemConfig.MaxDailyTaskLimit or 20
-        nextValue = math.min(maxValue, current + 1)
-        cost = current < maxValue and ((GodSystemConfig.DailyTaskUpgradeCosts or {})[nextValue] or nextValue * 30) or nil
-    end
-    if not cost then return finish(player, false, "已经满级") end
-    if not addPoints(player, -cost, data) then return finish(player, false, "系统币不足") end
-    if t == "activeTasks" then
-        data.upgrades.maxActiveTasks = nextValue
-    elseif t == "dailyTasks" then
-        data.upgrades.dailyTaskCount = nextValue
-        local templates = availableTaskTemplates()
-        if #templates > 0 then data.tasks[#data.tasks + 1] = generateTask(templates[randomIndex(#templates)]) end
-    end
-    data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
-    appendHistory(data, historyEntry("upgrade", "UpgradeSystem", { t, current, nextValue, cost }))
-    finish(player, true, "系统升级成功")
 end
 
 function Commands.refreshCarryCapacity(_, _, player)

@@ -1205,4 +1205,7 @@ IGUI_CN = {
     IGUI_GodSystem_NotifyMP_TransactionOperationUnknown = "上次交易结果不确定，请先检查物品和余额后再操作",
 
     IGUI_GodSystem_Notify_CarryCapacityCostOverflow = "下一级价格已超出安全数值范围，无法继续购买",
+
+    IGUI_GodSystem_NotifyMP_SystemUpgradeMaxed = "该系统升级已满级",
+    IGUI_GodSystem_NotifyMP_SystemUpgradeSuccess = "系统升级成功：{1} {2} → {3}，花费 {4} 系统币",
 }

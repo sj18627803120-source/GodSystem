@@ -83,16 +83,19 @@ Require-Text $server 'refundCurrencySources\(player, data, fromBank, fromCash\)'
 
 Require-Text $network 'timedOutTransactionOperation' 'Client must retain timed-out carry/recycle operations'
 Require-Text $network 'transactionFingerprint' 'Client must bind operation IDs to request fingerprints'
+Require-Text $network 'if command == upgradeCommand then' 'Every system upgrade type must receive a transaction operation ID'
 Require-Text $transactions 'status\s*=\s*"processing"' 'Server transaction cache must persist processing operations'
 Require-Text $transactions 'status\s*=\s*"unknown"' 'Server transaction cache must quarantine interrupted operations'
 Require-Text $transactions 'while bucket and #bucket\.order > MAX_RESULTS' 'Server transaction cache must stay bounded'
 Require-Text $server 'GodSystemTransactionOps\.remember' 'Carry/recycle results must be cached'
 Require-Text $server 'local persisted, persistError = transmitStore\(\)' 'Transaction processing state must be persisted before economic mutation'
+Reject-Text $server 'function Commands\.upgradeSystem[\s\S]*finish\(player, true, "系统升级成功"\)' 'Legacy system upgrades must use the cached transaction result path'
 
 foreach ($key in @(
     'Upgrade_CarryCapacity',
     'Btn_RefreshCarryCapacity',
     'NotifyMP_CarryCapacityUpgraded',
+    'NotifyMP_SystemUpgradeSuccess',
     'Context_EligibleSummary',
     'Notify_RecycleSelectionSuccessPartial',
     'NotifyMP_RecycleSelectionSuccessPartial',

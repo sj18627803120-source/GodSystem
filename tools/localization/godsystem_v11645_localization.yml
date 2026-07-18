@@ -1,4 +1,4 @@
-# GodSystem localization source, updated through v1.16.53.
+# GodSystem localization source, updated through v1.16.57.
 # Format intentionally stays flat: Key: "UTF-8 Chinese text"
 Upgrade_CarryCapacity: "负重能力"
 Upgrade_CarryCapacityDesc: "永久提高玩家角色负重上限，每级增加 2 点；死亡、重生、读档和重连后会自动恢复。"
@@ -19,6 +19,8 @@ NotifyMP_CarryCapacityApplyFailed: "负重升级无法应用，本次未扣费�
 NotifyMP_CarryCapacityUpgraded: "负重能力已升级到 Lv.{1}，系统加成 +{2}，花费 {3} 系统币"
 NotifyMP_CarryCapacityRefreshed: "负重加成状态已刷新：Lv.{1}，系统加成 +{2}"
 NotifyMP_CarryCapacityRefreshFailed: "负重加成刷新失败：{1}"
+NotifyMP_SystemUpgradeMaxed: "该系统升级已满级"
+NotifyMP_SystemUpgradeSuccess: "系统升级成功：{1} {2} → {3}，花费 {4} 系统币"
 HistoryMP_CarryCapacityUpgrade: "负重能力升级到 Lv.{1}，系统加成 +{2}，花费 {3} 系统币"
 Context_EligibleSummary: "符合条件：{1}；将跳过：{2}"
 Notify_RecycleSelectionEmptySkipped: "没有符合条件的物品，已跳过 {1} 件"

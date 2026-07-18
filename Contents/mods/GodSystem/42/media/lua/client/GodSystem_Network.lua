@@ -170,8 +170,8 @@ local function transactionFingerprint(command, args)
             tostring(args.value or ""),
         }, "|")
     end
-    if command == upgradeCommand and tostring(args.upgradeType or "") == "carryCapacity" then
-        return "upgrade|carryCapacity"
+    if command == upgradeCommand then
+        return "upgrade|" .. tostring(args.upgradeType or "")
     end
     if command == recycleCommand and type(args.itemIds) == "table" then
         local parts = {
