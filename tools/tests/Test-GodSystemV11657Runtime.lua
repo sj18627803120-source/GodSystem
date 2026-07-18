@@ -3,6 +3,7 @@ GodSystemConfig = {
     CarryCapacityBaseCost = 2000,
     CarryCapacityCostMultiplier = 1.5,
 }
+package.preload["GodSystem_Config"] = function() return GodSystemConfig end
 
 dofile(arg[1])
 
