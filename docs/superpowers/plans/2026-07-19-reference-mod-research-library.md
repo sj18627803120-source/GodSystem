@@ -92,7 +92,10 @@ if (Test-Path -LiteralPath $researchRoot) {
         $text = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
         if ($text.Contains([char]0xFFFD)) { $failures.Add("Replacement character: $($file.Name)") }
         if ($text -match 'C:\\Users\\Admin') { $failures.Add("Machine path: $($file.Name)") }
-        if ($text -match '锛|銆|鈥|缁|绯') { $failures.Add("Possible mojibake: $($file.Name)") }
+        $mojibakeChars = @([char]0x951B, [char]0x9286, [char]0x9225, [char]0x7F01, [char]0x7EEF)
+        if ($mojibakeChars | Where-Object { $text.Contains($_) }) {
+            $failures.Add("Possible mojibake: $($file.Name)")
+        }
     }
 }
 
