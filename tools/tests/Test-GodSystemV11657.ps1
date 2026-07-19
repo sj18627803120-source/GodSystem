@@ -108,7 +108,7 @@ Require-Text $config '(?s)TerminalCompressionLevels\s*=\s*\{.*?value\s*=\s*0,\s*
 Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setWeightReduction",\s*"getWeightReduction",\s*reduction\)' 'Terminal reduction must use the child ItemContainer API'
 Require-Text $terminal 'setActualWeight' 'Compression must update item instances'
 Require-Text $terminal 'setCustomWeight' 'Compression must mark instance custom weight'
-Reject-Text $terminal 'ScriptItem' 'Compression must not edit shared ScriptItem weights'
+Reject-Text $terminal 'DoParam|setScriptItem|definition:setActualWeight|definition:setWeight' 'Compression must not edit shared ScriptItem weights'
 Require-Text $terminal 'MAX_DEPTH\s*=\s*32' 'Nested compression must be depth-bounded'
 Require-Text $terminal 'BATCH_SIZE\s*=\s*32' 'Compression work must use fixed-size batches'
 Require-Text $terminal 'MIN_WEIGHT\s*=\s*0\.01' 'Compression must enforce a positive minimum weight'

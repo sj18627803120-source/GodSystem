@@ -4,11 +4,13 @@ GodSystemTerminalUpgrades = GodSystemTerminalUpgrades or {}
 GodSystemTerminalUpgrades.runtime = GodSystemTerminalUpgrades.runtime or {}
 
 local BASE_WEIGHT_KEY = "GodSystemCompressionBaseActualWeight"
+local BASE_INPUT_KEY = "GodSystemCompressionBaseInputWeight"
 local BASE_CUSTOM_KEY = "GodSystemCompressionBaseCustomWeight"
 local LAST_WEIGHT_KEY = "GodSystemCompressionLastAppliedWeight"
+local LAST_INPUT_KEY = "GodSystemCompressionLastInputWeight"
 local OWNER_KEY = "GodSystemCompressionTerminalId"
 local VERSION_KEY = "GodSystemCompressionVersion"
-local COMPRESSION_VERSION = 1
+local COMPRESSION_VERSION = 2
 local MIN_WEIGHT = 0.01
 local EPSILON = 0.0001
 local MAX_DEPTH = 32
@@ -41,17 +43,48 @@ local function readCustomWeight(item)
     return ok and value == true
 end
 
-local function writeWeight(item, weight, custom)
-    if not item or not item.setActualWeight or not item.setCustomWeight or not finite(weight) or weight < 0 then
+local function readDefinitionWeight(item)
+    if not item or not item.getScriptItem then return nil end
+    local okDefinition, definition = pcall(function() return item:getScriptItem() end)
+    if not okDefinition or not definition or not definition.getActualWeight then return nil end
+    local okWeight, value = pcall(function() return definition:getActualWeight() end)
+    value = okWeight and tonumber(value) or nil
+    return finite(value) and value >= 0 and value or nil
+end
+
+local function readInputWeight(item)
+    if item and item.getWeight then
+        local ok, value = pcall(function() return item:getWeight() end)
+        value = ok and tonumber(value) or nil
+        if finite(value) and value >= 0 then return value end
+    end
+    return readDefinitionWeight(item)
+end
+
+local function writeWeight(item, inputWeight, custom, expectedWeight)
+    inputWeight = tonumber(inputWeight)
+    expectedWeight = finite(expectedWeight) and tonumber(expectedWeight) or inputWeight
+    if not item or not item.setActualWeight or not item.setCustomWeight
+        or not finite(inputWeight) or inputWeight < 0 or not finite(expectedWeight) or expectedWeight < 0 then
         return false, "unsupported"
     end
     local expectedCustom = custom == true
+    local appliedInput = inputWeight
+    local appliedWeight = nil
     local ok = pcall(function()
         -- B42 may refresh ActualWeight when the custom flag changes.  Enter the
-        -- custom-weight state first, write the instance value, then restore the
-        -- original flag when this is a rollback/restoration.
+        -- custom-weight state first.  HandWeapon overrides getActualWeight(),
+        -- so its setter input and effective readback are not always identical.
         item:setCustomWeight(true)
-        item:setActualWeight(weight)
+        for _ = 1, 3 do
+            item:setActualWeight(appliedInput)
+            appliedWeight = readActualWeight(item)
+            local tolerance = math.max(EPSILON, math.abs(expectedWeight) * 0.001)
+            if appliedWeight ~= nil and math.abs(appliedWeight - expectedWeight) <= tolerance then break end
+            if appliedWeight == nil then break end
+            appliedInput = appliedInput + (expectedWeight - appliedWeight)
+            if not finite(appliedInput) or appliedInput < MIN_WEIGHT then break end
+        end
         if not expectedCustom then item:setCustomWeight(false) end
     end)
     if not ok then
@@ -59,10 +92,12 @@ local function writeWeight(item, weight, custom)
         return false, "writeException"
     end
     local after = readActualWeight(item)
-    local tolerance = math.max(EPSILON, math.abs(weight) * 0.001)
-    if after == nil or math.abs(after - weight) > tolerance then return false, "actualWeightMismatch" end
+    local tolerance = math.max(EPSILON, math.abs(expectedWeight) * 0.001)
+    if after == nil or math.abs(after - expectedWeight) > tolerance then
+        return false, "actualWeightMismatch", appliedInput, after
+    end
     if readCustomWeight(item) ~= expectedCustom then return false, "customFlagMismatch" end
-    return true
+    return true, nil, appliedInput, after
 end
 
 local function readNumberMethod(target, method)
@@ -202,12 +237,15 @@ function GodSystemTerminalUpgrades.restoreItem(item)
     local data = itemModData(item)
     if not data or not finite(data[BASE_WEIGHT_KEY]) then return false end
     local baseWeight = tonumber(data[BASE_WEIGHT_KEY])
+    local baseInput = finite(data[BASE_INPUT_KEY]) and tonumber(data[BASE_INPUT_KEY]) or readInputWeight(item) or baseWeight
     local baseCustom = data[BASE_CUSTOM_KEY] == true
-    local ok = writeWeight(item, baseWeight, baseCustom)
+    local ok = writeWeight(item, baseInput, baseCustom, baseWeight)
     if ok then
         data[BASE_WEIGHT_KEY] = nil
+        data[BASE_INPUT_KEY] = nil
         data[BASE_CUSTOM_KEY] = nil
         data[LAST_WEIGHT_KEY] = nil
+        data[LAST_INPUT_KEY] = nil
         data[OWNER_KEY] = nil
         data[VERSION_KEY] = nil
     end
@@ -225,8 +263,10 @@ function GodSystemTerminalUpgrades.compressItem(item, compression, terminalId)
     end
 
     local savedBaseWeight = data[BASE_WEIGHT_KEY]
+    local savedBaseInput = data[BASE_INPUT_KEY]
     local savedBaseCustom = data[BASE_CUSTOM_KEY]
     local savedLastWeight = data[LAST_WEIGHT_KEY]
+    local savedLastInput = data[LAST_INPUT_KEY]
     local savedOwner = data[OWNER_KEY]
     local savedVersion = data[VERSION_KEY]
     local baseWeight = tonumber(data[BASE_WEIGHT_KEY])
@@ -236,32 +276,55 @@ function GodSystemTerminalUpgrades.compressItem(item, compression, terminalId)
         data[BASE_WEIGHT_KEY] = baseWeight
         data[BASE_CUSTOM_KEY] = readCustomWeight(item)
     end
+    local baseInput = tonumber(data[BASE_INPUT_KEY])
+    if not finite(baseInput) then
+        baseInput = readInputWeight(item) or baseWeight
+        data[BASE_INPUT_KEY] = baseInput
+    end
     if baseWeight <= 0 then return true, "zeroWeight" end
 
     local target = math.max(MIN_WEIGHT, baseWeight * (1 - compression / 100))
+    local derivedWeight = baseWeight - baseInput
+    local targetInput = target - derivedWeight
+    if not finite(targetInput) or targetInput < MIN_WEIGHT then
+        data[BASE_WEIGHT_KEY] = savedBaseWeight
+        data[BASE_INPUT_KEY] = savedBaseInput
+        data[BASE_CUSTOM_KEY] = savedBaseCustom
+        data[LAST_WEIGHT_KEY] = savedLastWeight
+        data[LAST_INPUT_KEY] = savedLastInput
+        data[OWNER_KEY] = savedOwner
+        data[VERSION_KEY] = savedVersion
+        return false, "derivedWeightFloor"
+    end
     local previousWeight = current
+    local previousInput = finite(data[LAST_INPUT_KEY]) and tonumber(data[LAST_INPUT_KEY]) or baseInput
     local previousCustom = readCustomWeight(item)
-    local written, writeReason = writeWeight(item, target, true)
+    local written, writeReason, appliedInput, appliedWeight = writeWeight(item, targetInput, true, target)
     if not written then
-        local restored = writeWeight(item, previousWeight, previousCustom)
+        local restored = writeWeight(item, previousInput, previousCustom, previousWeight)
         if restored then
             data[BASE_WEIGHT_KEY] = savedBaseWeight
+            data[BASE_INPUT_KEY] = savedBaseInput
             data[BASE_CUSTOM_KEY] = savedBaseCustom
             data[LAST_WEIGHT_KEY] = savedLastWeight
+            data[LAST_INPUT_KEY] = savedLastInput
             data[OWNER_KEY] = savedOwner
             data[VERSION_KEY] = savedVersion
         else
             -- Keep ownership metadata when rollback itself fails so later
             -- terminal removal/cleanup can continue attempting restoration.
             data[BASE_WEIGHT_KEY] = finite(savedBaseWeight) and savedBaseWeight or previousWeight
+            data[BASE_INPUT_KEY] = finite(savedBaseInput) and savedBaseInput or previousInput
             data[BASE_CUSTOM_KEY] = savedBaseCustom ~= nil and savedBaseCustom or previousCustom
             data[LAST_WEIGHT_KEY] = readActualWeight(item) or previousWeight
+            data[LAST_INPUT_KEY] = previousInput
             data[OWNER_KEY] = tostring(terminalId or "")
             data[VERSION_KEY] = COMPRESSION_VERSION
         end
         return false, restored and (writeReason or "writeFailed") or ((writeReason or "writeFailed") .. "RestoreFailed")
     end
-    data[LAST_WEIGHT_KEY] = target
+    data[LAST_WEIGHT_KEY] = appliedWeight or target
+    data[LAST_INPUT_KEY] = appliedInput or targetInput
     data[OWNER_KEY] = tostring(terminalId or "")
     data[VERSION_KEY] = COMPRESSION_VERSION
     return true, "compressed"
@@ -302,10 +365,15 @@ function GodSystemTerminalUpgrades.snapshotTerminal(terminal)
         snapshot[#snapshot + 1] = {
             item = item,
             actualWeight = readActualWeight(item),
+            inputWeight = finite(data[LAST_INPUT_KEY]) and tonumber(data[LAST_INPUT_KEY])
+                or finite(data[BASE_INPUT_KEY]) and tonumber(data[BASE_INPUT_KEY])
+                or readInputWeight(item),
             customWeight = readCustomWeight(item),
             baseWeight = data[BASE_WEIGHT_KEY],
+            baseInput = data[BASE_INPUT_KEY],
             baseCustom = data[BASE_CUSTOM_KEY],
             lastWeight = data[LAST_WEIGHT_KEY],
+            lastInput = data[LAST_INPUT_KEY],
             owner = data[OWNER_KEY],
             version = data[VERSION_KEY],
         }
@@ -318,11 +386,18 @@ function GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
     for i = 1, #(snapshot or {}) do
         local row = snapshot[i]
         local data = itemModData(row.item)
-        local ok = row.actualWeight ~= nil and writeWeight(row.item, row.actualWeight, row.customWeight)
+        local ok = row.actualWeight ~= nil and writeWeight(
+            row.item,
+            finite(row.inputWeight) and row.inputWeight or row.actualWeight,
+            row.customWeight,
+            row.actualWeight
+        )
         if data then
             data[BASE_WEIGHT_KEY] = row.baseWeight
+            data[BASE_INPUT_KEY] = row.baseInput
             data[BASE_CUSTOM_KEY] = row.baseCustom
             data[LAST_WEIGHT_KEY] = row.lastWeight
+            data[LAST_INPUT_KEY] = row.lastInput
             data[OWNER_KEY] = row.owner
             data[VERSION_KEY] = row.version
         end

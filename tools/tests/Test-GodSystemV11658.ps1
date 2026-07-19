@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.58",
     [switch]$SkipRuntime
 )
 
@@ -35,20 +36,21 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.58"' 'Config version must be 1.16.58'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.58\r?$' 'Root mod.info version must be 1.16.58'
-Require-Text $b42Info '(?m)^modversion=1\.16\.58\r?$' 'B42 mod.info version must be 1.16.58'
-Require-Text $workshop '(?m)^description=v1\.16\.58\r?$' 'Workshop metadata must mention v1.16.58'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 Require-Text $terminal 'writeNumberMethod\(terminal,\s*"setCapacity",\s*"getCapacity",\s*capacity\)' 'Outer terminal capacity must be written and verified'
 Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setCapacity",\s*"getCapacity",\s*capacity\)' 'Inner terminal capacity must be written and verified'
 Require-Text $terminal 'writeNumberMethod\(terminal,\s*"setWeightReduction",\s*"getWeightReduction",\s*reduction\)' 'Outer terminal reduction must be written and verified'
 Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setWeightReduction",\s*"getWeightReduction",\s*reduction\)' 'Inner terminal reduction must be written and verified'
-Require-Text $terminal '(?s)item:setCustomWeight\(true\).*?item:setActualWeight\(weight\)' 'Custom-weight mode must be enabled before writing the instance weight'
+Require-Text $terminal '(?s)item:setCustomWeight\(true\).*?item:setActualWeight\(appliedInput\)' 'Custom-weight mode must be enabled before writing the instance weight'
 Require-Text $terminal 'return true, report' 'Individual item failures must not roll back a valid terminal upgrade'
 Require-Text $terminal 'MAX_DIAGNOSTIC_ROWS\s*=\s*5' 'Compression diagnostics must be bounded'
 Require-Text $terminal 'function GodSystemTerminalUpgrades\.getAppliedStatus' 'Runtime terminal status reader is missing'
-Reject-Text $terminal 'ScriptItem' 'Compression must not edit shared ScriptItem weights'
+Reject-Text $terminal 'DoParam|setScriptItem|definition:setActualWeight|definition:setWeight' 'Compression must not edit shared ScriptItem weights'
 
 Require-Text $core 'getAutoRecyclerContentSignature' 'Terminal contents need a bounded change signature'
 Require-Text $core 'terminalRefreshPending' 'Container changes must schedule terminal recalibration'

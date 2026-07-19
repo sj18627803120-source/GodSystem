@@ -54,6 +54,16 @@ local function readFinal(player)
     return value
 end
 
+local function writeFinal(player, value)
+    value = tonumber(value)
+    if not player or not player.setMaxWeight or not finite(value) then return false end
+    value = math.max(0, math.floor(value + EPSILON))
+    local ok = pcall(function() player:setMaxWeight(value) end)
+    if not ok then return false end
+    local after = readFinal(player)
+    return after ~= nil and math.abs(after - value) <= FINAL_EPSILON, after
+end
+
 function GodSystemCarryCapacity.normalizeLevel(value)
     value = tonumber(value)
     if not finite(value) then return 0 end
@@ -100,7 +110,8 @@ function GodSystemCarryCapacity.apply(player, level)
     local current = readDelta(player)
     local maxWeightBase = readBase(player)
     if desiredBonus == nil then return false, "overflow" end
-    if current == nil or maxWeightBase == nil or readFinal(player) == nil then return false, "unsupported" end
+    local originalFinal = readFinal(player)
+    if current == nil or maxWeightBase == nil or originalFinal == nil then return false, "unsupported" end
 
     local state = GodSystemCarryCapacity.runtime[player]
     local previousFactor = 0
@@ -123,11 +134,16 @@ function GodSystemCarryCapacity.apply(player, level)
     if not finite(externalDelta) or math.abs(externalDelta) > SAFE_INTEGER then return false, "overflow" end
 
     local baselineWritten = writeDelta(player, externalDelta)
-    local baseline = baselineWritten and readFinal(player) or nil
-    if not baselineWritten or baseline == nil then
+    if not baselineWritten then
         writeDelta(player, current)
         return false, "baselineFailed"
     end
+
+    -- getMaxWeight() is an integer cached by the character update path.  It
+    -- may still expose the old value immediately after setMaxWeightDelta(),
+    -- which previously made valid purchases fail verification.  Calculate
+    -- the vanilla delta result directly, then refresh the public final field.
+    local baseline = math.max(0, math.floor(maxWeightBase * (1 + externalDelta) + EPSILON))
 
     local desiredFactor = desiredBonus / maxWeightBase
     local target = externalDelta + desiredFactor
@@ -139,22 +155,15 @@ function GodSystemCarryCapacity.apply(player, level)
     local ok, after = writeDelta(player, target)
     if not ok then
         writeDelta(player, current)
+        writeFinal(player, originalFinal)
         return false, "writeFailed"
     end
 
     local desiredFinal = baseline + desiredBonus
-    local actualFinal = readFinal(player)
-    local attempts = 0
-    while actualFinal ~= nil and math.abs(actualFinal - desiredFinal) > FINAL_EPSILON and attempts < 3 do
-        target = target + ((desiredFinal - actualFinal) / maxWeightBase)
-        if not finite(target) or math.abs(target) > SAFE_INTEGER then break end
-        ok, after = writeDelta(player, target)
-        if not ok then break end
-        actualFinal = readFinal(player)
-        attempts = attempts + 1
-    end
-    if not ok or actualFinal == nil or math.abs(actualFinal - desiredFinal) > FINAL_EPSILON then
+    local finalWritten, actualFinal = writeFinal(player, desiredFinal)
+    if not finalWritten then
         writeDelta(player, current)
+        writeFinal(player, originalFinal)
         return false, "verificationFailed"
     end
 

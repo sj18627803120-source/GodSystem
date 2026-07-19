@@ -52,6 +52,29 @@ local function makeItem(id, weight, custom, options)
     return item
 end
 
+local function makeDerivedItem(id, inputWeight, derivedWeight)
+    local definition = { weight = inputWeight }
+    function definition:getActualWeight() return self.weight end
+    local item = {
+        id = id,
+        inputWeight = inputWeight,
+        derivedWeight = derivedWeight,
+        custom = false,
+        modData = {},
+        definition = definition,
+    }
+    function item:getID() return self.id end
+    function item:getFullType() return "Base.Plank" end
+    function item:getScriptItem() return self.definition end
+    function item:getWeight() return self.definition.weight end
+    function item:getActualWeight() return self.inputWeight + self.derivedWeight end
+    function item:setActualWeight(value) self.inputWeight = value end
+    function item:isCustomWeight() return self.custom end
+    function item:setCustomWeight(value) self.custom = value == true end
+    function item:getModData() return self.modData end
+    return item
+end
+
 local function makeInventory(values)
     local inventory = { values = values, capacity = 0, reduction = 0 }
     function inventory:getItems() return list(self.values) end
@@ -113,6 +136,19 @@ assert(ok == true)
 assert(math.abs(normal.weight - 10) < 0.0001 and normal.custom == false)
 assert(math.abs(newlyAdded.weight - 20) < 0.0001 and newlyAdded.custom == false)
 assert(#report.restoredItems == 2)
+
+local plank = makeDerivedItem(20, 3, 0.2)
+local plankInventory = makeInventory({ plank })
+local plankTerminal = makeTerminal(101, plankInventory)
+ok, report = GodSystemTerminalUpgrades.applyTerminal(plankTerminal, data)
+assert(ok == true and report.processed == 1 and report.failed == 0)
+assert(math.abs(plank:getActualWeight() - 0.32) < 0.0001 and plank.custom == true)
+ok = GodSystemTerminalUpgrades.applyTerminal(plankTerminal, data)
+assert(ok == true and math.abs(plank:getActualWeight() - 0.32) < 0.0001)
+plankInventory.values = {}
+ok, report = GodSystemTerminalUpgrades.applyTerminal(plankTerminal, data)
+assert(ok == true and #report.restoredItems == 1)
+assert(math.abs(plank:getActualWeight() - 3.2) < 0.0001 and plank.custom == false)
 
 local bulkValues = {}
 for i = 1, 96 do
