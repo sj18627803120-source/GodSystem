@@ -108,6 +108,9 @@ GodSystemConfig.AutoRecyclerFullTypes = {
 }
 GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
 GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
+GodSystemConfig.AutoRecyclerCapacityLevelKey = "GodSystemTerminalCapacityLevel"
+GodSystemConfig.AutoRecyclerReductionLevelKey = "GodSystemTerminalReductionLevel"
+GodSystemConfig.AutoRecyclerCompressionLevelKey = "GodSystemTerminalCompressionLevel"
 GodSystemConfig.AutoRecyclerCapacity = 10
 GodSystemConfig.AutoRecyclerWeightReduction = 50
 GodSystemConfig.AutoRecyclerIntervalHours = 0
@@ -122,6 +125,36 @@ GodSystemConfig.AutoRecyclerLevels = {
     { level = 6, capacity = 35, weightReduction = 80, upgradeCost = 550 },
     { level = 7, capacity = 42, weightReduction = 90, upgradeCost = 800 },
     { level = 8, capacity = 49, weightReduction = 99, upgradeCost = 1100 },
+}
+GodSystemConfig.TerminalCapacityLevels = {
+    { level = 1, value = 10, upgradeCost = 0 },
+    { level = 2, value = 15, upgradeCost = 60 },
+    { level = 3, value = 20, upgradeCost = 120 },
+    { level = 4, value = 25, upgradeCost = 220 },
+    { level = 5, value = 30, upgradeCost = 350 },
+    { level = 6, value = 35, upgradeCost = 550 },
+    { level = 7, value = 42, upgradeCost = 800 },
+    { level = 8, value = 49, upgradeCost = 1100 },
+}
+GodSystemConfig.TerminalReductionLevels = {
+    { level = 1, value = 50, upgradeCost = 0 },
+    { level = 2, value = 55, upgradeCost = 100 },
+    { level = 3, value = 60, upgradeCost = 200 },
+    { level = 4, value = 65, upgradeCost = 400 },
+    { level = 5, value = 70, upgradeCost = 700 },
+    { level = 6, value = 80, upgradeCost = 1100 },
+    { level = 7, value = 90, upgradeCost = 1700 },
+    { level = 8, value = 99, upgradeCost = 2500 },
+}
+GodSystemConfig.TerminalCompressionLevels = {
+    { level = 1, value = 0, upgradeCost = 0 },
+    { level = 2, value = 15, upgradeCost = 500 },
+    { level = 3, value = 30, upgradeCost = 1000 },
+    { level = 4, value = 45, upgradeCost = 2000 },
+    { level = 5, value = 60, upgradeCost = 3500 },
+    { level = 6, value = 75, upgradeCost = 5500 },
+    { level = 7, value = 85, upgradeCost = 8000 },
+    { level = 8, value = 90, upgradeCost = 12000 },
 }
 GodSystemConfig.AutoRecyclerRecoverCosts = {
     { maxLevel = 3, cost = 10 },
@@ -939,7 +972,7 @@ GodSystemConfig.TaskTemplates = {
     },
     {
         id = "move_1500",
-        title = "区域踏查",
+        title = "区域调查",
         kind = "moveDistance",
         target = 1500,
         limitHours = 36,

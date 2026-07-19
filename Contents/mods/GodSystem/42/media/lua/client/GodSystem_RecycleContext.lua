@@ -66,8 +66,9 @@ local function uniqueTypeCount(items)
     local count = 0
     for i = 1, #items do
         local fullType = items[i]:getFullType()
-        if not seen[fullType] then
-            seen[fullType] = true
+        local variantKey = GodSystemShopVariants.getKey(fullType, items[i])
+        if not seen[variantKey] then
+            seen[variantKey] = true
             count = count + 1
         end
     end
@@ -80,8 +81,9 @@ local function listOnlyCost(items)
     for i = 1, #items do
         local item = items[i]
         local fullType = item:getFullType()
-        if not seen[fullType] then
-            seen[fullType] = true
+        local variantKey = GodSystemShopVariants.getKey(fullType, item)
+        if not seen[variantKey] then
+            seen[variantKey] = true
             local sellValue = GodSystem.getItemSellPrice(fullType, item)
             local cost = GodSystem.getAutoShopListOnlyCost(fullType, sellValue)
             total = total + cost

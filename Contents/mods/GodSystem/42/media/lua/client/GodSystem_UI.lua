@@ -1752,6 +1752,18 @@ function GodSystemWindow:createChildren()
     self.fifthButton:setVisible(false)
     self:addChild(self.fifthButton)
 
+    self.sixthButton = ISButton:new(self.actionX + self:S(776), self.actionY + self:S(8), self:S(126), self.actionButtonH or self:S(38), "", self, self.onSixthAction)
+    self.sixthButton:initialise()
+    gsStyleActionButton(self.sixthButton, false)
+    self.sixthButton:setVisible(false)
+    self:addChild(self.sixthButton)
+
+    self.seventhButton = ISButton:new(self.actionX + self:S(916), self.actionY + self:S(8), self:S(126), self.actionButtonH or self:S(38), "", self, self.onSeventhAction)
+    self.seventhButton:initialise()
+    gsStyleActionButton(self.seventhButton, false)
+    self.seventhButton:setVisible(false)
+    self:addChild(self.seventhButton)
+
     self.categoryButton = ISButton:new(self.mainX, self.actionY + self:S(12), self:S(158), self:S(30), GodSystem.text("ShopCategory_ButtonAll", "Category: All"), self, self.onCategoryButton)
     self.categoryButton:initialise()
     gsStyleActionButton(self.categoryButton, false)
@@ -1819,7 +1831,7 @@ function GodSystemWindow:drawTopStatusBar(activeCount)
     local data = GodSystem.getData()
     local stats = data.stats or {}
     local bankSummary = GodSystem.getBankSummary and GodSystem.getBankSummary() or {}
-    local currency = GodSystem.getCurrencyTotal and GodSystem.getCurrencyTotal() or 0
+    local currency = GodSystem.getCurrencyDisplayTotal and GodSystem.getCurrencyDisplayTotal() or (GodSystem.getCurrencyTotal and GodSystem.getCurrencyTotal() or 0)
     local completed = stats.completedTasks or 0
     local failed = stats.failedTasks or 0
 
@@ -2382,6 +2394,11 @@ function GodSystemWindow:finishMultiplayerCommand(sent)
         return false
     end
     self.waitingForServerState = true
+    local ids = { "primary", "secondary", "third", "fourth", "fifth", "sixth", "seventh" }
+    for i = 1, #ids do
+        local control = self:getActionControl(ids[i])
+        if control then control.enable = false end
+    end
     if GodSystemNetwork and GodSystemNetwork.requestState then
         GodSystemNetwork.requestState(false)
     end
@@ -2408,6 +2425,10 @@ function GodSystemWindow:getActionControl(id)
         return self.fourthButton
     elseif id == "fifth" then
         return self.fifthButton
+    elseif id == "sixth" then
+        return self.sixthButton
+    elseif id == "seventh" then
+        return self.seventhButton
     elseif id == "category" then
         return self.categoryButton
     elseif id == "searchLabel" then
@@ -2419,7 +2440,7 @@ function GodSystemWindow:getActionControl(id)
 end
 
 function GodSystemWindow:resetActionButtonEnabledState()
-    local ids = { "primary", "secondary", "third", "fourth", "fifth" }
+    local ids = { "primary", "secondary", "third", "fourth", "fifth", "sixth", "seventh" }
     for i = 1, #ids do
         local control = self:getActionControl(ids[i])
         if control then control.enable = true end
@@ -2427,7 +2448,7 @@ function GodSystemWindow:resetActionButtonEnabledState()
 end
 
 function GodSystemWindow:hideActionControls()
-    local ids = { "primary", "secondary", "third", "fourth", "fifth", "category", "searchLabel", "searchBox" }
+    local ids = { "primary", "secondary", "third", "fourth", "fifth", "sixth", "seventh", "category", "searchLabel", "searchBox" }
     for i = 1, #ids do
         local control = self:getActionControl(ids[i])
         if control then
@@ -2502,6 +2523,12 @@ function GodSystemWindow:setStandardActionBar()
     if self.fifthButton and self.fifthButton:getIsVisible() then
         table.insert(actions, { id = "fifth", width = 122 })
     end
+    if self.sixthButton and self.sixthButton:getIsVisible() then
+        table.insert(actions, { id = "sixth", width = 122 })
+    end
+    if self.seventhButton and self.seventhButton:getIsVisible() then
+        table.insert(actions, { id = "seventh", width = 122 })
+    end
     self:setActionBar(actions)
 end
 
@@ -2543,6 +2570,12 @@ function GodSystemWindow:applyBaseLayout()
     end
     if self.fifthButton then
         self.fifthButton:setVisible(false)
+    end
+    if self.sixthButton then
+        self.sixthButton:setVisible(false)
+    end
+    if self.seventhButton then
+        self.seventhButton:setVisible(false)
     end
     gsSetBounds(self.list, self.mainX, self.mainY, self.mainW, self.mainH)
     self.list.itemheight = self:S((gsTheme().window and gsTheme().window.rowHeight) or 44)
@@ -3084,6 +3117,8 @@ function GodSystemWindow:populateWaistSpace()
         self.thirdButton:setVisible(false)
         self.fourthButton:setVisible(false)
         self.fifthButton:setVisible(false)
+        self.sixthButton:setVisible(false)
+        self.seventhButton:setVisible(false)
         self:addListItem(GodSystem.text("Waist_NotFound", "System space terminal not found"), { kind = "empty", detail = GodSystem.text("Hint_WaistSpaceMissing", "Claim or recover the system space terminal first.") })
         return
     end
@@ -3096,40 +3131,45 @@ function GodSystemWindow:populateWaistSpace()
         gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_SellSelected", "Sell selected"))
         gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_SellAllWaist", "Sell all"))
     end
-    local nextCost = info.nextCost
-    if nextCost then
-        gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_UpgradeWaistBag", "Upgrade terminal") .. " -" .. tostring(nextCost) .. GodSystem.text("Unit_CoinShort", "c"))
-    else
-        gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_WaistMaxLevel", "Max level"))
+    local function terminalUpgradeTitle(label, cost)
+        if cost then return label .. " -" .. tostring(cost) .. GodSystem.text("Unit_CoinShort", "c") end
+        return label .. " " .. GodSystem.text("Btn_WaistMaxLevel", "Max level")
     end
+    gsSetButtonTitle(self.thirdButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCapacity", "Upgrade capacity"), info.capacityNextCost))
+    gsSetButtonTitle(self.fourthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalReduction", "Upgrade reduction"), info.reductionNextCost))
+    gsSetButtonTitle(self.fifthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCompression", "Upgrade compression"), info.compressionNextCost))
     self.fourthButton:setVisible(true)
     self.fifthButton:setVisible(true)
+    self.sixthButton:setVisible(true)
+    self.seventhButton:setVisible(true)
     if waistUnlockMode then
-        gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_WaistModeUnlock", "Mode: sell+list"))
+        gsSetButtonTitle(self.seventhButton, GodSystem.text("Btn_WaistModeUnlock", "Mode: sell+list"))
     else
-        gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_WaistModeOnly", "Mode: sell only"))
+        gsSetButtonTitle(self.seventhButton, GodSystem.text("Btn_WaistModeOnly", "Mode: sell only"))
     end
     if not info.autoRecycleUnlocked then
-        gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_WaistAutoRecycleUnlock", "Unlock auto -") .. tostring(info.autoRecycleUnlockCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
+        gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleUnlock", "Unlock auto -") .. tostring(info.autoRecycleUnlockCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
     elseif info.autoRecycleEnabled then
-        gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_WaistAutoRecycleDisable", "Auto off"))
+        gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleDisable", "Auto off"))
     else
-        gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_WaistAutoRecycleEnable", "Auto on"))
+        gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleEnable", "Auto on"))
     end
 
-    local status = string.format("%s Lv.%d/%d | %s %d | %s %d%% | %s %d/%d",
-        GodSystem.text("Waist_Status", "System space terminal"),
-        info.level or 1,
-        info.maxLevel or 1,
-        GodSystem.text("Waist_Capacity", "Capacity"),
-        info.capacity or 0,
-        GodSystem.text("Waist_Reduction", "Reduction"),
-        info.weightReduction or 0,
-        GodSystem.text("Waist_Items", "Items"),
-        info.itemCount or 0,
-        info.capacity or 0
-    )
-    self:addListItem(status, { kind = "info", data = status, detail = "" })
+    local compressedExample = 10 * (1 - (info.compression or 0) / 100)
+    local burdenExample = compressedExample * (1 - (info.weightReduction or 0) / 100)
+    local capacityStatus = string.format("%s | Lv.%d/%d | %s %d/%d",
+        GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.maxLevel or 8,
+        GodSystem.text("Waist_Items", "Items"), info.itemCount or 0, info.capacity or 0)
+    local reductionStatus = string.format("%s | Lv.%d/%d | %d%%",
+        GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.maxLevel or 8, info.weightReduction or 0)
+    local compressionStatus = string.format("%s | Lv.%d/%d | %d%%",
+        GodSystem.text("Waist_Compression", "Compression"), info.compressionLevel or 1, info.maxLevel or 8, info.compression or 0)
+    local exampleStatus = string.format("%s | 10 -> %.2f -> %.2f",
+        GodSystem.text("Waist_Example", "Example: original -> compressed -> burden"), compressedExample, burdenExample)
+    self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
+    self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
+    self:addListItem(compressionStatus, { kind = "info", data = compressionStatus, detail = "" })
+    self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
     local autoState = GodSystem.text("Waist_AutoRecycleLocked", "Locked")
     if info.autoRecycleUnlocked then
@@ -5210,11 +5250,11 @@ function GodSystemWindow:onThirdAction()
             GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
             return
         end
-        local fullType = payload.data.fullType
-        if not fullType and payload.data.items and payload.data.items[1] then
-            fullType = payload.data.items[1].fullType
+        local variantKey = payload.data.variantKey or payload.data.fullType
+        if not variantKey and payload.data.items and payload.data.items[1] then
+            variantKey = GodSystemShopVariants.getKey(payload.data.items[1].fullType, payload.data.items[1].worldSprite)
         end
-        local sent = GodSystem.removeUnlockedShopItem(fullType)
+        local sent = GodSystem.removeUnlockedShopItem(variantKey)
         self:finishMultiplayerCommand(sent)
         return
     end
@@ -5259,7 +5299,7 @@ function GodSystemWindow:onFourthAction()
         return
     end
     if self.mode == "waist" then
-        local sent = GodSystem.toggleWaistAutoRecycle()
+        local sent = GodSystem.upgradeTerminal("reduction")
         self:finishMultiplayerCommand(sent)
         return
     end
@@ -5283,6 +5323,26 @@ function GodSystemWindow:onFifthAction()
         self:changeShopPage(1)
         return
     end
+    if self.mode == "waist" then
+        gsSetButtonTitle(self.fifthButton, GodSystem.text("Terminal_Compressing", "Compressing..."))
+        self.fifthButton.enable = false
+        local sent = GodSystem.upgradeTerminal("compression")
+        self:finishMultiplayerCommand(sent)
+        return
+    end
+    self:populateList()
+end
+
+function GodSystemWindow:onSixthAction()
+    if self.mode == "waist" then
+        local sent = GodSystem.toggleWaistAutoRecycle()
+        self:finishMultiplayerCommand(sent)
+        return
+    end
+    self:populateList()
+end
+
+function GodSystemWindow:onSeventhAction()
     if self.mode == "waist" then
         local sent = GodSystem.toggleWaistRecycleUnlockMode()
         self:finishMultiplayerCommand(sent)

@@ -5,7 +5,10 @@ GodSystemCarryCapacity.runtime = GodSystemCarryCapacity.runtime or {}
 
 local MARKER_BONUS = "GodSystemCarryAppliedBonus"
 local MARKER_DELTA = "GodSystemCarryAppliedDelta"
+local MARKER_FACTOR = "GodSystemCarryAppliedFactor"
+local MARKER_BASELINE = "GodSystemCarryBaseline"
 local EPSILON = 0.001
+local FINAL_EPSILON = 0.01
 local SAFE_INTEGER = 9007199254740991
 
 local function finite(value)
@@ -33,6 +36,22 @@ local function writeDelta(player, value)
     if not ok then return false end
     local after = readDelta(player)
     return after ~= nil and math.abs(after - value) <= EPSILON, after
+end
+
+local function readBase(player)
+    if not player or not player.getMaxWeightBase then return nil end
+    local ok, value = pcall(function() return player:getMaxWeightBase() end)
+    value = ok and tonumber(value) or nil
+    if not finite(value) or value <= 0 then return nil end
+    return value
+end
+
+local function readFinal(player)
+    if not player or not player.getMaxWeight then return nil end
+    local ok, value = pcall(function() return player:getMaxWeight() end)
+    value = ok and tonumber(value) or nil
+    if not finite(value) then return nil end
+    return value
 end
 
 function GodSystemCarryCapacity.normalizeLevel(value)
@@ -77,30 +96,45 @@ end
 
 function GodSystemCarryCapacity.apply(player, level)
     level = GodSystemCarryCapacity.normalizeLevel(level)
-    local desired = GodSystemCarryCapacity.getBonus(level)
+    local desiredBonus = GodSystemCarryCapacity.getBonus(level)
     local current = readDelta(player)
-    if desired == nil then return false, "overflow" end
-    if current == nil then return false, "unsupported" end
+    local maxWeightBase = readBase(player)
+    if desiredBonus == nil then return false, "overflow" end
+    if current == nil or maxWeightBase == nil or readFinal(player) == nil then return false, "unsupported" end
 
     local state = GodSystemCarryCapacity.runtime[player]
-    local previous = 0
-    if state and finite(tonumber(state.applied)) then
-        previous = tonumber(state.applied)
-        if current < previous and finite(tonumber(state.externalDelta)) and tonumber(state.externalDelta) >= 0 then
-            previous = 0
-        end
+    local previousFactor = 0
+    if state and finite(tonumber(state.appliedFactor)) then
+        previousFactor = tonumber(state.appliedFactor)
     else
         local modData = playerModData(player)
         local markerBonus = modData and tonumber(modData[MARKER_BONUS]) or nil
         local markerDelta = modData and tonumber(modData[MARKER_DELTA]) or nil
-        if finite(markerBonus) and finite(markerDelta) and math.abs(current - markerDelta) <= EPSILON then
-            previous = math.max(0, markerBonus)
+        local markerFactor = modData and tonumber(modData[MARKER_FACTOR]) or nil
+        if finite(markerFactor) and finite(markerDelta) and math.abs(current - markerDelta) <= EPSILON then
+            previousFactor = markerFactor
+        elseif finite(markerBonus) and finite(markerDelta) and math.abs(current - markerDelta) <= EPSILON then
+            -- v1.16.57 originally wrote the carry-unit bonus directly as a multiplier.
+            previousFactor = markerBonus
         end
     end
 
-    local externalDelta = current - previous
-    local target = externalDelta + desired
-    if not finite(target) or math.abs(target) > SAFE_INTEGER then return false, "overflow" end
+    local externalDelta = current - previousFactor
+    if not finite(externalDelta) or math.abs(externalDelta) > SAFE_INTEGER then return false, "overflow" end
+
+    local baselineWritten = writeDelta(player, externalDelta)
+    local baseline = baselineWritten and readFinal(player) or nil
+    if not baselineWritten or baseline == nil then
+        writeDelta(player, current)
+        return false, "baselineFailed"
+    end
+
+    local desiredFactor = desiredBonus / maxWeightBase
+    local target = externalDelta + desiredFactor
+    if not finite(target) or math.abs(target) > SAFE_INTEGER then
+        writeDelta(player, current)
+        return false, "overflow"
+    end
 
     local ok, after = writeDelta(player, target)
     if not ok then
@@ -108,16 +142,36 @@ function GodSystemCarryCapacity.apply(player, level)
         return false, "writeFailed"
     end
 
+    local desiredFinal = baseline + desiredBonus
+    local actualFinal = readFinal(player)
+    local attempts = 0
+    while actualFinal ~= nil and math.abs(actualFinal - desiredFinal) > FINAL_EPSILON and attempts < 3 do
+        target = target + ((desiredFinal - actualFinal) / maxWeightBase)
+        if not finite(target) or math.abs(target) > SAFE_INTEGER then break end
+        ok, after = writeDelta(player, target)
+        if not ok then break end
+        actualFinal = readFinal(player)
+        attempts = attempts + 1
+    end
+    if not ok or actualFinal == nil or math.abs(actualFinal - desiredFinal) > FINAL_EPSILON then
+        writeDelta(player, current)
+        return false, "verificationFailed"
+    end
+
     GodSystemCarryCapacity.runtime[player] = {
-        applied = desired,
+        appliedBonus = desiredBonus,
+        appliedFactor = target - externalDelta,
         delta = after or target,
         externalDelta = externalDelta,
+        baseline = baseline,
         level = level,
     }
     local modData = playerModData(player)
     if modData then
-        modData[MARKER_BONUS] = desired
+        modData[MARKER_BONUS] = desiredBonus
         modData[MARKER_DELTA] = after or target
+        modData[MARKER_FACTOR] = target - externalDelta
+        modData[MARKER_BASELINE] = baseline
     end
     return true, GodSystemCarryCapacity.getStatus(player, level)
 end
@@ -126,27 +180,26 @@ function GodSystemCarryCapacity.getStatus(player, level)
     level = GodSystemCarryCapacity.normalizeLevel(level)
     local desired = GodSystemCarryCapacity.getBonus(level) or 0
     local delta = readDelta(player)
-    local total = nil
-    if player and player.getMaxWeight then
-        local ok, value = pcall(function() return player:getMaxWeight() end)
-        value = ok and tonumber(value) or nil
-        if finite(value) then total = value end
-    end
+    local total = readFinal(player)
 
     local applied = 0
+    local baseline = nil
     local state = player and GodSystemCarryCapacity.runtime[player] or nil
-    if state and finite(tonumber(state.applied)) then
-        applied = math.max(0, tonumber(state.applied))
+    if state and finite(tonumber(state.appliedBonus)) then
+        applied = math.max(0, tonumber(state.appliedBonus))
+        baseline = finite(tonumber(state.baseline)) and tonumber(state.baseline) or nil
     elseif player then
         local modData = playerModData(player)
         local markerBonus = modData and tonumber(modData[MARKER_BONUS]) or nil
         local markerDelta = modData and tonumber(modData[MARKER_DELTA]) or nil
         if finite(markerBonus) and finite(markerDelta) and delta and math.abs(delta - markerDelta) <= EPSILON then
             applied = math.max(0, markerBonus)
+            local markerBaseline = tonumber(modData[MARKER_BASELINE])
+            baseline = finite(markerBaseline) and markerBaseline or nil
         end
     end
 
-    local base = total and (total - applied) or nil
+    local base = baseline or (total and (total - applied) or nil)
     return {
         level = level,
         bonus = desired,
@@ -154,6 +207,6 @@ function GodSystemCarryCapacity.getStatus(player, level)
         base = base,
         total = total,
         delta = delta,
-        applied = math.abs(applied - desired) <= EPSILON,
+        applied = math.abs(applied - desired) <= EPSILON and total ~= nil and base ~= nil and math.abs(total - (base + desired)) <= FINAL_EPSILON,
     }
 end

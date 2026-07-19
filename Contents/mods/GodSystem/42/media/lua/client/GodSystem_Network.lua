@@ -905,17 +905,22 @@ wrap("save", function()
 end)
 
 wrap("getCurrencyTotal", function()
+    local data = GodSystem and GodSystem.getData and GodSystem.getData() or nil
+    if data and data.balance ~= nil then
+        return math.max(0, math.floor(tonumber(data.balance) or 0))
+    end
     if original.getCurrencyTotal then
         local ok, value = pcall(original.getCurrencyTotal)
         if ok and value ~= nil then
             return math.max(0, math.floor(tonumber(value) or 0))
         end
     end
-    local data = GodSystem and GodSystem.getData and GodSystem.getData() or nil
-    if data and data.balance ~= nil then
-        return math.max(0, math.floor(tonumber(data.balance) or 0))
-    end
     return 0
+end)
+
+wrap("getCurrencyDisplayTotal", function()
+    local data = GodSystem and GodSystem.getData and GodSystem.getData() or nil
+    return data and math.max(0, math.floor(tonumber(data.balance) or 0)) or 0
 end)
 
 wrap("canAfford", function(cost)
@@ -1000,7 +1005,13 @@ wrap("claimOrRecoverAutoRecycler", function()
 end)
 
 wrap("upgradeAutoRecycler", function()
-    return send("upgradeWaist", {})
+    return send("upgradeSystem", { upgradeType = "terminalCapacity" })
+end)
+
+wrap("upgradeTerminal", function(upgradeType)
+    upgradeType = tostring(upgradeType or "")
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "compression" then return false end
+    return send("upgradeSystem", { upgradeType = "terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2) })
 end)
 
 wrap("toggleWaistAutoRecycle", function()

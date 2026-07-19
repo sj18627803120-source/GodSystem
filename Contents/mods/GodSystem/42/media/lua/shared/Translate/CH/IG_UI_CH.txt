@@ -519,7 +519,7 @@ IGUI_CH = {
     IGUI_GodSystem_Task_buy_10_Description = "在商城完成 10 次购买。",
     IGUI_GodSystem_Task_move_500_Title = "短途巡逻",
     IGUI_GodSystem_Task_move_500_Description = "领取后移动 500 米。",
-    IGUI_GodSystem_Task_move_1500_Title = "区域踏查",
+    IGUI_GodSystem_Task_move_1500_Title = "区域调查",
     IGUI_GodSystem_Task_move_1500_Description = "领取后移动 1500 米。",
     IGUI_GodSystem_Task_turn_in_tools_Title = "工具调拨",
     IGUI_GodSystem_Task_turn_in_tools_Description = "提交任意 2 个常用工具。",
@@ -1208,4 +1208,21 @@ IGUI_CH = {
 
     IGUI_GodSystem_NotifyMP_SystemUpgradeMaxed = "该系统升级已满级",
     IGUI_GodSystem_NotifyMP_SystemUpgradeSuccess = "系统升级成功：{1} {2} → {3}，花费 {4} 系统币",
+
+    IGUI_GodSystem_Upgrade_TerminalCapacity = "终端容量",
+    IGUI_GodSystem_Upgrade_TerminalReduction = "终端减重",
+    IGUI_GodSystem_Upgrade_TerminalCompression = "终端压缩",
+    IGUI_GodSystem_Upgrade_TerminalIndependentDesc = "只提升当前选中的终端属性，不影响另外两项。",
+    IGUI_GodSystem_Btn_UpgradeTerminalCapacity = "升级容量",
+    IGUI_GodSystem_Btn_UpgradeTerminalReduction = "升级减重",
+    IGUI_GodSystem_Btn_UpgradeTerminalCompression = "升级压缩",
+    IGUI_GodSystem_Waist_Compression = "压缩",
+    IGUI_GodSystem_Waist_Example = "示例：原重 → 压缩 → 人物负担",
+    IGUI_GodSystem_Terminal_CompressionSkipped = "已跳过其他 Mod 的自定义重量物品",
+    IGUI_GodSystem_Notify_TerminalUpgradeApplyFailed = "终端升级应用失败，本次未扣费",
+    IGUI_GodSystem_NotifyMP_TerminalUpgradeApplyFailed = "终端升级应用失败，本次未扣费",
+    IGUI_GodSystem_NotifyMP_TerminalUpgradeSuccess = "终端{1}已升级至 Lv.{2}，花费 {3} 系统币；跳过 {4} 件自定义重量物品",
+    IGUI_GodSystem_HistoryMP_TerminalUpgrade = "终端{1}升级至 Lv.{2}，花费 {3} 系统币",
+
+    IGUI_GodSystem_Terminal_Compressing = "正在压缩...",
 }

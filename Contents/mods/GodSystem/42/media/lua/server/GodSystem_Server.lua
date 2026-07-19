@@ -9,10 +9,13 @@ require "GodSystem_Maintenance"
 require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
 require "GodSystem_TransactionOps"
+require "GodSystem_TerminalUpgrades"
+require "GodSystem_ShopVariants"
 
 if not (isServer and isServer()) then return end
 
 GodSystemServer = GodSystemServer or {}
+GodSystemServer.terminalCache = GodSystemServer.terminalCache or {}
 
 local Protocol = GodSystemProtocol or {}
 local MODULE = Protocol.Module or "GodSystem"
@@ -244,6 +247,7 @@ local function playerData(player)
     data.tasks = data.tasks or {}
     data.history = data.history or {}
     data.unlockedShopItems = data.unlockedShopItems or {}
+    GodSystemShopVariants.normalizeUnlocked(data)
     data.stats = data.stats or {}
     data.stats.recycledItems = data.stats.recycledItems or 0
     data.stats.recycledPoints = data.stats.recycledPoints or 0
@@ -298,7 +302,7 @@ local function playerData(player)
         data.homeSystem.tempSlots[i].owned = data.homeSystem.tempSlots[i].owned == true
     end
     data.autoRecyclerClaimed = data.autoRecyclerClaimed == true
-    data.autoRecyclerLevel = math.max(1, math.min(floor(data.autoRecyclerLevel, 1), math.max(1, #(GodSystemConfig.AutoRecyclerLevels or {}))))
+    GodSystemTerminalUpgrades.normalizeData(data)
     data.lastAutoRecyclerHour = data.lastAutoRecyclerHour or math.floor(nowHours())
     data.waistAutoRecycleUnlocked = data.waistAutoRecycleUnlocked == true
     data.waistAutoRecycleEnabled = data.waistAutoRecycleEnabled == true
@@ -1737,17 +1741,20 @@ local function shopById(data, id)
             return row
         end
     end
-    for fullType, item in pairs(data.unlockedShopItems or {}) do
-        local unlockedId = "unlocked_" .. tostring(fullType)
-        if (unlockedId == id or tostring(fullType) == id) and GodSystemAdminConfig.isShopItemEnabled(fullType, true) ~= false then
+    for variantKey, item in pairs(data.unlockedShopItems or {}) do
+        local fullType = item.fullType or variantKey
+        local unlockedId = "unlocked_" .. tostring(variantKey)
+        if (unlockedId == id or tostring(variantKey) == id) and GodSystemAdminConfig.isShopItemEnabled(fullType, true) ~= false then
             return {
                 id = unlockedId,
                 fullType = fullType,
+                worldSprite = item.worldSprite,
+                variantKey = variantKey,
                 group = "unlocked",
                 unlocked = true,
                 label = item.label,
                 price = autoShopBuyPriceForItem(fullType, item.sellPrice or 1),
-                items = { { fullType = fullType, count = 1 } },
+                items = { { fullType = fullType, worldSprite = item.worldSprite, count = 1 } },
             }
         end
     end
@@ -1881,7 +1888,8 @@ local function canContextListItem(data, item)
     local fullType = item:getFullType()
     if not isAutoShopListOnlyAllowed(fullType) then return false, "notListable" end
     data.unlockedShopItems = data.unlockedShopItems or {}
-    if data.unlockedShopItems[fullType] then return false, "alreadyListed" end
+    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+    if data.unlockedShopItems[variantKey] then return false, "alreadyListed" end
     return true, nil
 end
 
@@ -1916,7 +1924,7 @@ local function applyRecycleDailyPayout(data, rawValue)
     return math.max(1, GodSystemConfig.DiminishedRecyclePayout or 1), true
 end
 
-local function unlockAutoShopItem(data, fullType, label, sellValue)
+local function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite)
     if not fullType or not GodSystemConfig.AutoUnlockShopFromRecycle then return nil end
     if (GodSystemConfig.AutoShopBlacklist or {})[fullType] or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return nil end
     local mod = moduleName(fullType)
@@ -1924,15 +1932,17 @@ local function unlockAutoShopItem(data, fullType, label, sellValue)
     data.unlockedShopItems = data.unlockedShopItems or {}
     local baseSell = math.max(1, floor(sellValue, 1))
     local buyPrice = autoShopBuyPriceForItem(fullType, baseSell)
-    local existing = data.unlockedShopItems[fullType]
+    local worldSprite = GodSystemShopVariants.getWorldSprite(itemOrSprite)
+    local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
+    local existing = data.unlockedShopItems[variantKey]
     if existing then
         existing.sellPrice = math.max(floor(existing.sellPrice, 1), baseSell)
         existing.buyPrice = math.max(floor(existing.buyPrice, 1), buyPrice)
         existing.label = label or existing.label
     else
-        data.unlockedShopItems[fullType] = { fullType = fullType, label = label, sellPrice = baseSell, buyPrice = buyPrice, unlockedAt = nowHours() }
+        data.unlockedShopItems[variantKey] = { fullType = fullType, worldSprite = worldSprite, variantKey = variantKey, label = label, sellPrice = baseSell, buyPrice = buyPrice, unlockedAt = nowHours() }
     end
-    return data.unlockedShopItems[fullType]
+    return data.unlockedShopItems[variantKey], variantKey
 end
 
 local function lotteryNormalizeCategory(categoryKey)
@@ -1979,8 +1989,8 @@ local function lotteryCandidates(data, categoryKey)
             lotteryAddCandidate(result, seen, item and item.fullType, row and row.label)
         end
     end
-    for fullType, item in pairs((data and data.unlockedShopItems) or {}) do
-        lotteryAddCandidate(result, seen, fullType, item and item.label)
+    for variantKey, item in pairs((data and data.unlockedShopItems) or {}) do
+        lotteryAddCandidate(result, seen, item and item.fullType or variantKey, item and item.label)
     end
     for fullType, _ in pairs(GodSystemConfig.VanillaItemBuyPrices or {}) do
         lotteryAddCandidate(result, seen, fullType, nil)
@@ -2019,7 +2029,7 @@ local function groupLotteryItems(items)
 end
 
 local function autoRecyclerLevels()
-    return GodSystemConfig.AutoRecyclerLevels or {}
+    return GodSystemTerminalUpgrades.getLevels("capacity")
 end
 
 local function autoRecyclerMaxLevel()
@@ -2027,13 +2037,19 @@ local function autoRecyclerMaxLevel()
 end
 
 local function autoRecyclerLevelData(level)
-    local levels = autoRecyclerLevels()
-    level = math.max(1, math.min(floor(level, 1), math.max(1, #levels)))
-    return levels[level] or levels[1] or { level = 1, capacity = GodSystemConfig.AutoRecyclerCapacity or 10, weightReduction = GodSystemConfig.AutoRecyclerWeightReduction or 50, upgradeCost = 0 }
+    local capacity = GodSystemConfig.TerminalCapacityLevels or {}
+    local reduction = GodSystemConfig.TerminalReductionLevels or {}
+    level = math.max(1, math.min(floor(level, 1), math.max(1, #capacity)))
+    return {
+        level = level,
+        capacity = (capacity[level] and capacity[level].value) or GodSystemConfig.AutoRecyclerCapacity or 10,
+        weightReduction = (reduction[level] and reduction[level].value) or GodSystemConfig.AutoRecyclerWeightReduction or 50,
+        upgradeCost = (capacity[level] and capacity[level].upgradeCost) or 0,
+    }
 end
 
 local function autoRecyclerLevel(data)
-    return math.max(1, math.min(floor(data.autoRecyclerLevel, 1), autoRecyclerMaxLevel()))
+    return GodSystemTerminalUpgrades.getLevel(data, "capacity")
 end
 
 local function autoRecyclerDisplayName(level)
@@ -2042,7 +2058,7 @@ end
 
 local function markAutoRecycler(data, item, level)
     if not item or not item.getFullType or not isAutoRecyclerFullType(item:getFullType()) then return false end
-    level = math.max(1, math.min(floor(level, autoRecyclerLevel(data)), autoRecyclerMaxLevel()))
+    level = GodSystemTerminalUpgrades.getLevel(data, "capacity")
     local md = item.getModData and item:getModData() or nil
     if md then
         md[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] = true
@@ -2050,25 +2066,68 @@ local function markAutoRecycler(data, item, level)
     end
     if item.setName then pcall(item.setName, item, autoRecyclerDisplayName(level)) end
     if item.setCustomName then pcall(item.setCustomName, item, true) end
-    local inv = item.getInventory and item:getInventory() or nil
-    local levelData = autoRecyclerLevelData(level)
-    if inv then
-        if inv.setCapacity then pcall(inv.setCapacity, inv, levelData.capacity or GodSystemConfig.AutoRecyclerCapacity or 10) end
-        if inv.setWeightReduction then pcall(inv.setWeightReduction, inv, levelData.weightReduction or GodSystemConfig.AutoRecyclerWeightReduction or 50) end
-    end
-    if item.setWeightReduction then pcall(item.setWeightReduction, item, levelData.weightReduction or GodSystemConfig.AutoRecyclerWeightReduction or 50) end
+    local applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data)
     if item.transmitModData then pcall(item.transmitModData, item) end
-    return true
+    if sendItemStats then
+        pcall(sendItemStats, item)
+        for i = 1, #((report and report.items) or {}) do
+            local changedItem = report.items[i]
+            pcall(sendItemStats, changedItem)
+            if changedItem.transmitModData then pcall(changedItem.transmitModData, changedItem) end
+        end
+        for i = 1, #((report and report.restoredItems) or {}) do
+            local restoredItem = report.restoredItems[i]
+            pcall(sendItemStats, restoredItem)
+            if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
+        end
+    end
+    return applied == true
+end
+
+function GodSystemServer.restoreTerminalWeights(terminal)
+    local ok, restoredItems = GodSystemTerminalUpgrades.restoreTerminal(terminal)
+    for i = 1, #(restoredItems or {}) do
+        local restoredItem = restoredItems[i]
+        if sendItemStats then pcall(sendItemStats, restoredItem) end
+        if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
+    end
+    return ok == true
+end
+
+function GodSystemServer.isTerminalOwnedByPlayer(player, item)
+    if not player or not item then return false end
+    local root = player.getInventory and player:getInventory() or nil
+    local current = item
+    local seen = {}
+    for _ = 1, 34 do
+        if not current or seen[current] then return false end
+        seen[current] = true
+        local ok, container = pcall(function() return current:getContainer() end)
+        if not ok or not container then return false end
+        if container == root then return true end
+        local parent = container.getContainingItem and safeCall(container, "getContainingItem", nil) or nil
+        current = parent
+    end
+    return false
 end
 
 local function findAutoRecycler(data, player)
+    local key = userKey(player)
+    local cached = GodSystemServer.terminalCache[key]
+    if cached and cached.item and isAutoRecyclerContainer(cached.item) and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
+        markAutoRecycler(data, cached.item)
+        return cached.item, cached.item.getContainer and cached.item:getContainer() or nil
+    end
+    if cached and cached.item then GodSystemServer.restoreTerminalWeights(cached.item) end
+    GodSystemServer.terminalCache[key] = nil
     local aliases = GodSystemConfig.AutoRecyclerFullTypes or { [GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"] = true }
     for fullType, enabled in pairs(aliases) do
         if enabled == true then
             local candidates = inventoryItems(player, fullType, true, true)
             for i = 1, #candidates do
                 if isAutoRecyclerContainer(candidates[i].item) then
-                    markAutoRecycler(data, candidates[i].item, autoRecyclerLevel(data))
+                    markAutoRecycler(data, candidates[i].item)
+                    GodSystemServer.terminalCache[key] = { player = player, item = candidates[i].item }
                     return candidates[i].item, candidates[i].container
                 end
             end
@@ -2477,6 +2536,7 @@ function Commands.hello(_, _, player)
     end
     generateDailyTasks(data, false)
     GodSystemCarryCapacity.apply(player, GodSystemCarryCapacity.getLevel(data))
+    findAutoRecycler(data, player)
     sendState(player)
 end
 
@@ -2743,6 +2803,9 @@ end
 
 function Commands.death(_, _, player)
     local data = playerData(player)
+    local terminalState = GodSystemServer.terminalCache[userKey(player)]
+    if terminalState and terminalState.item then GodSystemServer.restoreTerminalWeights(terminalState.item) end
+    GodSystemServer.terminalCache[userKey(player)] = nil
     for i = 1, #(data.tasks or {}) do
         local task = data.tasks[i]
         if task and task.status == "active" and task.kind == "kill" then
@@ -2771,11 +2834,20 @@ function Commands.buyShop(_, _, player, args)
         local grant = {}
         for i = 1, #(row.items or {}) do
             if not itemExists(row.items[i].fullType) then return finish(player, false, "物品不存在: " .. tostring(row.items[i].fullType)) end
-            grant[#grant + 1] = { fullType = row.items[i].fullType, count = math.max(1, floor(row.items[i].count, 1)) * quantity }
+            grant[#grant + 1] = { fullType = row.items[i].fullType, worldSprite = row.items[i].worldSprite, count = math.max(1, floor(row.items[i].count, 1)) * quantity }
         end
         local addedAll = {}
         for i = 1, #grant do
-            local okGive, added = giveItem(player, grant[i].fullType, grant[i].count)
+            local okGive, added = nil, nil
+            if grant[i].worldSprite then
+                okGive, added = GodSystemShopVariants.addItems(player:getInventory(), grant[i].fullType, grant[i].worldSprite, grant[i].count)
+                if okGive and sendAddItemToContainer then
+                    for j = 1, #added do pcall(sendAddItemToContainer, player:getInventory(), added[j]) end
+                    markInventoryDirty(player, player:getInventory())
+                end
+            else
+                okGive, added = giveItem(player, grant[i].fullType, grant[i].count)
+            end
             if not okGive then
                 local inv = player:getInventory()
                 for j = 1, #addedAll do removeItemFromContainer(inv, addedAll[j]) end
@@ -2888,13 +2960,15 @@ local function recycleSelectedInternal(player, args)
                     end
                 end
                 if eligible then
-                    selected[#selected + 1] = { item = item, container = container, fullType = fullType }
-                    if not types[fullType] then
-                        types[fullType] = { item = item, raw = 0, count = 0 }
-                        typeOrder[#typeOrder + 1] = fullType
+                    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+                    local groupKey = mode == "recycle" and fullType or variantKey
+                    selected[#selected + 1] = { item = item, container = container, fullType = fullType, variantKey = variantKey }
+                    if not types[groupKey] then
+                        types[groupKey] = { item = item, fullType = fullType, raw = 0, count = 0 }
+                        typeOrder[#typeOrder + 1] = groupKey
                     end
-                    types[fullType].raw = types[fullType].raw + recycleValue(item, true)
-                    types[fullType].count = types[fullType].count + 1
+                    types[groupKey].raw = types[groupKey].raw + recycleValue(item, true)
+                    types[groupKey].count = types[groupKey].count + 1
                 end
             end
         end
@@ -2904,8 +2978,9 @@ local function recycleSelectedInternal(player, args)
             local totalCost = 0
             local rows = {}
             for i = 1, #typeOrder do
-                local fullType = typeOrder[i]
-                local row = types[fullType]
+                local variantKey = typeOrder[i]
+                local row = types[variantKey]
+                local fullType = row.fullType
                 local sellValue = itemSellPrice(fullType, row.item)
                 local cost, buyPrice = autoShopListOnlyCost(fullType, sellValue)
                 totalCost = totalCost + cost
@@ -2918,12 +2993,12 @@ local function recycleSelectedInternal(player, args)
             local unlocked = {}
             for i = 1, #rows do
                 local row = rows[i]
-                if not unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), row.sellValue) then
+                if not unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), row.sellValue, row.item) then
                     for j = 1, #unlocked do data.unlockedShopItems[unlocked[j]] = nil end
                     GodSystemServer.refundCurrencySources(player, data, fromBank, fromCash)
                     return complete(false, "RecycleSelectionChanged")
                 end
-                unlocked[#unlocked + 1] = row.fullType
+                unlocked[#unlocked + 1] = GodSystemShopVariants.getKey(row.fullType, row.item)
             end
             appendHistory(data, historyEntry("shop", "RecycleSelectionListOnly", { #rows, totalCost }))
             local resultCode = skipped > 0 and "RecycleSelectionListOnlyPartial" or "RecycleSelectionListOnly"
@@ -2932,9 +3007,8 @@ local function recycleSelectedInternal(player, args)
 
         local rawPayout = 0
         for i = 1, #typeOrder do
-            local fullType = typeOrder[i]
-            local row = types[fullType]
-            rawPayout = rawPayout + calculateRecyclePayout(fullType, row.raw, row.count)
+            local row = types[typeOrder[i]]
+            rawPayout = rawPayout + calculateRecyclePayout(row.fullType, row.raw, row.count)
         end
         if rawPayout <= 0 then return complete(false, "RecycleSelectionEmpty") end
 
@@ -2990,9 +3064,8 @@ local function recycleSelectedInternal(player, args)
         end
         if mode == "recycleAndList" then
             for i = 1, #typeOrder do
-                local fullType = typeOrder[i]
-                local row = types[fullType]
-                unlockAutoShopItem(data, fullType, row.item:getDisplayName(), itemSellPrice(fullType, row.item))
+                local row = types[typeOrder[i]]
+                unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), itemSellPrice(row.fullType, row.item), row.item)
             end
         end
         data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
@@ -3037,7 +3110,7 @@ function Commands.recycle(_, _, player, args)
                 local value = recycleValue(item)
                 raw = raw + value
                 removed[#removed + 1] = found[i]
-                details[#details + 1] = { fullType = item:getFullType(), label = item:getDisplayName() or item:getFullType(), sellValue = itemSellPrice(item:getFullType(), item) }
+                details[#details + 1] = { fullType = item:getFullType(), label = item:getDisplayName() or item:getFullType(), sellValue = itemSellPrice(item:getFullType(), item), worldSprite = GodSystemShopVariants.getWorldSprite(item) }
             end
         end
         local payoutRaw = calculateRecyclePayout(fullType, raw, #removed)
@@ -3048,7 +3121,7 @@ function Commands.recycle(_, _, player, args)
         data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
         data.stats.recycledPoints = (data.stats.recycledPoints or 0) + payout
         if data.recycleUnlockMode == true then
-            for i = 1, #details do unlockAutoShopItem(data, details[i].fullType, details[i].label, details[i].sellValue) end
+            for i = 1, #details do unlockAutoShopItem(data, details[i].fullType, details[i].label, details[i].sellValue, details[i].worldSprite) end
         end
         appendHistory(data, historyEntry("recycle", "Recycle", { #removed, payout }))
         finish(player, true, "回收成功 +" .. tostring(payout))
@@ -3064,14 +3137,15 @@ function Commands.listOnlyAutoShop(_, _, player, args)
         local data = playerData(player)
         local fullType = args and args.fullType
         if not fullType or fullType == "" then return finish(player, false, "请选择可回收物品") end
-        data.unlockedShopItems = data.unlockedShopItems or {}
-        if data.unlockedShopItems[fullType] then return finish(player, true, "该物品已上架") end
         if not isAutoShopListOnlyAllowed(fullType) then return finish(player, false, "该物品无法上架") end
 
         local found = inventoryItems(player, fullType, false, false)
         if #found <= 0 then return finish(player, false, "背包中没有该物品") end
 
         local item = found[1].item
+        local variantKey = GodSystemShopVariants.getKey(fullType, item)
+        data.unlockedShopItems = data.unlockedShopItems or {}
+        if data.unlockedShopItems[variantKey] then return finish(player, true, "该物品已上架") end
         if not canRecycleItem(item, false) then return finish(player, false, "该物品无法上架") end
         local label = item and item.getDisplayName and item:getDisplayName() or fullType
         local sellValue = itemSellPrice(fullType, item)
@@ -3079,7 +3153,7 @@ function Commands.listOnlyAutoShop(_, _, player, args)
         if not canAfford(player, cost, data) then return finish(player, false, "系统币不足") end
         if not addPoints(player, -cost, data) then return finish(player, false, "系统币不足") end
 
-        unlockAutoShopItem(data, fullType, label, sellValue)
+        unlockAutoShopItem(data, fullType, label, sellValue, item)
         appendHistory(data, historyEntry("shop", "ListOnlyAutoShop", { label, cost, buyPrice }))
         finish(player, true, "上架成功 -" .. tostring(cost))
     end)
@@ -3111,8 +3185,9 @@ local function recycleWaistInternal(player, args, unlockShop)
                     groups[fullType] = (groups[fullType] or 0) + 1
                     rawByType[fullType] = (rawByType[fullType] or 0) + recycleValue(item)
                     removed[#removed + 1] = item
-                    if unlockShop == true and not unlockDetails[fullType] then
-                        unlockDetails[fullType] = { fullType = fullType, label = item:getDisplayName() or fullType, sellValue = itemSellPrice(fullType, item) }
+                    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+                    if unlockShop == true and not unlockDetails[variantKey] then
+                        unlockDetails[variantKey] = { fullType = fullType, label = item:getDisplayName() or fullType, sellValue = itemSellPrice(fullType, item), worldSprite = GodSystemShopVariants.getWorldSprite(item) }
                     end
                 end
             end
@@ -3131,7 +3206,7 @@ local function recycleWaistInternal(player, args, unlockShop)
         local payout = applyRecycleDailyPayout(data, payoutRaw)
         if payout > 0 then giveCurrency(player, payout) end
         if unlockShop == true then
-            for _, detail in pairs(unlockDetails) do unlockAutoShopItem(data, detail.fullType, detail.label, detail.sellValue) end
+            for _, detail in pairs(unlockDetails) do unlockAutoShopItem(data, detail.fullType, detail.label, detail.sellValue, detail.worldSprite) end
         end
         data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
         data.stats.recycledPoints = (data.stats.recycledPoints or 0) + payout
@@ -3156,7 +3231,7 @@ function Commands.claimWaist(_, _, player)
         if findAutoRecycler(data, player) then return finishCode(player, true, "ClaimWaistOwned") end
         local cost = 0
         if data.autoRecyclerClaimed then
-            local level = autoRecyclerLevel(data)
+            local level = GodSystemTerminalUpgrades.getRecoveryLevel(data)
             for i = 1, #(GodSystemConfig.AutoRecyclerRecoverCosts or {}) do
                 local row = GodSystemConfig.AutoRecyclerRecoverCosts[i]
                 if level <= (row.maxLevel or level) then cost = row.cost or 0 break end
@@ -3171,7 +3246,8 @@ function Commands.claimWaist(_, _, player)
         end
         data.autoRecyclerClaimed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
-        markAutoRecycler(data, added[1], autoRecyclerLevel(data))
+        markAutoRecycler(data, added[1])
+        GodSystemServer.terminalCache[userKey(player)] = { player = player, item = added[1] }
         local code = cost > 0 and "ClaimWaistPaid" or "ClaimWaist"
         appendHistory(data, historyEntry("system", code, { cost }))
         finishCode(player, true, code, { cost })
@@ -3186,17 +3262,30 @@ function Commands.upgradeWaist(_, _, player)
         local data = playerData(player)
         local item = findAutoRecycler(data, player)
         if not item then return finishCode(player, false, "RecycleWaistMissing") end
-        local level = autoRecyclerLevel(data)
-        if level >= autoRecyclerMaxLevel() then return finishCode(player, false, "UpgradeWaistMax") end
-        local cost = autoRecyclerLevelData(level + 1).upgradeCost or 0
+        local info = GodSystemTerminalUpgrades.getUpgradeInfo(data, "capacity")
+        local level = info.level
+        if not info.nextCost then return finishCode(player, false, "UpgradeWaistMax") end
+        local cost = info.nextCost
         if cost > 0 and not canAfford(player, cost, data) then return finishCode(player, false, "UpgradeWaistNoMoney") end
-        if cost > 0 and not addPoints(player, -cost, data) then return finishCode(player, false, "UpgradeWaistNoMoney") end
-        data.autoRecyclerLevel = level + 1
+        local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(item)
+        GodSystemTerminalUpgrades.setLevel(data, "capacity", level + 1)
+        local applied = markAutoRecycler(data, item)
+        if not applied then
+            GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
+            GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            markAutoRecycler(data, item)
+            return finishCode(player, false, "TerminalUpgradeApplyFailed")
+        end
+        if cost > 0 and not addPoints(player, -cost, data) then
+            GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
+            GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            markAutoRecycler(data, item)
+            return finishCode(player, false, "UpgradeWaistNoMoney")
+        end
         data.autoRecyclerClaimed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
-        markAutoRecycler(data, item, data.autoRecyclerLevel)
-        appendHistory(data, historyEntry("system", "UpgradeWaist", { data.autoRecyclerLevel, cost }))
-        finishCode(player, true, "UpgradeWaist", { data.autoRecyclerLevel, cost })
+        appendHistory(data, historyEntry("system", "UpgradeWaist", { level + 1, cost }))
+        finishCode(player, true, "UpgradeWaist", { level + 1, cost })
     end)
     unguard(player)
     if not ok then errorMessage(player, tostring(err)) end
@@ -3625,6 +3714,51 @@ function Commands.upgradeSystem(_, _, player, args)
             }, {
                 kind = "carryCapacity",
                 level = nextLevel,
+            })
+        end
+        local terminalTypes = {
+            terminalCapacity = "capacity",
+            terminalReduction = "reduction",
+            terminalCompression = "compression",
+        }
+        local terminalType = terminalTypes[t]
+        if terminalType then
+            local item = findAutoRecycler(data, player)
+            if not item then return complete(false, "RecycleWaistMissing") end
+            local info = GodSystemTerminalUpgrades.getUpgradeInfo(data, terminalType)
+            if not info or not info.nextCost then return complete(false, "SystemUpgradeMaxed") end
+            local cost = info.nextCost
+            if not canAfford(player, cost, data) then return complete(false, "CurrencyNotEnough") end
+            local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(item)
+            local previousLevel = info.level
+            GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel + 1)
+            local applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data)
+            if applied then applied = markAutoRecycler(data, item) end
+            if not applied then
+                GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel)
+                GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                markAutoRecycler(data, item)
+                return complete(false, "TerminalUpgradeApplyFailed")
+            end
+            if not addPoints(player, -cost, data) then
+                GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel)
+                GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                markAutoRecycler(data, item)
+                return complete(false, "CurrencyNotEnough")
+            end
+            data.autoRecyclerClaimed = true
+            data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+            appendHistory(data, historyEntry("upgrade", "TerminalUpgrade", { terminalType, previousLevel + 1, cost }))
+            return complete(true, "TerminalUpgradeSuccess", {
+                terminalType,
+                previousLevel + 1,
+                cost,
+                report and report.skipped or 0,
+            }, {
+                kind = "terminalUpgrade",
+                upgradeType = terminalType,
+                level = previousLevel + 1,
+                skipped = report and report.skipped or 0,
             })
         end
         local current, maxValue, nextValue, cost
@@ -4204,10 +4338,10 @@ function Commands.toggleWaistRecycleMode(_, _, player)
 end
 function Commands.removeUnlocked(_, _, player, args)
     local data = playerData(player)
-    local fullType = args and args.fullType
-    if fullType and data.unlockedShopItems then
-        data.unlockedShopItems[fullType] = nil
-        appendHistory(data, historyEntry("shop", "RemoveUnlocked", { fullType }))
+    local variantKey = args and args.fullType
+    if variantKey and data.unlockedShopItems then
+        data.unlockedShopItems[variantKey] = nil
+        appendHistory(data, historyEntry("shop", "RemoveUnlocked", { variantKey }))
     end
     finish(player, true, "已删除解锁商品")
 end
@@ -4360,8 +4494,18 @@ local function onPlayerUpdate(player)
     end
     state.ticks = state.ticks + 1
     if state.ticks % 60 ~= 0 then return end
-    generateDailyTasks(playerData(player), false)
+    local data = playerData(player)
+    generateDailyTasks(data, false)
     updateHomeSafeZone(player)
+    if state.ticks % 300 == 0 then
+        local cached = GodSystemServer.terminalCache[key]
+        if cached and cached.item and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
+            markAutoRecycler(data, cached.item)
+        elseif cached and cached.item then
+            GodSystemServer.restoreTerminalWeights(cached.item)
+            GodSystemServer.terminalCache[key] = nil
+        end
+    end
 end
 
 Events.OnPlayerUpdate.Add(onPlayerUpdate)
