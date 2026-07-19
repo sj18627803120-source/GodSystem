@@ -34,6 +34,8 @@ $context = Read-Utf8 (Join-Path $Lua 'client\GodSystem_RecycleContext.lua')
 $protocol = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Protocol.lua')
 $server = Read-Utf8 (Join-Path $Lua 'server\GodSystem_Server.lua')
 $transactions = Read-Utf8 (Join-Path $Lua 'server\GodSystem_TransactionOps.lua')
+$terminal = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_TerminalUpgrades.lua')
+$variants = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_ShopVariants.lua')
 $localization = Read-Utf8 (Join-Path $Root 'tools\localization\godsystem_v11645_localization.yml')
 $fallback = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Localization_Override.lua')
 $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
@@ -52,6 +54,9 @@ Require-Text $carry 'math\.ceil\(raw\)' 'Carry price must round upward'
 Require-Text $carry 'SAFE_INTEGER\s*=\s*9007199254740991' 'Carry calculations need a safe-integer guard'
 Require-Text $carry 'getMaxWeightDelta' 'Carry bonus must read the additive delta'
 Require-Text $carry 'setMaxWeightDelta' 'Carry bonus must write the additive delta'
+Require-Text $carry 'getMaxWeightBase' 'Carry bonus must convert carry units using the player base'
+Require-Text $carry 'desiredBonus\s*/\s*maxWeightBase' 'Carry units must be converted to the native multiplier'
+Require-Text $carry 'verificationFailed' 'Carry writes must verify the final capacity'
 Reject-Text $carry 'setMaxWeightBase' 'Carry bonus must not overwrite base carry capacity'
 Require-Text $carry 'externalDelta\s*=\s*current\s*-\s*previous' 'Carry refresh must remove its previous contribution before applying'
 
@@ -91,6 +96,39 @@ Require-Text $server 'GodSystemTransactionOps\.remember' 'Carry/recycle results 
 Require-Text $server 'local persisted, persistError = transmitStore\(\)' 'Transaction processing state must be persisted before economic mutation'
 Reject-Text $server 'function Commands\.upgradeSystem[\s\S]*finish\(player, true, "系统升级成功"\)' 'Legacy system upgrades must use the cached transaction result path'
 
+foreach ($name in @('TerminalCapacityLevels', 'TerminalReductionLevels', 'TerminalCompressionLevels')) {
+    Require-Text $config ("GodSystemConfig\." + $name + '\s*=\s*\{') ("Missing terminal level table: " + $name)
+}
+foreach ($value in @(10,15,20,25,30,35,42,49)) { Require-Text $config ("value\s*=\s*" + $value + '(?:\D|$)') ("Missing terminal capacity value: " + $value) }
+Require-Text $config '(?s)TerminalCapacityLevels\s*=\s*\{.*?value\s*=\s*10,\s*upgradeCost\s*=\s*0.*?value\s*=\s*15,\s*upgradeCost\s*=\s*60.*?value\s*=\s*20,\s*upgradeCost\s*=\s*120.*?value\s*=\s*49,\s*upgradeCost\s*=\s*1100' 'Terminal capacity values/costs do not match the approved table'
+Require-Text $config '(?s)TerminalReductionLevels\s*=\s*\{.*?value\s*=\s*50,\s*upgradeCost\s*=\s*0.*?value\s*=\s*55,\s*upgradeCost\s*=\s*100.*?value\s*=\s*90,\s*upgradeCost\s*=\s*1700.*?value\s*=\s*99,\s*upgradeCost\s*=\s*2500' 'Terminal reduction values/costs do not match the approved table'
+Require-Text $config '(?s)TerminalCompressionLevels\s*=\s*\{.*?value\s*=\s*0,\s*upgradeCost\s*=\s*0.*?value\s*=\s*15,\s*upgradeCost\s*=\s*500.*?value\s*=\s*85,\s*upgradeCost\s*=\s*8000.*?value\s*=\s*90,\s*upgradeCost\s*=\s*12000' 'Terminal compression values/costs do not match the approved table'
+Require-Text $terminal 'setWeightReduction\(reduction\)' 'Terminal reduction must use the ItemContainer API'
+Require-Text $terminal 'setActualWeight' 'Compression must update item instances'
+Require-Text $terminal 'setCustomWeight' 'Compression must mark instance custom weight'
+Reject-Text $terminal 'ScriptItem' 'Compression must not edit shared ScriptItem weights'
+Require-Text $terminal 'MAX_DEPTH\s*=\s*32' 'Nested compression must be depth-bounded'
+Require-Text $terminal 'BATCH_SIZE\s*=\s*32' 'Compression work must use fixed-size batches'
+Require-Text $terminal 'MIN_WEIGHT\s*=\s*0\.01' 'Compression must enforce a positive minimum weight'
+Require-Text $terminal 'BASE_WEIGHT_KEY' 'Compression must persist original instance weight'
+Require-Text $terminal 'restoreSnapshot' 'Terminal upgrades need rollback snapshots'
+Require-Text $server 'terminalCapacity\s*=\s*"capacity"' 'MP capacity upgrade route missing'
+Require-Text $server 'terminalReduction\s*=\s*"reduction"' 'MP reduction upgrade route missing'
+Require-Text $server 'terminalCompression\s*=\s*"compression"' 'MP compression upgrade route missing'
+Require-Text $core 'isClient\s+and\s+isClient\(\)\s+then\s+return true' 'MP clients must not write authoritative terminal weights'
+Require-Text $ui 'Btn_UpgradeTerminalCapacity' 'Capacity button missing'
+Require-Text $ui 'Btn_UpgradeTerminalReduction' 'Reduction button missing'
+Require-Text $ui 'Btn_UpgradeTerminalCompression' 'Compression button missing'
+Require-Text $variants 'getWorldSprite' 'Furniture variants must capture world sprites'
+Require-Text $variants 'ReadFromWorldSprite' 'Furniture purchases must restore the saved world sprite'
+Require-Text $variants 'InventoryItemFactory\.CreateItem' 'Furniture purchases must create an exact Moveable instance'
+Require-Text $server 'GodSystemShopVariants\.getKey\(fullType, item\)' 'MP listing must distinguish furniture variants'
+Require-Text $core 'GodSystemShopVariants\.getKey\(fullType, item\)' 'SP listing must distinguish furniture variants'
+$taskTitle = -join @([char]0x533A, [char]0x57DF, [char]0x8C03, [char]0x67E5)
+$oldTaskTitle = -join @([char]0x533A, [char]0x57DF, [char]0x8E0F, [char]0x67E5)
+Require-Text $config ('title\s*=\s*"' + [regex]::Escape($taskTitle) + '"') 'Task title typo must be fixed in config'
+Reject-Text ($config + $localization + $fallback) ([regex]::Escape($oldTaskTitle)) 'Old task title typo must be removed'
+
 foreach ($key in @(
     'Upgrade_CarryCapacity',
     'Btn_RefreshCarryCapacity',
@@ -100,6 +138,11 @@ foreach ($key in @(
     'Notify_RecycleSelectionSuccessPartial',
     'NotifyMP_RecycleSelectionSuccessPartial',
     'NotifyMP_TransactionOperationUnknown'
+    'Btn_UpgradeTerminalCapacity'
+    'Btn_UpgradeTerminalReduction'
+    'Btn_UpgradeTerminalCompression'
+    'Terminal_Compressing'
+    'Task_move_1500_Title'
 )) {
     Require-Text $localization ("(?m)^" + [regex]::Escape($key) + ':') ("Localization source missing key: " + $key)
     Require-Text $fallback ('GodSystemFallbackText\.zh\["' + [regex]::Escape($key) + '"\]') ("Lua fallback missing key: " + $key)
@@ -121,6 +164,10 @@ if (-not $SkipRuntime) {
         $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
         & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11657Runtime.lua') (Join-Path $Lua 'shared\GodSystem_CarryCapacity.lua')
         if ($LASTEXITCODE -ne 0) { throw 'v1.16.57 carry runtime test failed' }
+        & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11657TerminalRuntime.lua') (Join-Path $Lua 'shared\GodSystem_TerminalUpgrades.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'v1.16.57 terminal runtime test failed' }
+        & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11657ShopVariantRuntime.lua') (Join-Path $Lua 'shared\GodSystem_ShopVariants.lua')
+        if ($LASTEXITCODE -ne 0) { throw 'v1.16.57 shop variant runtime test failed' }
     }
     else {
         Write-Warning 'Lua executable was not found; v1.16.57 runtime validation was skipped.'

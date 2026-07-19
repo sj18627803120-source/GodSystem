@@ -64,7 +64,7 @@ Require-Text $ui '\(availableH\s*-\s*\(perPage\s*\*\s*itemH\)\)\s*/\s*\(perPage\
 Require-Text $ui 'self\.navLayoutGap' 'Navigation must apply its computed equal page spacing to item positions'
 
 $actionReset = [regex]::Match($ui, '(?s)function\s+GodSystemWindow:resetActionButtonEnabledState\(\)(?<body>.*?)\nend').Groups['body'].Value
-Require-Text $actionReset '\{\s*"primary"\s*,\s*"secondary"\s*,\s*"third"\s*,\s*"fourth"\s*,\s*"fifth"\s*\}' 'Shared action reset must cover all five bottom buttons'
+Require-Text $actionReset '\{\s*"primary"\s*,\s*"secondary"\s*,\s*"third"\s*,\s*"fourth"\s*,\s*"fifth"(?:\s*,\s*"(?:sixth|seventh)")*\s*\}' 'Shared action reset must cover every bottom action button'
 Require-Text $actionReset 'control\.enable\s*=\s*true' 'Shared action reset must clear disabled state from the previous page'
 $populateList = [regex]::Match($ui, '(?s)function\s+GodSystemWindow:populateList\(\)(?<body>.*?)\nend').Groups['body'].Value
 Require-Text $populateList '^\s*self:resetActionButtonEnabledState\(\)' 'Every page population must reset inherited action-button state before applying page rules'
