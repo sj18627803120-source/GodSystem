@@ -13,64 +13,98 @@ for level = 0, #expected - 1 do
     assert(GodSystemCarryCapacity.getBonus(level) == level * 2)
 end
 
-local player = {
-    delta = 0,
-    base = 14,
-    final = 14,
-    modData = {},
-}
+local function float32(value)
+    if value == 0 then return 0 end
+    local sign = value < 0 and -1 or 1
+    value = math.abs(value)
+    local exponent = math.floor(math.log(value) / math.log(2))
+    local step = 2 ^ (exponent - 23)
+    return sign * math.floor((value / step) + 0.5) * step
+end
 
-function player:getMaxWeightDelta() return self.delta end
-function player:setMaxWeightDelta(value) self.delta = value end
-function player:getMaxWeightBase() return self.base end
-function player:getMaxWeight() return self.final end
-function player:setMaxWeight(value) self.final = value end
-function player:getModData() return self.modData end
-function player:recalculateMaxWeight() self.final = math.floor(self.base * (1 + self.delta) + 0.0001) end
+local function makePlayer(base, modelOffset, delta)
+    local player = {
+        delta = delta ~= nil and delta or (modelOffset == 1 and 0 or 1),
+        base = base,
+        modelOffset = modelOffset,
+        final = 0,
+        modData = {},
+    }
+    function player:getMaxWeightDelta() return self.delta end
+    function player:setMaxWeightDelta(value) self.delta = float32(value) end
+    function player:getMaxWeightBase() return self.base end
+    function player:getMaxWeight() return self.final end
+    function player:setMaxWeight(value) self.final = value end
+    function player:getModData() return self.modData end
+    function player:recalculateMaxWeight()
+        self.final = math.max(0, math.ceil(self.base * (self.delta + self.modelOffset)))
+    end
+    player:recalculateMaxWeight()
+    return player
+end
 
-local ok = GodSystemCarryCapacity.apply(player, 1)
-assert(ok == true and math.abs(player:getMaxWeight() - 16) < 0.01)
-ok = GodSystemCarryCapacity.apply(player, 1)
-assert(ok == true and math.abs(player:getMaxWeight() - 16) < 0.01)
+-- Reproduce the live B42 boundary without changing the configured behavior.
+local boundary = makePlayer(14, 1)
+boundary:setMaxWeightDelta(2 / 14)
+boundary:recalculateMaxWeight()
+assert(boundary:getMaxWeight() == 17)
 
-player.delta = player.delta + 0.5
+local player = makePlayer(14, 1)
+local ok, result = GodSystemCarryCapacity.apply(player, 1)
+assert(ok == true)
+assert(result.predictedFinal == 17 and result.predictedIncrease == 3)
+assert(result.base == 14 and result.total == 16 and result.actualBonus == 2)
 player:recalculateMaxWeight()
-ok = GodSystemCarryCapacity.apply(player, 2)
-assert(ok == true and math.abs(player:getMaxWeight() - 25) < 0.01)
+local status = GodSystemCarryCapacity.getStatus(player, 1)
+assert(status.base == 14 and status.total == 17 and status.actualBonus == 3)
+
+local before = player:getMaxWeight()
+ok, result = GodSystemCarryCapacity.apply(player, 2)
+assert(ok == true and result.predictedIncrease == result.predictedFinal - before)
 player:recalculateMaxWeight()
-assert(math.abs(player:getMaxWeight() - 25) < 0.01)
+status = GodSystemCarryCapacity.getStatus(player, 2)
+assert(status.total == result.predictedFinal)
+assert(status.actualBonus == status.total - status.base)
 
-GodSystemCarryCapacity.clearRuntime(player)
-ok = GodSystemCarryCapacity.apply(player, 2)
-assert(ok == true and math.abs(player:getMaxWeight() - 25) < 0.01)
+local stable = status.total
+for _ = 1, 10 do
+    ok, result = GodSystemCarryCapacity.apply(player, 2)
+    assert(ok == true and result.predictedFinal == stable)
+    player:recalculateMaxWeight()
+    assert(player:getMaxWeight() == stable)
+end
 
-local status = GodSystemCarryCapacity.getStatus(player, 2)
-assert(status.level == 2)
-assert(status.bonus == 4)
-assert(status.applied == true)
-assert(math.abs(status.base - 21) < 0.01)
-assert(math.abs(status.total - 25) < 0.01)
+local external = makePlayer(14, 1, 0.5)
+before = external:getMaxWeight()
+ok, result = GodSystemCarryCapacity.apply(external, 2)
+assert(ok == true and result.predictedIncrease == result.predictedFinal - before)
+external:recalculateMaxWeight()
+status = GodSystemCarryCapacity.getStatus(external, 2)
+assert(status.base == 21 and status.total == result.predictedFinal)
+assert(status.actualBonus == status.total - 21)
 
-local legacy = { delta = 6, base = 14, final = 98, modData = {
+-- Measurement adapts when an interface exposes maxWeightDelta as a neutral
+-- one total multiplier instead of a neutral zero additive delta.
+local multiplier = makePlayer(14, 0, 1)
+ok, result = GodSystemCarryCapacity.apply(multiplier, 1)
+assert(ok == true and result.predictedFinal == 17 and result.predictedIncrease == 3)
+multiplier:recalculateMaxWeight()
+status = GodSystemCarryCapacity.getStatus(multiplier, 1)
+assert(status.base == 14 and status.total == 17 and status.actualBonus == 3)
+
+local legacy = makePlayer(14, 1, 6)
+legacy.modData = {
     GodSystemCarryAppliedBonus = 6,
-    GodSystemCarryAppliedDelta = 6,
-} }
-function legacy:getMaxWeightDelta() return self.delta end
-function legacy:setMaxWeightDelta(value) self.delta = value end
-function legacy:getMaxWeightBase() return self.base end
-function legacy:getMaxWeight() return self.final end
-function legacy:setMaxWeight(value) self.final = value end
-function legacy:getModData() return self.modData end
-ok = GodSystemCarryCapacity.apply(legacy, 3)
-assert(ok == true and math.abs(legacy:getMaxWeight() - 20) < 0.01)
+    GodSystemCarryAppliedDelta = legacy.delta,
+}
+ok, result = GodSystemCarryCapacity.apply(legacy, 3)
+assert(ok == true and result.predictedFinal ~= nil)
+legacy:recalculateMaxWeight()
+status = GodSystemCarryCapacity.getStatus(legacy, 3)
+assert(status.total == result.predictedFinal and status.actualBonus == status.total - 14)
 
-local rejected = { delta = 0, base = 14, final = 14, modData = {} }
-function rejected:getMaxWeightDelta() return self.delta end
-function rejected:setMaxWeightDelta(value) self.delta = value end
-function rejected:getMaxWeightBase() return self.base end
-function rejected:getMaxWeight() return self.final end
+local rejected = makePlayer(14, 1)
 function rejected:setMaxWeight(_) end
-function rejected:getModData() return self.modData end
 ok = GodSystemCarryCapacity.apply(rejected, 1)
 assert(ok == false and rejected.delta == 0 and rejected.final == 14)
 

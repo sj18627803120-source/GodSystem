@@ -3171,6 +3171,7 @@ function GodSystemWindow:populateWaistSpace()
         GodSystem.text("Waist_Actual", "Actual"), actualReductionText)
     local compressionStatus = string.format("%s | Lv.%d/%d | %d%%",
         GodSystem.text("Waist_Compression", "Compression"), info.compressionLevel or 1, info.maxLevel or 8, info.compression or 0)
+    local compressionLimit = GodSystem.text("Waist_CompressionLimit", "Compression is not compatible with every item; incompatible weights are skipped automatically.")
     local compressionResult = gsFormatTemplate(GodSystem.text("Waist_CompressionResult", "Last calibration: processed {1} | skipped {2} | failed {3}"), {
         info.compressionProcessed or 0,
         info.compressionSkipped or 0,
@@ -3189,6 +3190,7 @@ function GodSystemWindow:populateWaistSpace()
     self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
     self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
     self:addListItem(compressionStatus, { kind = "info", data = compressionStatus, detail = "" })
+    self:addListItem(compressionLimit, { kind = "info", data = compressionLimit, detail = "" })
     self:addListItem(compressionResult, { kind = "info", data = compressionResult, detail = compressionDetail })
     self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
@@ -3534,8 +3536,10 @@ function GodSystemWindow:populateUpgrades()
             local detail = nil
             if info.upgradeType == "carryCapacity" then
                 local status = info.carryStatus or {}
+                local actualBonus = tonumber(status.actualBonus) or 0
+                local actualBonusText = actualBonus >= 0 and ("+" .. tostring(actualBonus)) or tostring(actualBonus)
                 detail = GodSystem.text("Upgrade_CarryBase", "Current base") .. "(" .. tostring(status.base or "?") .. ")"
-                    .. " | " .. GodSystem.text("Upgrade_CarryBonus", "System bonus") .. "(+" .. tostring(status.bonus or 0) .. ")"
+                    .. " | " .. GodSystem.text("Upgrade_CarryBonus", "Actual bonus") .. "(" .. actualBonusText .. ")"
                     .. " | " .. GodSystem.text("Upgrade_CarryTotal", "Final carry") .. "(" .. tostring(status.total or "?") .. ")"
                     .. " | Lv." .. tostring(info.current) .. " | " .. costText
             else

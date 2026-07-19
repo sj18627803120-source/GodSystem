@@ -64,6 +64,21 @@ local function writeFinal(player, value)
     return after ~= nil and math.abs(after - value) <= FINAL_EPSILON, after
 end
 
+local function capacityFromDelta(maxWeightBase, delta, modelOffset)
+    local raw = tonumber(maxWeightBase) * (tonumber(delta) + tonumber(modelOffset))
+    if not finite(raw) or math.abs(raw) > SAFE_INTEGER then return nil end
+    return math.max(0, math.ceil(raw))
+end
+
+local function detectDeltaModel(maxWeightBase, delta, finalWeight)
+    local additive = capacityFromDelta(maxWeightBase, delta, 1)
+    local multiplier = capacityFromDelta(maxWeightBase, delta, 0)
+    if additive == nil then return multiplier ~= nil and 0 or nil end
+    if multiplier == nil then return 1 end
+    if math.abs(additive - finalWeight) <= math.abs(multiplier - finalWeight) then return 1 end
+    return 0
+end
+
 function GodSystemCarryCapacity.normalizeLevel(value)
     value = tonumber(value)
     if not finite(value) then return 0 end
@@ -112,6 +127,8 @@ function GodSystemCarryCapacity.apply(player, level)
     if desiredBonus == nil then return false, "overflow" end
     local originalFinal = readFinal(player)
     if current == nil or maxWeightBase == nil or originalFinal == nil then return false, "unsupported" end
+    local modelOffset = detectDeltaModel(maxWeightBase, current, originalFinal)
+    if modelOffset == nil then return false, "unsupported" end
 
     local state = GodSystemCarryCapacity.runtime[player]
     local previousFactor = 0
@@ -133,20 +150,24 @@ function GodSystemCarryCapacity.apply(player, level)
     local externalDelta = current - previousFactor
     if not finite(externalDelta) or math.abs(externalDelta) > SAFE_INTEGER then return false, "overflow" end
 
+    -- Preserve the v1.16.59 application behavior.  The model helpers above
+    -- are read-only measurement support for UI reporting; they do not change
+    -- the configured carry contribution or its written delta.
     local baselineWritten = writeDelta(player, externalDelta)
     if not baselineWritten then
         writeDelta(player, current)
         return false, "baselineFailed"
     end
 
-    -- getMaxWeight() is an integer cached by the character update path.  It
-    -- may still expose the old value immediately after setMaxWeightDelta(),
-    -- which previously made valid purchases fail verification.  Calculate
-    -- the vanilla delta result directly, then refresh the public final field.
-    local baseline = math.max(0, math.floor(maxWeightBase * (1 + externalDelta) + EPSILON))
-
+    local writeBaseline = math.max(0, math.floor(maxWeightBase * (1 + externalDelta) + EPSILON))
+    local measuredBaseline = capacityFromDelta(maxWeightBase, externalDelta, modelOffset) or writeBaseline
     local desiredFactor = desiredBonus / maxWeightBase
     local target = externalDelta + desiredFactor
+    local desiredFinal = writeBaseline + desiredBonus
+    if not finite(desiredFinal) or desiredFinal > SAFE_INTEGER then
+        writeDelta(player, current)
+        return false, "overflow"
+    end
     if not finite(target) or math.abs(target) > SAFE_INTEGER then
         writeDelta(player, current)
         return false, "overflow"
@@ -159,7 +180,6 @@ function GodSystemCarryCapacity.apply(player, level)
         return false, "writeFailed"
     end
 
-    local desiredFinal = baseline + desiredBonus
     local finalWritten, actualFinal = writeFinal(player, desiredFinal)
     if not finalWritten then
         writeDelta(player, current)
@@ -167,20 +187,26 @@ function GodSystemCarryCapacity.apply(player, level)
         return false, "verificationFailed"
     end
 
+    local predictedFinal = capacityFromDelta(maxWeightBase, after or target, modelOffset)
+    local predictedIncrease = predictedFinal and (predictedFinal - originalFinal) or nil
+    local appliedFactor = target - externalDelta
     GodSystemCarryCapacity.runtime[player] = {
         appliedBonus = desiredBonus,
-        appliedFactor = target - externalDelta,
+        appliedFactor = appliedFactor,
         delta = after or target,
         externalDelta = externalDelta,
-        baseline = baseline,
+        baseline = measuredBaseline,
+        modelOffset = modelOffset,
+        predictedFinal = predictedFinal,
+        predictedIncrease = predictedIncrease,
         level = level,
     }
     local modData = playerModData(player)
     if modData then
         modData[MARKER_BONUS] = desiredBonus
         modData[MARKER_DELTA] = after or target
-        modData[MARKER_FACTOR] = target - externalDelta
-        modData[MARKER_BASELINE] = baseline
+        modData[MARKER_FACTOR] = appliedFactor
+        modData[MARKER_BASELINE] = measuredBaseline
     end
     return true, GodSystemCarryCapacity.getStatus(player, level)
 end
@@ -193,10 +219,14 @@ function GodSystemCarryCapacity.getStatus(player, level)
 
     local applied = 0
     local baseline = nil
+    local predictedFinal = nil
+    local predictedIncrease = nil
     local state = player and GodSystemCarryCapacity.runtime[player] or nil
     if state and finite(tonumber(state.appliedBonus)) then
         applied = math.max(0, tonumber(state.appliedBonus))
         baseline = finite(tonumber(state.baseline)) and tonumber(state.baseline) or nil
+        predictedFinal = finite(tonumber(state.predictedFinal)) and tonumber(state.predictedFinal) or nil
+        predictedIncrease = finite(tonumber(state.predictedIncrease)) and tonumber(state.predictedIncrease) or nil
     elseif player then
         local modData = playerModData(player)
         local markerBonus = modData and tonumber(modData[MARKER_BONUS]) or nil
@@ -209,13 +239,17 @@ function GodSystemCarryCapacity.getStatus(player, level)
     end
 
     local base = baseline or (total and (total - applied) or nil)
+    local actualBonus = total ~= nil and base ~= nil and (total - base) or nil
     return {
         level = level,
         bonus = desired,
         appliedBonus = applied,
+        actualBonus = actualBonus,
         base = base,
         total = total,
         delta = delta,
-        applied = math.abs(applied - desired) <= EPSILON and total ~= nil and base ~= nil and math.abs(total - (base + desired)) <= FINAL_EPSILON,
+        predictedFinal = predictedFinal,
+        predictedIncrease = predictedIncrease,
+        applied = math.abs(applied - desired) <= EPSILON and total ~= nil and base ~= nil,
     }
 end

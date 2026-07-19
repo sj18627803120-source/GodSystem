@@ -1004,7 +1004,7 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             maxValue = nil,
             cost = cost,
             label = GodSystem.text("Upgrade_CarryCapacity", "Carry capacity"),
-            desc = GodSystem.text("Upgrade_CarryCapacityDesc", "Permanently increase player carry capacity by 2 per level."),
+            desc = GodSystem.text("Upgrade_CarryCapacityDesc", "Permanently increase player carry capacity; the actual bonus is calculated from the current character state."),
             carryStatus = status,
         }
     end
@@ -1042,10 +1042,12 @@ function GodSystem.getSystemUpgradeDetailText(upgradeType)
         local status = info.carryStatus or {}
         local base = status.base ~= nil and tostring(status.base) or "?"
         local total = status.total ~= nil and tostring(status.total) or "?"
+        local actualBonus = tonumber(status.actualBonus) or 0
+        local actualBonusText = actualBonus >= 0 and ("+" .. tostring(actualBonus)) or tostring(actualBonus)
         local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_CostOverflow", "Unavailable")
         return tostring(info.desc or "")
             .. " | " .. GodSystem.text("Upgrade_CarryBase", "Current base") .. " " .. base
-            .. " | " .. GodSystem.text("Upgrade_CarryBonus", "System bonus") .. " +" .. tostring(status.bonus or 0)
+            .. " | " .. GodSystem.text("Upgrade_CarryBonus", "Actual bonus") .. " " .. actualBonusText
             .. " | " .. GodSystem.text("Upgrade_CarryTotal", "Final carry") .. " " .. total
             .. " | " .. GodSystem.text("Upgrade_Level", "Level") .. " " .. tostring(info.current)
             .. " | " .. GodSystem.text("Upgrade_Cost", "Cost") .. " " .. costText
@@ -1115,9 +1117,9 @@ function GodSystem.upgradeSystem(upgradeType)
         local data = GodSystem.getData()
         local previousLevel = GodSystem.getCarryCapacityLevel()
         local nextLevel = previousLevel + 1
-        local applied, applyReason = GodSystemCarryCapacity.apply(player, nextLevel)
+        local applied, applyResult = GodSystemCarryCapacity.apply(player, nextLevel)
         if not applied then
-            GodSystem.notify(GodSystem.text("Notify_CarryCapacityApplyFailed", "Carry capacity upgrade could not be applied") .. " (" .. tostring(applyReason or "unknown") .. ")")
+            GodSystem.notify(GodSystem.text("Notify_CarryCapacityApplyFailed", "Carry capacity upgrade could not be applied") .. " (" .. tostring(applyResult or "unknown") .. ")")
             return false
         end
         if not GodSystem.addPoints(-info.cost) then
@@ -1128,18 +1130,23 @@ function GodSystem.upgradeSystem(upgradeType)
         data.upgrades.carryCapacityLevel = nextLevel
         data.stats = data.stats or {}
         data.stats.spentPoints = (data.stats.spentPoints or 0) + info.cost
+        local measuredIncrease = tonumber(applyResult and applyResult.predictedIncrease) or 0
+        local measuredIncreaseText = measuredIncrease >= 0 and ("+" .. tostring(measuredIncrease)) or tostring(measuredIncrease)
+        local measuredFinal = tonumber(applyResult and applyResult.predictedFinal) or tonumber(applyResult and applyResult.total) or "?"
         gsAppendHistory(data, {
             kind = "upgrade",
-            text = gsFormatText(GodSystem.text("History_CarryCapacityUpgrade", "Carry capacity upgrade: Lv.{1}, bonus +{2}, cost {3}"), {
+            text = gsFormatText(GodSystem.text("History_CarryCapacityUpgrade", "Carry capacity upgrade: Lv.{1}, measured increase {2}, estimated final {3}, cost {4}"), {
                 nextLevel,
-                GodSystemCarryCapacity.getBonus(nextLevel) or 0,
+                measuredIncreaseText,
+                measuredFinal,
                 info.cost,
             }),
         })
         GodSystem.save()
-        GodSystem.notify(gsFormatText(GodSystem.text("Notify_CarryCapacityUpgraded", "Carry capacity upgraded to Lv.{1}, bonus +{2}"), {
+        GodSystem.notify(gsFormatText(GodSystem.text("Notify_CarryCapacityUpgraded", "Carry capacity upgraded to Lv.{1}; measured increase {2}; estimated final {3}"), {
             nextLevel,
-            GodSystemCarryCapacity.getBonus(nextLevel) or 0,
+            measuredIncreaseText,
+            measuredFinal,
         }))
         return true
     end

@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.59",
     [switch]$SkipRuntime
 )
 
@@ -32,15 +33,16 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.59"' 'Config version must be 1.16.59'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.59\r?$' 'Root mod.info version must be 1.16.59'
-Require-Text $b42Info '(?m)^modversion=1\.16\.59\r?$' 'B42 mod.info version must be 1.16.59'
-Require-Text $workshop '(?m)^description=v1\.16\.59\r?$' 'Workshop metadata must mention v1.16.59'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 Require-Text $carry 'local function writeFinal' 'Carry repair must refresh the cached final capacity'
 Require-Text $carry 'player:setMaxWeight\(value\)' 'Carry repair must use the instance final-capacity API'
 Require-Text $carry 'maxWeightBase\s*\*\s*\(1\s*\+\s*externalDelta\)' 'Carry baseline must preserve external delta contributions'
-Require-Text $carry 'local desiredFinal\s*=\s*baseline\s*\+\s*desiredBonus' 'Carry final value must add exactly the configured bonus'
+Require-Text $carry 'local desiredFinal\s*=\s*writeBaseline\s*\+\s*desiredBonus' 'Carry final write must still add the configured bonus to the v1.16.59 baseline'
 Require-Text $carry 'writeFinal\(player,\s*originalFinal\)' 'Carry application failure must restore the previous final value'
 Reject-Text $carry 'setMaxWeightBase' 'Carry repair must not overwrite maxWeightBase'
 
