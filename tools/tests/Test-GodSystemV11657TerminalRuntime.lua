@@ -59,6 +59,10 @@ local terminal = { modData = {} }
 function terminal:getID() return 99 end
 function terminal:getInventory() return inventory end
 function terminal:getModData() return self.modData end
+function terminal:setCapacity(value) self.capacity = value end
+function terminal:getCapacity() return self.capacity end
+function terminal:setWeightReduction(value) self.reduction = value end
+function terminal:getWeightReduction() return self.reduction end
 
 local data = { autoRecyclerCapacityLevel = 1, autoRecyclerReductionLevel = 7, autoRecyclerCompressionLevel = 8 }
 local ok, report = GodSystemTerminalUpgrades.applyTerminal(terminal, data)

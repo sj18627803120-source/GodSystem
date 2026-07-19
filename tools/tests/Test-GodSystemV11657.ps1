@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.57",
     [switch]$SkipRuntime
 )
 
@@ -42,10 +43,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.57"' 'Config version must be 1.16.57'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.57\r?$' 'Root mod.info version must be 1.16.57'
-Require-Text $b42Info '(?m)^modversion=1\.16\.57\r?$' 'B42 mod.info version must be 1.16.57'
-Require-Text $workshop '(?m)^description=v1\.16\.57\r?$' 'Workshop metadata must mention v1.16.57'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 Require-Text $config 'CarryCapacityPerLevel\s*=\s*2' 'Carry bonus per level must be 2'
 Require-Text $config 'CarryCapacityBaseCost\s*=\s*2000' 'Carry base cost must be 2000'
@@ -103,7 +105,7 @@ foreach ($value in @(10,15,20,25,30,35,42,49)) { Require-Text $config ("value\s*
 Require-Text $config '(?s)TerminalCapacityLevels\s*=\s*\{.*?value\s*=\s*10,\s*upgradeCost\s*=\s*0.*?value\s*=\s*15,\s*upgradeCost\s*=\s*60.*?value\s*=\s*20,\s*upgradeCost\s*=\s*120.*?value\s*=\s*49,\s*upgradeCost\s*=\s*1100' 'Terminal capacity values/costs do not match the approved table'
 Require-Text $config '(?s)TerminalReductionLevels\s*=\s*\{.*?value\s*=\s*50,\s*upgradeCost\s*=\s*0.*?value\s*=\s*55,\s*upgradeCost\s*=\s*100.*?value\s*=\s*90,\s*upgradeCost\s*=\s*1700.*?value\s*=\s*99,\s*upgradeCost\s*=\s*2500' 'Terminal reduction values/costs do not match the approved table'
 Require-Text $config '(?s)TerminalCompressionLevels\s*=\s*\{.*?value\s*=\s*0,\s*upgradeCost\s*=\s*0.*?value\s*=\s*15,\s*upgradeCost\s*=\s*500.*?value\s*=\s*85,\s*upgradeCost\s*=\s*8000.*?value\s*=\s*90,\s*upgradeCost\s*=\s*12000' 'Terminal compression values/costs do not match the approved table'
-Require-Text $terminal 'setWeightReduction\(reduction\)' 'Terminal reduction must use the ItemContainer API'
+Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setWeightReduction",\s*"getWeightReduction",\s*reduction\)' 'Terminal reduction must use the child ItemContainer API'
 Require-Text $terminal 'setActualWeight' 'Compression must update item instances'
 Require-Text $terminal 'setCustomWeight' 'Compression must mark instance custom weight'
 Reject-Text $terminal 'ScriptItem' 'Compression must not edit shared ScriptItem weights'
