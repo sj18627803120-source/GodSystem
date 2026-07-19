@@ -13,6 +13,7 @@ local MIN_WEIGHT = 0.01
 local EPSILON = 0.0001
 local MAX_DEPTH = 32
 local BATCH_SIZE = 32
+local MAX_DIAGNOSTIC_ROWS = 5
 
 local function finite(value)
     value = tonumber(value)
@@ -41,14 +42,65 @@ local function readCustomWeight(item)
 end
 
 local function writeWeight(item, weight, custom)
-    if not item or not item.setActualWeight or not item.setCustomWeight or not finite(weight) or weight < 0 then return false end
+    if not item or not item.setActualWeight or not item.setCustomWeight or not finite(weight) or weight < 0 then
+        return false, "unsupported"
+    end
+    local expectedCustom = custom == true
     local ok = pcall(function()
+        -- B42 may refresh ActualWeight when the custom flag changes.  Enter the
+        -- custom-weight state first, write the instance value, then restore the
+        -- original flag when this is a rollback/restoration.
+        item:setCustomWeight(true)
         item:setActualWeight(weight)
-        item:setCustomWeight(custom == true)
+        if not expectedCustom then item:setCustomWeight(false) end
     end)
-    if not ok then return false end
+    if not ok then
+        pcall(function() item:setCustomWeight(expectedCustom) end)
+        return false, "writeException"
+    end
     local after = readActualWeight(item)
-    return after ~= nil and math.abs(after - weight) <= EPSILON
+    local tolerance = math.max(EPSILON, math.abs(weight) * 0.001)
+    if after == nil or math.abs(after - weight) > tolerance then return false, "actualWeightMismatch" end
+    if readCustomWeight(item) ~= expectedCustom then return false, "customFlagMismatch" end
+    return true
+end
+
+local function readNumberMethod(target, method)
+    if not target or not target[method] then return nil end
+    local ok, value = pcall(function() return target[method](target) end)
+    value = ok and tonumber(value) or nil
+    return finite(value) and value or nil
+end
+
+local function writeNumberMethod(target, setter, getter, value)
+    if not target or not target[setter] or not target[getter] then return false, "unsupported" end
+    local ok = pcall(function() target[setter](target, value) end)
+    if not ok then return false, "writeException" end
+    local after = readNumberMethod(target, getter)
+    if after == nil or math.abs(after - value) > EPSILON then return false, "verificationFailed" end
+    return true
+end
+
+local function itemDiagnostic(item, reason)
+    local id = ""
+    local fullType = ""
+    if item and item.getID then
+        local ok, value = pcall(function() return item:getID() end)
+        if ok then id = tostring(value or "") end
+    end
+    if item and item.getFullType then
+        local ok, value = pcall(function() return item:getFullType() end)
+        if ok then fullType = tostring(value or "") end
+    end
+    return { id = id, fullType = fullType, reason = tostring(reason or "unknown") }
+end
+
+local function recordDiagnostic(report, item, reason)
+    reason = tostring(reason or "unknown")
+    report.reasonCounts[reason] = (report.reasonCounts[reason] or 0) + 1
+    if #report.diagnostics < MAX_DIAGNOSTIC_ROWS then
+        report.diagnostics[#report.diagnostics + 1] = itemDiagnostic(item, reason)
+    end
 end
 
 local function normalizeLevel(value, maximum)
@@ -172,6 +224,11 @@ function GodSystemTerminalUpgrades.compressItem(item, compression, terminalId)
         return true, "unchanged"
     end
 
+    local savedBaseWeight = data[BASE_WEIGHT_KEY]
+    local savedBaseCustom = data[BASE_CUSTOM_KEY]
+    local savedLastWeight = data[LAST_WEIGHT_KEY]
+    local savedOwner = data[OWNER_KEY]
+    local savedVersion = data[VERSION_KEY]
     local baseWeight = tonumber(data[BASE_WEIGHT_KEY])
     if not finite(baseWeight) then
         if readCustomWeight(item) then return false, "customWeight" end
@@ -184,9 +241,25 @@ function GodSystemTerminalUpgrades.compressItem(item, compression, terminalId)
     local target = math.max(MIN_WEIGHT, baseWeight * (1 - compression / 100))
     local previousWeight = current
     local previousCustom = readCustomWeight(item)
-    if not writeWeight(item, target, true) then
-        writeWeight(item, previousWeight, previousCustom)
-        return false, "writeFailed"
+    local written, writeReason = writeWeight(item, target, true)
+    if not written then
+        local restored = writeWeight(item, previousWeight, previousCustom)
+        if restored then
+            data[BASE_WEIGHT_KEY] = savedBaseWeight
+            data[BASE_CUSTOM_KEY] = savedBaseCustom
+            data[LAST_WEIGHT_KEY] = savedLastWeight
+            data[OWNER_KEY] = savedOwner
+            data[VERSION_KEY] = savedVersion
+        else
+            -- Keep ownership metadata when rollback itself fails so later
+            -- terminal removal/cleanup can continue attempting restoration.
+            data[BASE_WEIGHT_KEY] = finite(savedBaseWeight) and savedBaseWeight or previousWeight
+            data[BASE_CUSTOM_KEY] = savedBaseCustom ~= nil and savedBaseCustom or previousCustom
+            data[LAST_WEIGHT_KEY] = readActualWeight(item) or previousWeight
+            data[OWNER_KEY] = tostring(terminalId or "")
+            data[VERSION_KEY] = COMPRESSION_VERSION
+        end
+        return false, restored and (writeReason or "writeFailed") or ((writeReason or "writeFailed") .. "RestoreFailed")
     end
     data[LAST_WEIGHT_KEY] = target
     data[OWNER_KEY] = tostring(terminalId or "")
@@ -267,17 +340,27 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data)
     local capacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity").value or 10
     local reduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction").value or 50
     local compression = GodSystemTerminalUpgrades.getLevelData(data, "compression").value or 0
-    if not inventory.setCapacity or not inventory.setWeightReduction then return false, { reason = "containerApiUnavailable" } end
-    local capacityOk = pcall(function() inventory:setCapacity(capacity) end)
-    local reductionOk = pcall(function() inventory:setWeightReduction(reduction) end)
-    if not capacityOk or not reductionOk then return false, { reason = "containerWriteFailed" } end
-    if inventory.getCapacity then
-        local ok, appliedCapacity = pcall(function() return inventory:getCapacity() end)
-        if not ok or math.abs((tonumber(appliedCapacity) or -1) - capacity) > EPSILON then return false, { reason = "capacityVerificationFailed" } end
+    -- InventoryContainer owns the equipped-bag values used by carry-weight
+    -- calculations while its child ItemContainer owns the actual contents.
+    -- Keep both layers aligned; changing only the child leaves the item-level
+    -- reduction at the script default (50 for the system terminal).
+    local outerCapacityOk, outerCapacityReason = writeNumberMethod(terminal, "setCapacity", "getCapacity", capacity)
+    local innerCapacityOk, innerCapacityReason = writeNumberMethod(inventory, "setCapacity", "getCapacity", capacity)
+    if not outerCapacityOk or not innerCapacityOk then
+        return false, {
+            reason = "capacityWriteFailed",
+            outerReason = outerCapacityReason,
+            innerReason = innerCapacityReason,
+        }
     end
-    if inventory.getWeightReduction then
-        local ok, appliedReduction = pcall(function() return inventory:getWeightReduction() end)
-        if not ok or math.abs((tonumber(appliedReduction) or -1) - reduction) > EPSILON then return false, { reason = "reductionVerificationFailed" } end
+    local outerReductionOk, outerReductionReason = writeNumberMethod(terminal, "setWeightReduction", "getWeightReduction", reduction)
+    local innerReductionOk, innerReductionReason = writeNumberMethod(inventory, "setWeightReduction", "getWeightReduction", reduction)
+    if not outerReductionOk or not innerReductionOk then
+        return false, {
+            reason = "reductionWriteFailed",
+            outerReason = outerReductionReason,
+            innerReason = innerReductionReason,
+        }
     end
 
     local terminalData = itemModData(terminal)
@@ -295,6 +378,19 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data)
     local skipped = 0
     local failed = 0
     local restoredItems = {}
+    local report = {
+        capacity = capacity,
+        reduction = reduction,
+        compression = compression,
+        processed = 0,
+        skipped = 0,
+        failed = 0,
+        itemCount = 0,
+        items = {},
+        restoredItems = restoredItems,
+        reasonCounts = {},
+        diagnostics = {},
+    }
     local rows = GodSystemTerminalUpgrades.collectTerminalItems(terminal)
     for batchStart = 1, #rows, BATCH_SIZE do
         local batchEnd = math.min(#rows, batchStart + BATCH_SIZE - 1)
@@ -306,33 +402,78 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data)
                 processed = processed + 1
             elseif reason == "customWeight" then
                 skipped = skipped + 1
+                recordDiagnostic(report, item, reason)
             else
+                -- A single unusual item must not invalidate a paid terminal
+                -- level.  The failed instance is restored by compressItem and
+                -- reported as skipped; container/API failures above remain
+                -- transaction-fatal.
+                skipped = skipped + 1
                 failed = failed + 1
+                recordDiagnostic(report, item, reason)
             end
         end
     end
     for item in pairs(previous.tracked or {}) do
         if not current[item] then
             local itemData = itemModData(item)
-            if itemData and tostring(itemData[OWNER_KEY] or "") == terminalId and GodSystemTerminalUpgrades.restoreItem(item) then
-                restoredItems[#restoredItems + 1] = item
+            if itemData and tostring(itemData[OWNER_KEY] or "") == terminalId then
+                if GodSystemTerminalUpgrades.restoreItem(item) then
+                    restoredItems[#restoredItems + 1] = item
+                else
+                    failed = failed + 1
+                    recordDiagnostic(report, item, "restoreFailed")
+                end
             end
         end
     end
     previous.terminal = terminal
     previous.tracked = current
     previous.lastCompression = compression
+    report.processed = processed
+    report.skipped = skipped
+    report.failed = failed
+    report.itemCount = #rows
+    report.items = rows
+    previous.lastReport = report
     GodSystemTerminalUpgrades.runtime[terminalId] = previous
-    return failed == 0, {
-        capacity = capacity,
-        reduction = reduction,
-        compression = compression,
-        processed = processed,
-        skipped = skipped,
-        failed = failed,
-        itemCount = #rows,
-        items = rows,
-        restoredItems = restoredItems,
+    return true, report
+end
+
+function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data)
+    GodSystemTerminalUpgrades.normalizeData(data)
+    local inventory = nil
+    if terminal and terminal.getInventory then
+        local ok, value = pcall(function() return terminal:getInventory() end)
+        if ok then inventory = value end
+    end
+    local expectedCapacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity").value or 10
+    local expectedReduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction").value or 50
+    local expectedCompression = GodSystemTerminalUpgrades.getLevelData(data, "compression").value or 0
+    local outerCapacity = readNumberMethod(terminal, "getCapacity")
+    local innerCapacity = readNumberMethod(inventory, "getCapacity")
+    local outerReduction = readNumberMethod(terminal, "getWeightReduction")
+    local innerReduction = readNumberMethod(inventory, "getWeightReduction")
+    local runtime = terminal and GodSystemTerminalUpgrades.runtime[GodSystemTerminalUpgrades.getTerminalId(terminal)] or nil
+    local lastReport = runtime and runtime.lastReport or nil
+    return {
+        expectedCapacity = expectedCapacity,
+        expectedReduction = expectedReduction,
+        expectedCompression = expectedCompression,
+        outerCapacity = outerCapacity,
+        innerCapacity = innerCapacity,
+        outerReduction = outerReduction,
+        innerReduction = innerReduction,
+        capacityApplied = outerCapacity ~= nil and innerCapacity ~= nil
+            and math.abs(outerCapacity - expectedCapacity) <= EPSILON
+            and math.abs(innerCapacity - expectedCapacity) <= EPSILON,
+        reductionApplied = outerReduction ~= nil and innerReduction ~= nil
+            and math.abs(outerReduction - expectedReduction) <= EPSILON
+            and math.abs(innerReduction - expectedReduction) <= EPSILON,
+        processed = lastReport and lastReport.processed or 0,
+        skipped = lastReport and lastReport.skipped or 0,
+        failed = lastReport and lastReport.failed or 0,
+        diagnostics = lastReport and lastReport.diagnostics or {},
     }
 end
 

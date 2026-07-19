@@ -3156,19 +3156,40 @@ function GodSystemWindow:populateWaistSpace()
     end
 
     local compressedExample = 10 * (1 - (info.compression or 0) / 100)
-    local burdenExample = compressedExample * (1 - (info.weightReduction or 0) / 100)
-    local capacityStatus = string.format("%s | Lv.%d/%d | %s %d/%d",
+    local actualReductionForExample = tonumber(info.actualWeightReduction) or tonumber(info.weightReduction) or 0
+    local burdenExample = compressedExample * (1 - actualReductionForExample / 100)
+    local actualCapacityText = info.actualCapacity ~= nil and tostring(math.floor(tonumber(info.actualCapacity) or 0)) or "?"
+    local actualReductionText = info.actualWeightReduction ~= nil and (tostring(math.floor(tonumber(info.actualWeightReduction) or 0)) .. "%") or "?"
+    local capacityStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %d/%d",
         GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.maxLevel or 8,
+        GodSystem.text("Waist_Target", "Target"), info.capacity or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualCapacityText,
         GodSystem.text("Waist_Items", "Items"), info.itemCount or 0, info.capacity or 0)
-    local reductionStatus = string.format("%s | Lv.%d/%d | %d%%",
-        GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.maxLevel or 8, info.weightReduction or 0)
+    local reductionStatus = string.format("%s | Lv.%d/%d | %s %d%% | %s %s",
+        GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.maxLevel or 8,
+        GodSystem.text("Waist_Target", "Target"), info.weightReduction or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualReductionText)
     local compressionStatus = string.format("%s | Lv.%d/%d | %d%%",
         GodSystem.text("Waist_Compression", "Compression"), info.compressionLevel or 1, info.maxLevel or 8, info.compression or 0)
+    local compressionResult = gsFormatTemplate(GodSystem.text("Waist_CompressionResult", "Last calibration: processed {1} | skipped {2} | failed {3}"), {
+        info.compressionProcessed or 0,
+        info.compressionSkipped or 0,
+        info.compressionFailed or 0,
+    })
+    local diagnosticRows = {}
+    for i = 1, math.min(5, #(info.compressionDiagnostics or {})) do
+        local diagnostic = info.compressionDiagnostics[i] or {}
+        local identity = tostring(diagnostic.fullType or "")
+        if identity == "" then identity = "item#" .. tostring(diagnostic.id or "?") end
+        diagnosticRows[#diagnosticRows + 1] = identity .. " [" .. tostring(diagnostic.reason or "unknown") .. "]"
+    end
+    local compressionDetail = table.concat(diagnosticRows, "\n")
     local exampleStatus = string.format("%s | 10 -> %.2f -> %.2f",
         GodSystem.text("Waist_Example", "Example: original -> compressed -> burden"), compressedExample, burdenExample)
     self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
     self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
     self:addListItem(compressionStatus, { kind = "info", data = compressionStatus, detail = "" })
+    self:addListItem(compressionResult, { kind = "info", data = compressionResult, detail = compressionDetail })
     self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
     local autoState = GodSystem.text("Waist_AutoRecycleLocked", "Locked")

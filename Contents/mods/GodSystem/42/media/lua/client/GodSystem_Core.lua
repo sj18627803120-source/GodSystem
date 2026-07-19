@@ -3914,6 +3914,23 @@ function GodSystem.applyAutoRecyclerContainerStats(item, level)
     return GodSystemTerminalUpgrades.applyTerminal(item, data)
 end
 
+function GodSystem.getAutoRecyclerContentSignature(item)
+    if not item or not item.getInventory then return "missing" end
+    local ok, inventory = pcall(function() return item:getInventory() end)
+    if not ok or not inventory or not inventory.getItems then return "unsupported" end
+    local itemsOk, items = pcall(function() return inventory:getItems() end)
+    if not itemsOk or not items or not items.size then return "unsupported" end
+    local size = items:size()
+    local function rowId(index)
+        if index < 0 or index >= size or not items.get then return "" end
+        local itemOk, value = pcall(function() return items:get(index) end)
+        if not itemOk or not value or not value.getID then return "" end
+        local idOk, id = pcall(function() return value:getID() end)
+        return idOk and tostring(id or "") or ""
+    end
+    return tostring(size) .. ":" .. rowId(0) .. ":" .. rowId(size - 1)
+end
+
 function GodSystem.markAutoRecyclerContainer(item, level)
     if not item or not item.getFullType then
         return false
@@ -3934,9 +3951,12 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     if item.setCustomName then
         pcall(function() item:setCustomName(true) end)
     end
-    GodSystem.applyAutoRecyclerContainerStats(item)
-    GodSystem.autoRecyclerCache = { item = item }
-    return true
+    local applied = GodSystem.applyAutoRecyclerContainerStats(item)
+    GodSystem.autoRecyclerCache = {
+        item = item,
+        contentSignature = GodSystem.getAutoRecyclerContentSignature(item),
+    }
+    return applied == true
 end
 
 function GodSystem.getAutoRecyclerItemLevel(item)
@@ -4103,13 +4123,13 @@ function GodSystem.getAutoRecyclerContainer(forceSearch)
     data.autoRecyclerClaimed = true
     GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
     GodSystem.markAutoRecyclerContainer(primary.item)
-    GodSystem.autoRecyclerCache = { item = primary.item }
     return primary
 end
 
 function GodSystem.refreshAutoRecyclerContainers(forceSearch)
     local entry = GodSystem.getAutoRecyclerContainer(forceSearch == true)
-    if entry and entry.item then GodSystem.applyAutoRecyclerContainerStats(entry.item) end
+    -- getAutoRecyclerContainer() already marks and applies the chosen terminal.
+    -- Avoid a second recursive compression pass for the same refresh request.
     return entry
 end
 
@@ -6261,6 +6281,7 @@ function GodSystem.getAutoRecyclerInfo()
     local reductionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "reduction")
     local compressionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "compression")
     local inventory, entry = GodSystem.getAutoRecyclerInventory()
+    local appliedStatus = entry and entry.item and GodSystemTerminalUpgrades.getAppliedStatus(entry.item, data) or nil
     local count = 0
     if inventory and inventory.getItems then
         local ok, items = pcall(function() return inventory:getItems() end)
@@ -6279,6 +6300,16 @@ function GodSystem.getAutoRecyclerInfo()
         capacity = capacityInfo.value or 0,
         weightReduction = reductionInfo.value or 0,
         compression = compressionInfo.value or 0,
+        actualCapacity = appliedStatus and appliedStatus.outerCapacity or nil,
+        actualInnerCapacity = appliedStatus and appliedStatus.innerCapacity or nil,
+        actualWeightReduction = appliedStatus and appliedStatus.outerReduction or nil,
+        actualInnerWeightReduction = appliedStatus and appliedStatus.innerReduction or nil,
+        capacityApplied = appliedStatus and appliedStatus.capacityApplied == true,
+        reductionApplied = appliedStatus and appliedStatus.reductionApplied == true,
+        compressionProcessed = appliedStatus and appliedStatus.processed or 0,
+        compressionSkipped = appliedStatus and appliedStatus.skipped or 0,
+        compressionFailed = appliedStatus and appliedStatus.failed or 0,
+        compressionDiagnostics = appliedStatus and appliedStatus.diagnostics or {},
         capacityNextCost = capacityInfo.nextCost,
         reductionNextCost = reductionInfo.nextCost,
         compressionNextCost = compressionInfo.nextCost,
@@ -7397,7 +7428,15 @@ function GodSystem.onPlayerUpdate(player)
     GodSystem.updateKillRewards()
     GodSystem.updateTaskTimeouts()
     if GodSystem.updateTicks % 300 == 0 then
+        GodSystem.terminalRefreshPending = false
         GodSystem.refreshAutoRecyclerContainers(false)
+    elseif GodSystem.autoRecyclerCache then
+        local cached = GodSystem.autoRecyclerCache
+        local signature = GodSystem.getAutoRecyclerContentSignature(cached.item)
+        if GodSystem.terminalRefreshPending == true or signature ~= cached.contentSignature then
+            GodSystem.terminalRefreshPending = false
+            GodSystem.refreshAutoRecyclerContainers(false)
+        end
     end
     GodSystem.updateAutoRecycler()
     GodSystem.processAutoTaskClaim()
@@ -7447,7 +7486,7 @@ end
 
 function GodSystem.onContainerUpdate()
     if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
-    if GodSystem.autoRecyclerCache then GodSystem.refreshAutoRecyclerContainers(false) end
+    if GodSystem.autoRecyclerCache then GodSystem.terminalRefreshPending = true end
 end
 
 function GodSystem.debugAddPoints()

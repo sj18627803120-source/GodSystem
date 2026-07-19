@@ -1,4 +1,4 @@
-# GodSystem localization source, updated through v1.16.57.
+# GodSystem localization source, updated through v1.16.58.
 # Format intentionally stays flat: Key: "UTF-8 Chinese text"
 Task_move_1500_Title: "区域调查"
 Upgrade_TerminalCapacity: "终端容量"
@@ -10,6 +10,9 @@ Btn_UpgradeTerminalReduction: "升级减重"
 Btn_UpgradeTerminalCompression: "升级压缩"
 Waist_Compression: "压缩"
 Waist_Example: "示例：原重 → 压缩 → 人物负担"
+Waist_Target: "目标"
+Waist_Actual: "实际"
+Waist_CompressionResult: "最近校准：处理 {1}｜跳过 {2}｜失败 {3}"
 Terminal_CompressionSkipped: "已跳过其他 Mod 的自定义重量物品"
 Terminal_Compressing: "正在压缩..."
 Notify_TerminalUpgradeApplyFailed: "终端升级应用失败，本次未扣费"
