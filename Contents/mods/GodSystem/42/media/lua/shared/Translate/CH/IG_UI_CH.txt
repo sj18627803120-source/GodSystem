@@ -1211,26 +1211,18 @@ IGUI_CH = {
 
     IGUI_GodSystem_Upgrade_TerminalCapacity = "终端容量",
     IGUI_GodSystem_Upgrade_TerminalReduction = "终端减重",
-    IGUI_GodSystem_Upgrade_TerminalCompression = "终端压缩",
-    IGUI_GodSystem_Upgrade_TerminalIndependentDesc = "只提升当前选中的终端属性，不影响另外两项。",
+    IGUI_GodSystem_Upgrade_TerminalIndependentDesc = "只提升当前选中的终端属性，不影响另一项。",
     IGUI_GodSystem_Btn_UpgradeTerminalCapacity = "升级容量",
     IGUI_GodSystem_Btn_UpgradeTerminalReduction = "升级减重",
-    IGUI_GodSystem_Btn_UpgradeTerminalCompression = "升级压缩",
-    IGUI_GodSystem_Waist_Compression = "压缩",
-    IGUI_GodSystem_Waist_Example = "示例：原重 → 压缩 → 人物负担",
-    IGUI_GodSystem_Terminal_CompressionSkipped = "已跳过其他 Mod 的自定义重量物品",
     IGUI_GodSystem_Notify_TerminalUpgradeApplyFailed = "终端升级应用失败，本次未扣费",
     IGUI_GodSystem_NotifyMP_TerminalUpgradeApplyFailed = "终端升级应用失败，本次未扣费",
-    IGUI_GodSystem_NotifyMP_TerminalUpgradeSuccess = "终端{1}已升级至 Lv.{2}，花费 {3} 系统币；跳过 {4} 件自定义重量物品",
+    IGUI_GodSystem_NotifyMP_TerminalUpgradeSuccess = "终端{1}已升级至 Lv.{2}，花费 {3} 系统币",
     IGUI_GodSystem_HistoryMP_TerminalUpgrade = "终端{1}升级至 Lv.{2}，花费 {3} 系统币",
 
-    IGUI_GodSystem_Terminal_Compressing = "正在压缩...",
 
     IGUI_GodSystem_Waist_Target = "目标",
     IGUI_GodSystem_Waist_Actual = "实际",
-    IGUI_GodSystem_Waist_CompressionResult = "最近校准：处理 {1}｜跳过 {2}｜失败 {3}",
 
-    IGUI_GodSystem_Waist_CompressionLimit = "压缩说明：并非所有物品都支持压缩；特殊重量物品或其他 Mod 修改过重量的物品可能无法压缩，系统会自动跳过不兼容物品。",
 
     IGUI_GodSystem_Btn_HideUnlocked = "隐藏解锁",
     IGUI_GodSystem_Btn_ShopHiddenManager = "隐藏管理",
@@ -1268,4 +1260,16 @@ IGUI_CH = {
 
     IGUI_GodSystem_ContextReason_ConfiguredListed = "该内置商城商品默认已经上架，无需再次付费。",
     IGUI_GodSystem_ContextReason_HiddenListed = "该商品已经上架但处于隐藏状态，请到商城的隐藏管理中恢复。",
+
+    IGUI_GodSystem_ShopHidden_Delete = "删除上架",
+    IGUI_GodSystem_Notify_ShopItemDeleted = "已删除上架商品：",
+    IGUI_GodSystem_NotifyMP_ShopItemDeleted = "商品已删除上架：{1}",
+    IGUI_GodSystem_History_ShopItemDeleted = "删除上架商品：",
+    IGUI_GodSystem_HistoryMP_ShopItemDeleted = "删除上架商品：{1}",
+    IGUI_GodSystem_Confirm_ShopItemDelete = "确认删除商品“{1}”的上架记录吗？不会退还上架费用；以后重新上架仍需正常付费。",
+    IGUI_GodSystem_Waist_CapacityExtended = "容量达到Lv.8后，每次升级固定增加5容量并花费1100系统币；安全上限为1999。",
+    IGUI_GodSystem_Waist_CapacityRule = "容量只决定终端能否继续放入物品，不压缩、也不修改任何物品重量。",
+    IGUI_GodSystem_Waist_ExampleReduction = "减重示例：原重 → 人物负担",
+
+    IGUI_GodSystem_Waist_UsedCapacity = "已用容量",
 }

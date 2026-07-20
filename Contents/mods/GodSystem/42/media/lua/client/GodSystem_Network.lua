@@ -1013,7 +1013,7 @@ end)
 
 wrap("upgradeTerminal", function(upgradeType)
     upgradeType = tostring(upgradeType or "")
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "compression" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" then return false end
     return send("upgradeSystem", { upgradeType = "terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2) })
 end)
 
@@ -1123,6 +1123,10 @@ end)
 
 wrap("setShopItemHidden", function(variantKey, hidden)
     return send((Protocol.C2S and Protocol.C2S.SetShopItemHidden) or "setShopItemHidden", { variantKey = variantKey, hidden = hidden == true })
+end)
+
+wrap("deleteShopItem", function(variantKey)
+    return send((Protocol.C2S and Protocol.C2S.DeleteShopItem) or "deleteShopItem", { variantKey = variantKey })
 end)
 
 wrap("removeUnlockedShopItem", function(variantKey)

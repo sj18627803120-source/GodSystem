@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.60",
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [switch]$AllowRetiredCompression
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,13 +61,15 @@ Require-Text $core 'applyResult\s*and\s*applyResult\.predictedIncrease' 'SP upgr
 Require-Text $core 'applyResult\s*and\s*applyResult\.predictedFinal' 'SP upgrade notification must use the estimated final capacity'
 Reject-Text $core 'Permanently increase player carry capacity by 2 per level' 'Carry fallback text must not promise a fixed visible increase'
 
-Require-Text $localization '(?m)^Waist_CompressionLimit:' 'Compression compatibility notice is missing from the localization source'
 Require-Text $localization '(?m)^Notify_CarryCapacityUpgraded:.*\{3\}' 'SP carry notification must include the measured final value'
 Require-Text $localization '(?m)^History_CarryCapacityUpgrade:.*\{4\}' 'SP carry history must include the measured result and cost'
-Require-Text $override 'GodSystemFallbackText\.zh\["Waist_CompressionLimit"\]' 'Compression notice is missing from the Lua fallback'
-Require-Text $cn 'IGUI_GodSystem_Waist_CompressionLimit' 'Compression notice is missing from CN translations'
-Require-Text $ch 'IGUI_GodSystem_Waist_CompressionLimit' 'Compression notice is missing from CH translations'
-Require-Text $ui 'addListItem\(compressionLimit' 'Compression notice must be visible on the terminal page'
+if (-not $AllowRetiredCompression) {
+    Require-Text $localization '(?m)^Waist_CompressionLimit:' 'Compression compatibility notice is missing from the localization source'
+    Require-Text $override 'GodSystemFallbackText\.zh\["Waist_CompressionLimit"\]' 'Compression notice is missing from the Lua fallback'
+    Require-Text $cn 'IGUI_GodSystem_Waist_CompressionLimit' 'Compression notice is missing from CN translations'
+    Require-Text $ch 'IGUI_GodSystem_Waist_CompressionLimit' 'Compression notice is missing from CH translations'
+    Require-Text $ui 'addListItem\(compressionLimit' 'Compression notice must be visible on the terminal page'
+}
 
 if (-not $SkipRuntime) {
     $luaExe = Get-Command lua -ErrorAction SilentlyContinue

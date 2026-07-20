@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.61",
     [switch]$SkipRuntime
 )
 
@@ -85,10 +86,11 @@ foreach ($key in @(
     Require-Text $ch ('IGUI_GodSystem_' + [regex]::Escape($key)) ("CH translation missing: " + $key)
 }
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.61"' 'Config version must be 1.16.61'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.61\r?$' 'Root mod.info version must be 1.16.61'
-Require-Text $b42Info '(?m)^modversion=1\.16\.61\r?$' 'B42 mod.info version must be 1.16.61'
-Require-Text $workshop '(?m)^description=v1\.16\.61\r?$' 'Workshop metadata must mention v1.16.61'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 if (-not $SkipRuntime) {
     $luaExe = Get-Command lua -ErrorAction SilentlyContinue

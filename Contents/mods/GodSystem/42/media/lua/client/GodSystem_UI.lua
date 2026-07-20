@@ -1106,6 +1106,11 @@ function GodSystemShopHiddenWindow:createChildren()
     gsStyleActionButton(self.showButton, false)
     self:addChild(self.showButton)
 
+    self.deleteButton = ISButton:new(332, actionY, 150, buttonH, GodSystem.text("ShopHidden_Delete", "Delete listing"), self, self.onDelete)
+    self.deleteButton:initialise()
+    gsStyleActionButton(self.deleteButton, false)
+    self:addChild(self.deleteButton)
+
     self.closeButton = ISButton:new(self.width - 132, actionY, 120, buttonH, GodSystem.text("ShopHidden_Close", "Close"), self, self.close)
     self.closeButton:initialise()
     gsStyleActionButton(self.closeButton, false)
@@ -1150,6 +1155,7 @@ function GodSystemShopHiddenWindow:updateButtons()
     local blocked = self.waitingForServer == true
     self.hideButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden ~= true
     self.showButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden == true
+    self.deleteButton.enable = not blocked and row ~= nil and row.empty ~= true
 end
 
 function GodSystemShopHiddenWindow:statusLabel()
@@ -1285,6 +1291,41 @@ end
 
 function GodSystemShopHiddenWindow:onShow()
     self:setSelectedHidden(false)
+end
+
+function GodSystemShopHiddenWindow:onDelete()
+    local row = self:getSelected()
+    if not row or not row.variantKey or row.empty then return end
+    local message = gsFormatTemplate(GodSystem.text("Confirm_ShopItemDelete", "Delete the listing for {1}? No currency will be refunded; relisting will charge the normal fee."), {
+        tostring(row.label or row.fullType or row.variantKey),
+    })
+    local player = getPlayer and getPlayer() or nil
+    local playerNum = player and player:getPlayerNum() or 0
+    if ISModalDialog then
+        local x = math.max(80, (getCore():getScreenWidth() / 2) - 250)
+        local y = math.max(80, (getCore():getScreenHeight() / 2) - 130)
+        local modal = ISModalDialog:new(x, y, 500, 260, message, true, self, self.onDeleteConfirm, playerNum, {
+            variantKey = row.variantKey,
+        })
+        modal:initialise()
+        modal:addToUIManager()
+    else
+        GodSystem.notify(GodSystem.text("Notify_TraitConfirmMissing", "Confirmation dialog unavailable"))
+    end
+end
+
+function GodSystemShopHiddenWindow:onDeleteConfirm(button, payload)
+    if not button or button.internal ~= "YES" then return end
+    local variantKey = payload and payload.variantKey or nil
+    if not variantKey then return end
+    self.selectedVariantKey = nil
+    local sent = GodSystem.deleteShopItem(variantKey)
+    self.waitingForServer = gsIsMultiplayer() and sent ~= false
+    if self.owner and self.owner.finishMultiplayerCommand then self.owner:finishMultiplayerCommand(sent) end
+    if not self.waitingForServer then
+        if self.owner and self.owner.populateList then self.owner:populateList() end
+        self:populateItems()
+    end
 end
 
 function GodSystemShopHiddenWindow:onServerStateChanged()
@@ -3398,9 +3439,8 @@ function GodSystemWindow:populateWaistSpace()
     end
     gsSetButtonTitle(self.thirdButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCapacity", "Upgrade capacity"), info.capacityNextCost))
     gsSetButtonTitle(self.fourthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalReduction", "Upgrade reduction"), info.reductionNextCost))
-    gsSetButtonTitle(self.fifthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCompression", "Upgrade compression"), info.compressionNextCost))
     self.fourthButton:setVisible(true)
-    self.fifthButton:setVisible(true)
+    self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(true)
     self.seventhButton:setVisible(true)
     if waistUnlockMode then
@@ -3416,43 +3456,28 @@ function GodSystemWindow:populateWaistSpace()
         gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleEnable", "Auto on"))
     end
 
-    local compressedExample = 10 * (1 - (info.compression or 0) / 100)
     local actualReductionForExample = tonumber(info.actualWeightReduction) or tonumber(info.weightReduction) or 0
-    local burdenExample = compressedExample * (1 - actualReductionForExample / 100)
+    local burdenExample = 10 * (1 - actualReductionForExample / 100)
     local actualCapacityText = info.actualCapacity ~= nil and tostring(math.floor(tonumber(info.actualCapacity) or 0)) or "?"
     local actualReductionText = info.actualWeightReduction ~= nil and (tostring(math.floor(tonumber(info.actualWeightReduction) or 0)) .. "%") or "?"
-    local capacityStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %d/%d",
-        GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.maxLevel or 8,
+    local contentsWeight = tonumber(info.contentsWeight) or 0
+    local capacityStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %.2f/%d",
+        GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.capacityMaxLevel or 398,
         GodSystem.text("Waist_Target", "Target"), info.capacity or 0,
         GodSystem.text("Waist_Actual", "Actual"), actualCapacityText,
-        GodSystem.text("Waist_Items", "Items"), info.itemCount or 0, info.capacity or 0)
+        GodSystem.text("Waist_UsedCapacity", "Used"), contentsWeight, info.capacity or 0)
     local reductionStatus = string.format("%s | Lv.%d/%d | %s %d%% | %s %s",
-        GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.maxLevel or 8,
+        GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.reductionMaxLevel or 8,
         GodSystem.text("Waist_Target", "Target"), info.weightReduction or 0,
         GodSystem.text("Waist_Actual", "Actual"), actualReductionText)
-    local compressionStatus = string.format("%s | Lv.%d/%d | %d%%",
-        GodSystem.text("Waist_Compression", "Compression"), info.compressionLevel or 1, info.maxLevel or 8, info.compression or 0)
-    local compressionLimit = GodSystem.text("Waist_CompressionLimit", "Compression is not compatible with every item; incompatible weights are skipped automatically.")
-    local compressionResult = gsFormatTemplate(GodSystem.text("Waist_CompressionResult", "Last calibration: processed {1} | skipped {2} | failed {3}"), {
-        info.compressionProcessed or 0,
-        info.compressionSkipped or 0,
-        info.compressionFailed or 0,
-    })
-    local diagnosticRows = {}
-    for i = 1, math.min(5, #(info.compressionDiagnostics or {})) do
-        local diagnostic = info.compressionDiagnostics[i] or {}
-        local identity = tostring(diagnostic.fullType or "")
-        if identity == "" then identity = "item#" .. tostring(diagnostic.id or "?") end
-        diagnosticRows[#diagnosticRows + 1] = identity .. " [" .. tostring(diagnostic.reason or "unknown") .. "]"
-    end
-    local compressionDetail = table.concat(diagnosticRows, "\n")
-    local exampleStatus = string.format("%s | 10 -> %.2f -> %.2f",
-        GodSystem.text("Waist_Example", "Example: original -> compressed -> burden"), compressedExample, burdenExample)
+    local capacityExtended = GodSystem.text("Waist_CapacityExtended", "After Lv.8, each upgrade adds 5 capacity and costs 1100 coins; safe maximum is 1999.")
+    local capacityRule = GodSystem.text("Waist_CapacityRule", "Capacity only controls whether items can be placed inside. Item weights are not compressed or changed.")
+    local exampleStatus = string.format("%s | 10 -> %.2f",
+        GodSystem.text("Waist_ExampleReduction", "Reduction example: original -> burden"), burdenExample)
     self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
     self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
-    self:addListItem(compressionStatus, { kind = "info", data = compressionStatus, detail = "" })
-    self:addListItem(compressionLimit, { kind = "info", data = compressionLimit, detail = "" })
-    self:addListItem(compressionResult, { kind = "info", data = compressionResult, detail = compressionDetail })
+    self:addListItem(capacityExtended, { kind = "info", data = capacityExtended, detail = "" })
+    self:addListItem(capacityRule, { kind = "info", data = capacityRule, detail = "" })
     self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
     local autoState = GodSystem.text("Waist_AutoRecycleLocked", "Locked")
@@ -5628,13 +5653,6 @@ function GodSystemWindow:onFifthAction()
     end
     if self.mode == "shop" then
         self:changeShopPage(1)
-        return
-    end
-    if self.mode == "waist" then
-        gsSetButtonTitle(self.fifthButton, GodSystem.text("Terminal_Compressing", "Compressing..."))
-        self.fifthButton.enable = false
-        local sent = GodSystem.upgradeTerminal("compression")
-        self:finishMultiplayerCommand(sent)
         return
     end
     self:populateList()

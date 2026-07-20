@@ -2053,10 +2053,11 @@ local function autoRecyclerLevelData(level)
     local capacity = GodSystemConfig.TerminalCapacityLevels or {}
     local reduction = GodSystemConfig.TerminalReductionLevels or {}
     level = math.max(1, math.min(floor(level, 1), math.max(1, #capacity)))
+    local reductionLevel = math.max(1, math.min(level, math.max(1, #reduction)))
     return {
         level = level,
         capacity = (capacity[level] and capacity[level].value) or GodSystemConfig.AutoRecyclerCapacity or 10,
-        weightReduction = (reduction[level] and reduction[level].value) or GodSystemConfig.AutoRecyclerWeightReduction or 50,
+        weightReduction = (reduction[reductionLevel] and reduction[reductionLevel].value) or GodSystemConfig.AutoRecyclerWeightReduction or 50,
         upgradeCost = (capacity[level] and capacity[level].upgradeCost) or 0,
     }
 end
@@ -2125,6 +2126,12 @@ function GodSystemServer.isTerminalOwnedByPlayer(player, item)
 end
 
 local function findAutoRecycler(data, player)
+    local _, restoredItems = GodSystemLegacyCompressionCleanup.restorePlayerInventory(player, data)
+    for i = 1, #(restoredItems or {}) do
+        local restoredItem = restoredItems[i]
+        if sendItemStats then pcall(sendItemStats, restoredItem) end
+        if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
+    end
     local key = userKey(player)
     local cached = GodSystemServer.terminalCache[key]
     if cached and cached.item and isAutoRecyclerContainer(cached.item) and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
@@ -3751,7 +3758,6 @@ function Commands.upgradeSystem(_, _, player, args)
         local terminalTypes = {
             terminalCapacity = "capacity",
             terminalReduction = "reduction",
-            terminalCompression = "compression",
         }
         local terminalType = terminalTypes[t]
         if terminalType then
@@ -4380,6 +4386,21 @@ function Commands.setShopItemHidden(_, _, player, args)
         local label = item and (item.label or item.fullType) or variantKey
         if changed then appendHistory(data, historyEntry("shop", code, { label })) end
         return finishCode(player, true, code, { label })
+    end)
+    unguard(player)
+    if not ok then errorMessage(player, tostring(err)) end
+end
+
+function Commands.deleteShopItem(_, _, player, args)
+    if not guard(player) then return end
+    local ok, err = pcall(function()
+        local data = playerData(player)
+        local variantKey = tostring(args and args.variantKey or "")
+        local deleted, item = GodSystemShopVariants.deleteUnlocked(data, variantKey)
+        if not deleted or not item then return finishCode(player, false, "ShopItemMissing") end
+        local label = item.label or item.fullType or variantKey
+        appendHistory(data, historyEntry("shop", "ShopItemDeleted", { label }))
+        return finishCode(player, true, "ShopItemDeleted", { label })
     end)
     unguard(player)
     if not ok then errorMessage(player, tostring(err)) end

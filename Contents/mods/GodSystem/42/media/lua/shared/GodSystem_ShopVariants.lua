@@ -86,6 +86,16 @@ function GodSystemShopVariants.setHidden(data, variantKey, hidden)
     return true, changed, row
 end
 
+function GodSystemShopVariants.deleteUnlocked(data, variantKey)
+    local unlocked = type(data) == "table" and data.unlockedShopItems or nil
+    local key = tostring(variantKey or "")
+    local row = type(unlocked) == "table" and unlocked[key] or nil
+    if type(row) ~= "table" then return false, nil end
+    unlocked[key] = nil
+    row.variantKey = key
+    return true, row
+end
+
 function GodSystemShopVariants.getUnlockedRows(data, includeHidden)
     local result = {}
     for variantKey, row in pairs((type(data) == "table" and data.unlockedShopItems) or {}) do

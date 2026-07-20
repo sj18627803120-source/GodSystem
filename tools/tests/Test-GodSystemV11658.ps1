@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.58",
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [switch]$AllowRetiredCompression
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,23 +43,26 @@ Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') "Root mod
 Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
-Require-Text $terminal 'writeNumberMethod\(terminal,\s*"setCapacity",\s*"getCapacity",\s*capacity\)' 'Outer terminal capacity must be written and verified'
-Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setCapacity",\s*"getCapacity",\s*capacity\)' 'Inner terminal capacity must be written and verified'
 Require-Text $terminal 'writeNumberMethod\(terminal,\s*"setWeightReduction",\s*"getWeightReduction",\s*reduction\)' 'Outer terminal reduction must be written and verified'
 Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setWeightReduction",\s*"getWeightReduction",\s*reduction\)' 'Inner terminal reduction must be written and verified'
-Require-Text $terminal '(?s)item:setCustomWeight\(true\).*?item:setActualWeight\(appliedInput\)' 'Custom-weight mode must be enabled before writing the instance weight'
 Require-Text $terminal 'return true, report' 'Individual item failures must not roll back a valid terminal upgrade'
-Require-Text $terminal 'MAX_DIAGNOSTIC_ROWS\s*=\s*5' 'Compression diagnostics must be bounded'
 Require-Text $terminal 'function GodSystemTerminalUpgrades\.getAppliedStatus' 'Runtime terminal status reader is missing'
-Reject-Text $terminal 'DoParam|setScriptItem|definition:setActualWeight|definition:setWeight' 'Compression must not edit shared ScriptItem weights'
-
-Require-Text $core 'getAutoRecyclerContentSignature' 'Terminal contents need a bounded change signature'
-Require-Text $core 'terminalRefreshPending' 'Container changes must schedule terminal recalibration'
 Require-Text $core 'actualWeightReduction' 'The UI state must expose the actual outer reduction'
-Require-Text $ui 'Waist_CompressionResult' 'The UI must show compression calibration counts'
-Require-Text $ui 'compressionDiagnostics' 'The UI must expose bounded per-item failure diagnostics'
+if (-not $AllowRetiredCompression) {
+    Require-Text $terminal 'writeNumberMethod\(terminal,\s*"setCapacity",\s*"getCapacity",\s*capacity\)' 'Outer terminal capacity must be written and verified'
+    Require-Text $terminal 'writeNumberMethod\(inventory,\s*"setCapacity",\s*"getCapacity",\s*capacity\)' 'Inner terminal capacity must be written and verified'
+    Require-Text $terminal '(?s)item:setCustomWeight\(true\).*?item:setActualWeight\(appliedInput\)' 'Custom-weight mode must be enabled before writing the instance weight'
+    Require-Text $terminal 'MAX_DIAGNOSTIC_ROWS\s*=\s*5' 'Compression diagnostics must be bounded'
+    Reject-Text $terminal 'DoParam|setScriptItem|definition:setActualWeight|definition:setWeight' 'Compression must not edit shared ScriptItem weights'
+    Require-Text $core 'getAutoRecyclerContentSignature' 'Terminal contents need a bounded change signature'
+    Require-Text $core 'terminalRefreshPending' 'Container changes must schedule terminal recalibration'
+    Require-Text $ui 'Waist_CompressionResult' 'The UI must show compression calibration counts'
+    Require-Text $ui 'compressionDiagnostics' 'The UI must expose bounded per-item failure diagnostics'
+}
 
-foreach ($key in @('Waist_Target', 'Waist_Actual', 'Waist_CompressionResult')) {
+$requiredLocalizationKeys = @('Waist_Target', 'Waist_Actual')
+if (-not $AllowRetiredCompression) { $requiredLocalizationKeys += 'Waist_CompressionResult' }
+foreach ($key in $requiredLocalizationKeys) {
     Require-Text $localization ("(?m)^" + [regex]::Escape($key) + ':') ("Localization source missing key: " + $key)
     Require-Text $fallback ('GodSystemFallbackText\.zh\["' + [regex]::Escape($key) + '"\]') ("Lua fallback missing key: " + $key)
 }
@@ -71,8 +75,10 @@ if (-not $SkipRuntime) {
     }
     if ($luaExe) {
         $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
-        & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11658TerminalRuntime.lua') (Join-Path $Lua 'shared\GodSystem_TerminalUpgrades.lua')
-        if ($LASTEXITCODE -ne 0) { throw 'v1.16.58 terminal runtime test failed' }
+        if (-not $AllowRetiredCompression) {
+            & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11658TerminalRuntime.lua') (Join-Path $Lua 'shared\GodSystem_TerminalUpgrades.lua')
+            if ($LASTEXITCODE -ne 0) { throw 'v1.16.58 terminal runtime test failed' }
+        }
     }
     else {
         Write-Warning 'Lua executable was not found; v1.16.58 runtime validation was skipped.'

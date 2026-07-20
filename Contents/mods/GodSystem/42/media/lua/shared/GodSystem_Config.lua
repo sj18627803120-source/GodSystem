@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.61"
+GodSystemConfig.Version = "1.16.62"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -110,7 +110,7 @@ GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
 GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
 GodSystemConfig.AutoRecyclerCapacityLevelKey = "GodSystemTerminalCapacityLevel"
 GodSystemConfig.AutoRecyclerReductionLevelKey = "GodSystemTerminalReductionLevel"
-GodSystemConfig.AutoRecyclerCompressionLevelKey = "GodSystemTerminalCompressionLevel"
+GodSystemConfig.AutoRecyclerTargetCapacityKey = "GodSystemTerminalTargetCapacity"
 GodSystemConfig.AutoRecyclerCapacity = 10
 GodSystemConfig.AutoRecyclerWeightReduction = 50
 GodSystemConfig.AutoRecyclerIntervalHours = 0
@@ -136,6 +136,21 @@ GodSystemConfig.TerminalCapacityLevels = {
     { level = 7, value = 42, upgradeCost = 800 },
     { level = 8, value = 49, upgradeCost = 1100 },
 }
+GodSystemConfig.TerminalCapacityHardLimit = 2000
+GodSystemConfig.TerminalCapacityMaxValue = 1999
+GodSystemConfig.TerminalCapacityStepAfterLevel8 = 5
+GodSystemConfig.TerminalCapacityCostAfterLevel8 = 1100
+local nextCapacity = 49 + GodSystemConfig.TerminalCapacityStepAfterLevel8
+while nextCapacity <= GodSystemConfig.TerminalCapacityMaxValue do
+    local nextLevel = #GodSystemConfig.TerminalCapacityLevels + 1
+    GodSystemConfig.TerminalCapacityLevels[nextLevel] = {
+        level = nextLevel,
+        value = nextCapacity,
+        upgradeCost = GodSystemConfig.TerminalCapacityCostAfterLevel8,
+    }
+    nextCapacity = nextCapacity + GodSystemConfig.TerminalCapacityStepAfterLevel8
+end
+GodSystemConfig.TerminalCapacityMaxLevel = #GodSystemConfig.TerminalCapacityLevels
 GodSystemConfig.TerminalReductionLevels = {
     { level = 1, value = 50, upgradeCost = 0 },
     { level = 2, value = 55, upgradeCost = 100 },
@@ -146,20 +161,10 @@ GodSystemConfig.TerminalReductionLevels = {
     { level = 7, value = 90, upgradeCost = 1700 },
     { level = 8, value = 99, upgradeCost = 2500 },
 }
-GodSystemConfig.TerminalCompressionLevels = {
-    { level = 1, value = 0, upgradeCost = 0 },
-    { level = 2, value = 15, upgradeCost = 500 },
-    { level = 3, value = 30, upgradeCost = 1000 },
-    { level = 4, value = 45, upgradeCost = 2000 },
-    { level = 5, value = 60, upgradeCost = 3500 },
-    { level = 6, value = 75, upgradeCost = 5500 },
-    { level = 7, value = 85, upgradeCost = 8000 },
-    { level = 8, value = 90, upgradeCost = 12000 },
-}
 GodSystemConfig.AutoRecyclerRecoverCosts = {
     { maxLevel = 3, cost = 10 },
     { maxLevel = 6, cost = 35 },
-    { maxLevel = 8, cost = 80 },
+    { maxLevel = GodSystemConfig.TerminalCapacityMaxLevel, cost = 80 },
 }
 GodSystemConfig.AutoUnlockShopFromRecycle = true
 GodSystemConfig.AutoShopAllowAnyModule = true
