@@ -79,4 +79,16 @@ module GodSystem
         Tooltip = Tooltip_GodSystem_SystemSpaceTerminal,
     }
 
+    item SystemTerminalRelief
+    {
+        DisplayName = System Terminal Relief,
+        DisplayCategory = Hidden,
+        ItemType = base:food,
+        Icon = Money,
+        Weight = 1,
+        HungerChange = -1,
+        CantEat = true,
+        Hidden = true,
+    }
+
 }

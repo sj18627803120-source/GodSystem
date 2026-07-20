@@ -109,6 +109,15 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 - Keep structured item overrides out of scalar sandbox options. Preserve them in the existing admin storage and synchronization path.
 - Generate CN/CH sandbox localization from the same UTF-8 source and test that admin keys, sandbox keys, and translation keys form matching sets.
 
+## B42.19 Negative-Weight Terminal Relief
+
+- `InventoryItem.setActualWeight()` clamps ordinary negative weights, so it cannot directly create reliable relief. A Food instance can produce native negative actual weight when its script baseline has `Weight=1`, `HungerChange=-1`, and the instance `hungChange` is changed to a positive value.
+- For a desired offset `R`, set only the internal Food instance to `hungChange=R/100`, then verify `getActualWeight()` is approximately `-R`. Never mutate the shared `ScriptItem` definition.
+- `ItemContainer.getContentsWeight()` includes the negative result, so Java capacity checks continue to decide whether items fit. This is more reliable than Lua-wrapping exposed capacity helpers, because Java internal calls may bypass Lua method replacement.
+- Keep one hidden, non-edible, favorite and unwanted internal item at the top level of the owned terminal. Exclude its full type from recycle, auto-listing, lottery and player-facing counts.
+- Audit only on explicit lifecycle and transaction boundaries. Do not add per-frame, minute, or periodic inventory scans. In MP, create/remove/change the internal item only on the server and use `sendAddItemToContainer`, `sendRemoveItemFromContainer`, `sendItemStats`, and ModData transmission for synchronization.
+- Snapshot the internal item before a paid upgrade. Apply and verify first, charge second, and restore plus synchronize the snapshot if payment or later validation fails.
+
 Recommended trust split:
 
 - Trust client: kill count deltas, move distance, survive time, non-item task progress.

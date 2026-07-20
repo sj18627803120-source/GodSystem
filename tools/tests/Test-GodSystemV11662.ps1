@@ -1,6 +1,8 @@
 param(
     [string]$Root = "",
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [string]$ExpectedVersion = "1.16.62",
+    [switch]$AllowRetiredCapacity
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,7 +25,7 @@ function Reject-Text([string]$Text, [string]$Pattern, [string]$Message) {
 
 $config = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Config.lua')
 $terminal = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_TerminalUpgrades.lua')
-$capacity = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_TerminalCapacity.lua')
+$capacity = if (-not $AllowRetiredCapacity) { Read-Utf8 (Join-Path $Lua 'shared\GodSystem_TerminalCapacity.lua') } else { "" }
 $legacy = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_LegacyCompressionCleanup.lua')
 $variants = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_ShopVariants.lua')
 $protocol = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Protocol.lua')
@@ -39,11 +41,12 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.62"' 'Config version must be 1.16.62'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.62\r?$' 'Root mod.info version must be 1.16.62'
-Require-Text $b42Info '(?m)^modversion=1\.16\.62\r?$' 'B42 mod.info version must be 1.16.62'
-Require-Text $workshop '(?m)^description=v1\.16\.62\r?$' 'Workshop metadata must mention v1.16.62'
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + [regex]::Escape($ExpectedVersion) + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + [regex]::Escape($ExpectedVersion) + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + [regex]::Escape($ExpectedVersion) + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + [regex]::Escape($ExpectedVersion) + '\r?$') "Workshop metadata must mention $ExpectedVersion"
 
+if (-not $AllowRetiredCapacity) {
 Require-Text $config 'TerminalCapacityHardLimit\s*=\s*2000' 'Terminal hard limit must follow the reference safety boundary'
 Require-Text $config 'TerminalCapacityMaxValue\s*=\s*1999' 'The final reachable capacity must be 1999'
 Require-Text $config 'TerminalCapacityStepAfterLevel8\s*=\s*5' 'Post-level-8 capacity step must be 5'
@@ -75,6 +78,7 @@ Require-Text $terminal 'GodSystemTerminalCapacity\.register\s*\(' 'Applied termi
 Require-Text $terminal 'capacity\s*>\s*NATIVE_SAFE_CAPACITY\s+and\s+not\s+GodSystemTerminalCapacity\.install\(\)' 'Oversized upgrades must fail safely when the override is unavailable'
 Require-Text $terminal 'math\.min\(capacity,\s*NATIVE_SAFE_CAPACITY\)' 'Native capacity writes must remain below the risky boundary'
 Reject-Text $terminal 'compressItem|setActualWeight|setCustomWeight|terminalCompression|"compression"' 'Active terminal module must not compress items'
+}
 Reject-Text ($core + $network + $ui + $server) 'terminalCompression|upgradeTerminal\("compression"\)|compressionNextCost|compressionDiagnostics' 'Compression routes and UI must be removed'
 Reject-Text $core 'OnContainerUpdate|terminalRefreshPending|getAutoRecyclerContentSignature' 'Retired compression polling must be removed'
 
@@ -99,7 +103,6 @@ Require-Text $ui 'GodSystem\.deleteShopItem\s*\(' 'Confirmed deletion must call 
 Require-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}setShopItemHidden' 'Old removeUnlocked command must remain a hide-only compatibility alias'
 
 foreach ($key in @(
-    'Waist_CapacityExtended', 'Waist_CapacityRule',
     'ShopHidden_Delete', 'Confirm_ShopItemDelete',
     'Notify_ShopItemDeleted', 'NotifyMP_ShopItemDeleted',
     'History_ShopItemDeleted', 'HistoryMP_ShopItemDeleted'
@@ -110,7 +113,16 @@ foreach ($key in @(
     Require-Text $ch ('IGUI_GodSystem_' + [regex]::Escape($key)) "CH translation missing: $key"
 }
 
-if (-not $SkipRuntime) {
+if (-not $AllowRetiredCapacity) {
+    foreach ($key in @('Waist_CapacityExtended', 'Waist_CapacityRule')) {
+        Require-Text $localization ("(?m)^" + [regex]::Escape($key) + ':') "Localization source missing: $key"
+        Require-Text $override ('GodSystemFallbackText\.zh\["' + [regex]::Escape($key) + '"\]') "Lua fallback missing: $key"
+        Require-Text $cn ('IGUI_GodSystem_' + [regex]::Escape($key)) "CN translation missing: $key"
+        Require-Text $ch ('IGUI_GodSystem_' + [regex]::Escape($key)) "CH translation missing: $key"
+    }
+}
+
+if (-not $SkipRuntime -and -not $AllowRetiredCapacity) {
     $luaExe = Get-Command lua -ErrorAction SilentlyContinue
     if (-not $luaExe) {
         $localLua = Join-Path $env:USERPROFILE 'Tools\Lua51\lua.exe'

@@ -2070,7 +2070,56 @@ local function autoRecyclerDisplayName(level)
     return "System Space Terminal Lv." .. tostring(level)
 end
 
-local function markAutoRecycler(data, item, level)
+function GodSystemServer.syncTerminalApplyReport(item, report)
+    report = type(report) == "table" and report or {}
+    local inventory = report.inventory
+    local seen = {}
+    for i = 1, #((report.removedItems) or {}) do
+        local removedItem = report.removedItems[i]
+        if inventory and removedItem and sendRemoveItemFromContainer then
+            pcall(sendRemoveItemFromContainer, inventory, removedItem)
+        end
+    end
+    for i = 1, #((report.addedItems) or {}) do
+        local addedItem = report.addedItems[i]
+        if inventory and addedItem and sendAddItemToContainer then
+            pcall(sendAddItemToContainer, inventory, addedItem)
+        end
+        if addedItem then seen[addedItem] = true end
+    end
+    for i = 1, #((report.items) or {}) do
+        local changedItem = report.items[i]
+        if changedItem then seen[changedItem] = true end
+    end
+    for changedItem in pairs(seen) do
+        if sendItemStats then pcall(sendItemStats, changedItem) end
+        if changedItem.transmitModData then pcall(changedItem.transmitModData, changedItem) end
+    end
+    for i = 1, #((report.restoredItems) or {}) do
+        local restoredItem = report.restoredItems[i]
+        if sendItemStats then pcall(sendItemStats, restoredItem) end
+        if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
+    end
+    if item and item.transmitModData then pcall(item.transmitModData, item) end
+    if item and sendItemStats then pcall(sendItemStats, item) end
+end
+
+function GodSystemServer.syncEscapedReliefRemovals(entries)
+    for i = 1, #(entries or {}) do
+        local entry = entries[i]
+        if entry and entry.container and entry.item and sendRemoveItemFromContainer then
+            pcall(sendRemoveItemFromContainer, entry.container, entry.item)
+        end
+    end
+end
+
+function GodSystemServer.cleanupEscapedRelief(player, terminal)
+    local removed, entries = GodSystemTerminalRelief.removeEscapedFromPlayer(player, terminal)
+    if removed > 0 then GodSystemServer.syncEscapedReliefRemovals(entries) end
+    return removed
+end
+
+local function markAutoRecycler(data, item, level, preappliedReport)
     if not item or not item.getFullType or not isAutoRecyclerFullType(item:getFullType()) then return false end
     level = GodSystemTerminalUpgrades.getLevel(data, "capacity")
     local md = item.getModData and item:getModData() or nil
@@ -2080,22 +2129,10 @@ local function markAutoRecycler(data, item, level)
     end
     if item.setName then pcall(item.setName, item, autoRecyclerDisplayName(level)) end
     if item.setCustomName then pcall(item.setCustomName, item, true) end
-    local applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data)
-    if item.transmitModData then pcall(item.transmitModData, item) end
-    if sendItemStats then
-        pcall(sendItemStats, item)
-        for i = 1, #((report and report.items) or {}) do
-            local changedItem = report.items[i]
-            pcall(sendItemStats, changedItem)
-            if changedItem.transmitModData then pcall(changedItem.transmitModData, changedItem) end
-        end
-        for i = 1, #((report and report.restoredItems) or {}) do
-            local restoredItem = report.restoredItems[i]
-            pcall(sendItemStats, restoredItem)
-            if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
-        end
-    end
-    return applied == true
+    local applied, report = true, preappliedReport
+    if not report then applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data) end
+    GodSystemServer.syncTerminalApplyReport(item, report)
+    return applied == true, report
 end
 
 function GodSystemServer.restoreTerminalWeights(terminal)
@@ -2135,6 +2172,7 @@ local function findAutoRecycler(data, player)
     local key = userKey(player)
     local cached = GodSystemServer.terminalCache[key]
     if cached and cached.item and isAutoRecyclerContainer(cached.item) and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
+        GodSystemServer.cleanupEscapedRelief(player, cached.item)
         markAutoRecycler(data, cached.item)
         return cached.item, cached.item.getContainer and cached.item:getContainer() or nil
     end
@@ -2146,6 +2184,7 @@ local function findAutoRecycler(data, player)
             local candidates = inventoryItems(player, fullType, true, true)
             for i = 1, #candidates do
                 if isAutoRecyclerContainer(candidates[i].item) then
+                    GodSystemServer.cleanupEscapedRelief(player, candidates[i].item)
                     markAutoRecycler(data, candidates[i].item)
                     GodSystemServer.terminalCache[key] = { player = player, item = candidates[i].item }
                     return candidates[i].item, candidates[i].container
@@ -2153,6 +2192,7 @@ local function findAutoRecycler(data, player)
             end
         end
     end
+    GodSystemServer.cleanupEscapedRelief(player, nil)
     return nil
 end
 
@@ -2561,12 +2601,14 @@ function Commands.hello(_, _, player)
 end
 
 function Commands.syncClientData(_, _, player, args)
+    findAutoRecycler(playerData(player), player)
     sendState(player)
 end
 
 function Commands.refresh(_, _, player, args)
     local data = playerData(player)
     data.stats.moveDistance = math.max(data.stats.moveDistance or 0, n(args and args.clientMoveDistance, data.stats.moveDistance or 0))
+    findAutoRecycler(data, player)
     sendState(player)
 end
 
@@ -2589,6 +2631,7 @@ function Commands.adminConfigSet(_, _, player, args)
     local data = adminConfigStore()
     data.settings = GodSystemAdminConfig.sanitizeSettings(args and args.settings or {})
     applyAdminConfigStore()
+    findAutoRecycler(playerData(player), player)
     transmitAdminConfig()
     finish(player, true, "Admin config saved")
 end
@@ -3308,19 +3351,22 @@ function Commands.upgradeWaist(_, _, player)
         if cost > 0 and not canAfford(player, cost, data) then return finishCode(player, false, "UpgradeWaistNoMoney") end
         local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(item)
         GodSystemTerminalUpgrades.setLevel(data, "capacity", level + 1)
-        local applied = markAutoRecycler(data, item)
+        local applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data)
         if not applied then
             GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
-            GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            GodSystemServer.syncTerminalApplyReport(item, restoreReport)
             markAutoRecycler(data, item)
             return finishCode(player, false, "TerminalUpgradeApplyFailed")
         end
         if cost > 0 and not addPoints(player, -cost, data) then
             GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
-            GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            GodSystemServer.syncTerminalApplyReport(item, restoreReport)
             markAutoRecycler(data, item)
             return finishCode(player, false, "UpgradeWaistNoMoney")
         end
+        markAutoRecycler(data, item, nil, report)
         data.autoRecyclerClaimed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
         appendHistory(data, historyEntry("system", "UpgradeWaist", { level + 1, cost }))
@@ -3758,6 +3804,7 @@ function Commands.upgradeSystem(_, _, player, args)
         local terminalTypes = {
             terminalCapacity = "capacity",
             terminalReduction = "reduction",
+            terminalRelief = "relief",
         }
         local terminalType = terminalTypes[t]
         if terminalType then
@@ -3771,19 +3818,21 @@ function Commands.upgradeSystem(_, _, player, args)
             local previousLevel = info.level
             GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel + 1)
             local applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data)
-            if applied then applied = markAutoRecycler(data, item) end
             if not applied then
                 GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel)
-                GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                GodSystemServer.syncTerminalApplyReport(item, restoreReport)
                 markAutoRecycler(data, item)
-                return complete(false, "TerminalUpgradeApplyFailed")
+                return complete(false, terminalType == "relief" and "TerminalReliefApplyFailed" or "TerminalUpgradeApplyFailed")
             end
             if not addPoints(player, -cost, data) then
                 GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel)
-                GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                GodSystemServer.syncTerminalApplyReport(item, restoreReport)
                 markAutoRecycler(data, item)
                 return complete(false, "CurrencyNotEnough")
             end
+            markAutoRecycler(data, item, nil, report)
             data.autoRecyclerClaimed = true
             data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
             appendHistory(data, historyEntry("upgrade", "TerminalUpgrade", { terminalType, previousLevel + 1, cost }))
@@ -4564,15 +4613,6 @@ local function onPlayerUpdate(player)
     local data = playerData(player)
     generateDailyTasks(data, false)
     updateHomeSafeZone(player)
-    if state.ticks % 300 == 0 then
-        local cached = GodSystemServer.terminalCache[key]
-        if cached and cached.item and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
-            markAutoRecycler(data, cached.item)
-        elseif cached and cached.item then
-            GodSystemServer.restoreTerminalWeights(cached.item)
-            GodSystemServer.terminalCache[key] = nil
-        end
-    end
 end
 
 Events.OnPlayerUpdate.Add(onPlayerUpdate)

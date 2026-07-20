@@ -3439,8 +3439,9 @@ function GodSystemWindow:populateWaistSpace()
     end
     gsSetButtonTitle(self.thirdButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCapacity", "Upgrade capacity"), info.capacityNextCost))
     gsSetButtonTitle(self.fourthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalReduction", "Upgrade reduction"), info.reductionNextCost))
+    gsSetButtonTitle(self.fifthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalRelief", "Upgrade relief"), info.reliefNextCost))
     self.fourthButton:setVisible(true)
-    self.fifthButton:setVisible(false)
+    self.fifthButton:setVisible(true)
     self.sixthButton:setVisible(true)
     self.seventhButton:setVisible(true)
     if waistUnlockMode then
@@ -3460,24 +3461,32 @@ function GodSystemWindow:populateWaistSpace()
     local burdenExample = 10 * (1 - actualReductionForExample / 100)
     local actualCapacityText = info.actualCapacity ~= nil and tostring(math.floor(tonumber(info.actualCapacity) or 0)) or "?"
     local actualReductionText = info.actualWeightReduction ~= nil and (tostring(math.floor(tonumber(info.actualWeightReduction) or 0)) .. "%") or "?"
-    local contentsWeight = tonumber(info.contentsWeight) or 0
+    local actualReliefText = info.actualRelief ~= nil and tostring(math.floor((tonumber(info.actualRelief) or 0) + 0.5)) or "?"
+    local visibleContentsWeight = tonumber(info.visibleContentsWeight) or 0
+    local effectiveCapacity = math.max(0, math.floor(tonumber(info.effectiveCapacity) or tonumber(info.capacity) or 0))
     local capacityStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %.2f/%d",
-        GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.capacityMaxLevel or 398,
+        GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.capacityMaxLevel or 8,
         GodSystem.text("Waist_Target", "Target"), info.capacity or 0,
         GodSystem.text("Waist_Actual", "Actual"), actualCapacityText,
-        GodSystem.text("Waist_UsedCapacity", "Used"), contentsWeight, info.capacity or 0)
+        GodSystem.text("Waist_UsedCapacity", "Used"), visibleContentsWeight, effectiveCapacity)
     local reductionStatus = string.format("%s | Lv.%d/%d | %s %d%% | %s %s",
         GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.reductionMaxLevel or 8,
         GodSystem.text("Waist_Target", "Target"), info.weightReduction or 0,
         GodSystem.text("Waist_Actual", "Actual"), actualReductionText)
-    local capacityExtended = GodSystem.text("Waist_CapacityExtended", "After Lv.8, each upgrade adds 5 capacity and costs 1100 coins; safe maximum is 1999.")
-    local capacityRule = GodSystem.text("Waist_CapacityRule", "Capacity only controls whether items can be placed inside. Item weights are not compressed or changed.")
+    local reliefStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %d",
+        GodSystem.text("Waist_Relief", "Space relief"), info.reliefLevel or 0, info.reliefMaxLevel or 0,
+        GodSystem.text("Waist_Target", "Target"), info.reliefOffset or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualReliefText,
+        GodSystem.text("Waist_EffectiveCapacity", "Effective space"), effectiveCapacity)
+    local capacityRule = GodSystem.text("Waist_CapacityRule", "Native capacity remains capped at 49; space relief offsets terminal contents weight.")
+    local reliefRule = GodSystem.text("Waist_ReliefRule", "Relief uses one hidden protected internal item. Cost, relief per level, and maximum relief are configurable in sandbox and system administration settings.")
     local exampleStatus = string.format("%s | 10 -> %.2f",
         GodSystem.text("Waist_ExampleReduction", "Reduction example: original -> burden"), burdenExample)
     self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
     self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
-    self:addListItem(capacityExtended, { kind = "info", data = capacityExtended, detail = "" })
+    self:addListItem(reliefStatus, { kind = "info", data = reliefStatus, detail = "" })
     self:addListItem(capacityRule, { kind = "info", data = capacityRule, detail = "" })
+    self:addListItem(reliefRule, { kind = "info", data = reliefRule, detail = "" })
     self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
     local autoState = GodSystem.text("Waist_AutoRecycleLocked", "Locked")
@@ -5646,6 +5655,11 @@ function GodSystemWindow:onFourthAction()
 end
 
 function GodSystemWindow:onFifthAction()
+    if self.mode == "waist" then
+        local sent = GodSystem.upgradeTerminal("relief")
+        self:finishMultiplayerCommand(sent)
+        return
+    end
     if self.mode == "bank" then
         local sent = GodSystem.consolidateCurrency()
         self:finishMultiplayerCommand(sent)

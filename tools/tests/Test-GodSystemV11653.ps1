@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.53",
+    [int]$ExpectedAdminSettings = 68,
     [switch]$SkipLegacyTerminalChecks
 )
 
@@ -71,12 +72,12 @@ Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.i
 Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 $settingCount = ([regex]::Matches($admin, '(?m)^\s*\{\s*key\s*=\s*"')).Count
-if ($settingCount -ne 68) { throw "Expected 68 admin settings, found $settingCount" }
+if ($settingCount -ne $ExpectedAdminSettings) { throw "Expected $ExpectedAdminSettings admin settings, found $settingCount" }
 foreach ($key in @('EnableAttributes', 'AttributeXPPerCoin')) {
     Require-Text $admin ('key\s*=\s*"' + $key + '"') "Missing admin setting: $key"
     Require-Text $sandbox ('option\s+GodSystem\.' + $key + '\b') "Missing sandbox option: $key"
 }
-Require-Text $generator 'Expected 68 admin settings' 'Localization generator must validate 68 settings'
+Require-Text $generator ("Expected " + $ExpectedAdminSettings + " admin settings") "Localization generator must validate $ExpectedAdminSettings settings"
 
 Require-Text $config 'AutoRecyclerFullType\s*=\s*"GodSystem\.SystemSpaceTerminal"' 'Primary system container must be SystemSpaceTerminal'
 Require-Text $config '\["GodSystem\.SystemSpaceTerminal"\]\s*=\s*true' 'SystemSpaceTerminal alias missing'

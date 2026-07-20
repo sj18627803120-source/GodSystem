@@ -505,6 +505,9 @@ function GodSystem.saveAdminSettings(settings)
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.settings = settings
     GodSystem.applyAdminConfigSnapshot(data.adminConfig)
+    if GodSystem.refreshAutoRecyclerContainers then
+        GodSystem.refreshAutoRecyclerContainers(true)
+    end
     GodSystem.save()
     return true
 end
@@ -1009,7 +1012,7 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             carryStatus = status,
         }
     end
-    if upgradeType == "terminalCapacity" or upgradeType == "terminalReduction" then
+    if upgradeType == "terminalCapacity" or upgradeType == "terminalReduction" or upgradeType == "terminalRelief" then
         local terminalType = string.gsub(upgradeType, "^terminal", "")
         terminalType = string.lower(string.sub(terminalType, 1, 1)) .. string.sub(terminalType, 2)
         local terminalInfo = GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), terminalType)
@@ -1017,6 +1020,7 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
         local labels = {
             capacity = GodSystem.text("Upgrade_TerminalCapacity", "Terminal capacity"),
             reduction = GodSystem.text("Upgrade_TerminalReduction", "Terminal reduction"),
+            relief = GodSystem.text("Upgrade_TerminalRelief", "Space relief"),
         }
         return {
             upgradeType = upgradeType,
@@ -1026,7 +1030,9 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             maxValue = terminalInfo.maxLevel,
             cost = terminalInfo.nextCost,
             label = labels[terminalType] or upgradeType,
-            desc = GodSystem.text("Upgrade_TerminalIndependentDesc", "This upgrade only changes the selected terminal property."),
+            desc = terminalType == "relief"
+                and GodSystem.text("Upgrade_TerminalReliefDesc", "Adds protected hidden relief inside the terminal without changing its native capacity.")
+                or GodSystem.text("Upgrade_TerminalIndependentDesc", "This upgrade only changes the selected terminal property."),
             terminalInfo = terminalInfo,
         }
     end
@@ -1090,7 +1096,8 @@ function GodSystem.upgradeSystem(upgradeType)
             GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel)
             GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
             GodSystemTerminalUpgrades.applyTerminal(entry.item, data)
-            GodSystem.notify(GodSystem.text("Notify_TerminalUpgradeApplyFailed", "Terminal upgrade failed; no currency spent"))
+            local failureKey = info.terminalType == "relief" and "Notify_TerminalReliefApplyFailed" or "Notify_TerminalUpgradeApplyFailed"
+            GodSystem.notify(GodSystem.text(failureKey, "Terminal upgrade failed; no currency spent"))
             return false
         end
         if not GodSystem.addPoints(-info.cost) then
@@ -3939,6 +3946,9 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     if item.setCustomName then
         pcall(function() item:setCustomName(true) end)
     end
+    if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        GodSystemTerminalRelief.removeEscapedFromPlayer(gsPlayer(), item)
+    end
     local applied = GodSystem.applyAutoRecyclerContainerStats(item)
     GodSystem.autoRecyclerCache = { item = item }
     return applied == true
@@ -6138,6 +6148,9 @@ function GodSystem.canAutoRecycleItem(item)
     if not item or not item.getFullType then
         return false
     end
+    if GodSystemTerminalRelief.isReliefItem(item) then
+        return false
+    end
     local fullType = item:getFullType()
     if GodSystem.isAutoRecyclerContainer(item) then
         return false
@@ -6172,7 +6185,7 @@ function GodSystem.processAutoRecyclerContainer(container)
             table.insert(groups[fullType].items, item)
             groups[fullType].raw = groups[fullType].raw + GodSystem.getRecycleValue(item)
             groups[fullType].count = groups[fullType].count + 1
-        else
+        elseif not GodSystemTerminalRelief.isReliefItem(item) then
             skipped = skipped + 1
         end
     end
@@ -6319,7 +6332,7 @@ function GodSystem.claimOrRecoverAutoRecycler()
 end
 
 function GodSystem.upgradeTerminal(upgradeType)
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" then return false end
     return GodSystem.upgradeSystem("terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2))
 end
 
@@ -6343,6 +6356,7 @@ function GodSystem.getAutoRecyclerInfo()
     local data = GodSystem.getData()
     local capacityInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "capacity")
     local reductionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "reduction")
+    local reliefInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "relief")
     local inventory, entry = GodSystem.getAutoRecyclerInventory()
     local appliedStatus = entry and entry.item and GodSystemTerminalUpgrades.getAppliedStatus(entry.item, data) or nil
     local count = 0
@@ -6350,13 +6364,16 @@ function GodSystem.getAutoRecyclerInfo()
     if inventory and inventory.getItems then
         local ok, items = pcall(function() return inventory:getItems() end)
         if ok and items and items.size then
-            count = items:size()
+            for i = 0, items:size() - 1 do
+                if not GodSystemTerminalRelief.isReliefItem(items:get(i)) then count = count + 1 end
+            end
         end
     end
     if inventory and inventory.getContentsWeight then
         local ok, value = pcall(function() return inventory:getContentsWeight() end)
         if ok then contentsWeight = tonumber(value) end
     end
+    local actualRelief = appliedStatus and tonumber(appliedStatus.actualRelief) or 0
     return {
         claimed = data.autoRecyclerClaimed == true,
         found = entry ~= nil,
@@ -6366,16 +6383,25 @@ function GodSystem.getAutoRecyclerInfo()
         capacityMaxLevel = capacityInfo.maxLevel,
         reductionLevel = reductionInfo.level,
         reductionMaxLevel = reductionInfo.maxLevel,
+        reliefLevel = reliefInfo.level,
+        reliefMaxLevel = reliefInfo.maxLevel,
         capacity = capacityInfo.value or 0,
         weightReduction = reductionInfo.value or 0,
+        reliefOffset = reliefInfo.offset or 0,
+        reliefNextOffset = reliefInfo.nextOffset,
+        effectiveCapacity = (capacityInfo.value or 0) + (reliefInfo.offset or 0),
+        visibleContentsWeight = math.max(0, (tonumber(contentsWeight) or 0) + actualRelief),
         actualCapacity = appliedStatus and appliedStatus.outerCapacity or nil,
         actualInnerCapacity = appliedStatus and appliedStatus.innerCapacity or nil,
         actualWeightReduction = appliedStatus and appliedStatus.outerReduction or nil,
         actualInnerWeightReduction = appliedStatus and appliedStatus.innerReduction or nil,
         capacityApplied = appliedStatus and appliedStatus.capacityApplied == true,
         reductionApplied = appliedStatus and appliedStatus.reductionApplied == true,
+        reliefApplied = appliedStatus and appliedStatus.reliefApplied == true,
+        actualRelief = appliedStatus and appliedStatus.actualRelief or nil,
         capacityNextCost = capacityInfo.nextCost,
         reductionNextCost = reductionInfo.nextCost,
+        reliefNextCost = reliefInfo.nextCost,
         nextCost = capacityInfo.nextCost,
         recoverCost = GodSystem.getAutoRecyclerRecoverCost(),
         itemCount = count,
@@ -6451,6 +6477,9 @@ function GodSystem.canRecycleWaistSpaceItem(item)
     if not item or not item.getFullType then
         return false
     end
+    if GodSystemTerminalRelief.isReliefItem(item) then
+        return false
+    end
     local fullType = item:getFullType()
     if GodSystem.isAutoRecyclerContainer(item) then
         return false
@@ -6498,7 +6527,7 @@ function GodSystem.getWaistSpaceRecycleGroups()
             result[fullType].count = result[fullType].count + 1
             result[fullType].rawTotalValue = result[fullType].rawTotalValue + value
             result[fullType].totalValue = GodSystem.calculateRecyclePayout(fullType, result[fullType].rawTotalValue, result[fullType].count)
-        else
+        elseif not GodSystemTerminalRelief.isReliefItem(item) then
             skipped = skipped + 1
         end
     end

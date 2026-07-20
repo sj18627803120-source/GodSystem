@@ -1013,7 +1013,7 @@ end)
 
 wrap("upgradeTerminal", function(upgradeType)
     upgradeType = tostring(upgradeType or "")
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" then return false end
     return send("upgradeSystem", { upgradeType = "terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2) })
 end)
 

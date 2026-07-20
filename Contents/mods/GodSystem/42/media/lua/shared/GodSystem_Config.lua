@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.62"
+GodSystemConfig.Version = "1.16.63"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -110,7 +110,15 @@ GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
 GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
 GodSystemConfig.AutoRecyclerCapacityLevelKey = "GodSystemTerminalCapacityLevel"
 GodSystemConfig.AutoRecyclerReductionLevelKey = "GodSystemTerminalReductionLevel"
-GodSystemConfig.AutoRecyclerTargetCapacityKey = "GodSystemTerminalTargetCapacity"
+GodSystemConfig.TerminalReliefFullType = "GodSystem.SystemTerminalRelief"
+GodSystemConfig.TerminalReliefLevelKey = "GodSystemTerminalReliefLevel"
+GodSystemConfig.TerminalReliefItemMarkerKey = "GodSystemTerminalRelief"
+GodSystemConfig.TerminalReliefOwnerKey = "GodSystemTerminalReliefOwner"
+GodSystemConfig.TerminalReliefOffsetKey = "GodSystemTerminalReliefOffset"
+GodSystemConfig.TerminalReliefVersionKey = "GodSystemTerminalReliefVersion"
+GodSystemConfig.TerminalReliefUpgradeCost = 2000
+GodSystemConfig.TerminalReliefPerLevel = 5
+GodSystemConfig.TerminalReliefMaxOffset = 2000
 GodSystemConfig.AutoRecyclerCapacity = 10
 GodSystemConfig.AutoRecyclerWeightReduction = 50
 GodSystemConfig.AutoRecyclerIntervalHours = 0
@@ -136,20 +144,6 @@ GodSystemConfig.TerminalCapacityLevels = {
     { level = 7, value = 42, upgradeCost = 800 },
     { level = 8, value = 49, upgradeCost = 1100 },
 }
-GodSystemConfig.TerminalCapacityHardLimit = 2000
-GodSystemConfig.TerminalCapacityMaxValue = 1999
-GodSystemConfig.TerminalCapacityStepAfterLevel8 = 5
-GodSystemConfig.TerminalCapacityCostAfterLevel8 = 1100
-local nextCapacity = 49 + GodSystemConfig.TerminalCapacityStepAfterLevel8
-while nextCapacity <= GodSystemConfig.TerminalCapacityMaxValue do
-    local nextLevel = #GodSystemConfig.TerminalCapacityLevels + 1
-    GodSystemConfig.TerminalCapacityLevels[nextLevel] = {
-        level = nextLevel,
-        value = nextCapacity,
-        upgradeCost = GodSystemConfig.TerminalCapacityCostAfterLevel8,
-    }
-    nextCapacity = nextCapacity + GodSystemConfig.TerminalCapacityStepAfterLevel8
-end
 GodSystemConfig.TerminalCapacityMaxLevel = #GodSystemConfig.TerminalCapacityLevels
 GodSystemConfig.TerminalReductionLevels = {
     { level = 1, value = 50, upgradeCost = 0 },
@@ -210,6 +204,7 @@ GodSystemConfig.LotteryBlacklist = {
     ["GodSystem.SystemRepairKit"] = true,
     ["GodSystem.DurabilityCore"] = true,
     ["GodSystem.SystemVehicleRepairModule"] = true,
+    ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
 }
 GodSystemConfig.ModCategoryBuyPrices = {
@@ -390,6 +385,7 @@ GodSystemConfig.AutoShopBlacklist = {
     ["GodSystem.DurabilityCore"] = true,
     ["GodSystem.SystemVehicleRepairModule"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
+    ["GodSystem.SystemTerminalRelief"] = true,
 }
 
 GodSystemConfig.FloatingButton = {
@@ -406,6 +402,7 @@ GodSystemConfig.RecycleBlacklist = {
     ["GodSystem.SystemCoin10"] = true,
     ["GodSystem.SystemCoin100"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
+    ["GodSystem.SystemTerminalRelief"] = true,
 }
 
 GodSystemConfig.ShopItems = {
