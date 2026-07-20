@@ -1187,6 +1187,7 @@ function GodSystemShopHiddenWindow:populateItems()
     local oldScroll = self.list.getYScroll and self.list:getYScroll() or 0
     local selectedKey = self.selectedVariantKey
     self.list:clear()
+    self.list.selected = 0
     local rows = GodSystem.getUnlockedShopItemsList(true)
     local categories, categoryMap = {}, {}
     for i = 1, #rows do
