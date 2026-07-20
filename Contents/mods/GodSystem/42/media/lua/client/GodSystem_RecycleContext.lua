@@ -108,7 +108,15 @@ local function classifyItems(items, mode)
         elseif mode ~= "recycle" then
             local listable, listReason = GodSystem.canContextListItem(item)
             if not listable then
-                reasonKey = listReason == "alreadyListed" and "ContextReason_AlreadyListed" or "ContextReason_NotListable"
+                if listReason == "alreadyListed" then
+                    reasonKey = "ContextReason_AlreadyListed"
+                elseif listReason == "hiddenListed" then
+                    reasonKey = "ContextReason_HiddenListed"
+                elseif listReason == "configuredListed" then
+                    reasonKey = "ContextReason_ConfiguredListed"
+                else
+                    reasonKey = "ContextReason_NotListable"
+                end
             end
         end
         if reasonKey then

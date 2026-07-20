@@ -17,21 +17,84 @@ function GodSystemShopVariants.getKey(fullType, itemOrSprite)
     return fullType
 end
 
-function GodSystemShopVariants.normalizeUnlocked(data)
+function GodSystemShopVariants.getConfiguredKeySet(shopItems)
+    local result = {}
+    for i = 1, #(shopItems or {}) do
+        local items = shopItems[i] and shopItems[i].items or {}
+        if #items == 1 then
+            local definition = items[1]
+            local fullType = definition and tostring(definition.fullType or "") or ""
+            local count = definition and math.max(1, math.floor(tonumber(definition.count) or 1)) or 0
+            if fullType ~= "" and count == 1 then
+                result[GodSystemShopVariants.getKey(fullType, definition.worldSprite)] = true
+            end
+        end
+    end
+    return result
+end
+
+function GodSystemShopVariants.normalizeUnlocked(data, configuredKeys)
     if type(data) ~= "table" then return {} end
     data.unlockedShopItems = type(data.unlockedShopItems) == "table" and data.unlockedShopItems or {}
     local migrated = {}
+    local removedConfigured = 0
+    local mergedDuplicates = 0
     for oldKey, row in pairs(data.unlockedShopItems) do
         if type(row) == "table" then
             local fullType = tostring(row.fullType or oldKey or "")
             local key = GodSystemShopVariants.getKey(fullType, row.worldSprite)
             row.fullType = fullType
             row.variantKey = key
-            migrated[key] = migrated[key] or row
+            row.hidden = row.hidden == true
+            if configuredKeys and configuredKeys[key] == true then
+                removedConfigured = removedConfigured + 1
+            elseif migrated[key] then
+                local existing = migrated[key]
+                existing.hidden = existing.hidden == true or row.hidden == true
+                existing.label = existing.label or row.label
+                existing.sellPrice = existing.sellPrice or row.sellPrice
+                existing.buyPrice = existing.buyPrice or row.buyPrice
+                existing.unlockedAt = existing.unlockedAt or row.unlockedAt
+                mergedDuplicates = mergedDuplicates + 1
+            else
+                migrated[key] = row
+            end
         end
     end
     data.unlockedShopItems = migrated
-    return migrated
+    return migrated, removedConfigured, mergedDuplicates
+end
+
+function GodSystemShopVariants.isListingKnown(data, configuredKeys, fullTypeOrKey, itemOrSprite)
+    local key = itemOrSprite ~= nil and GodSystemShopVariants.getKey(fullTypeOrKey, itemOrSprite)
+        or tostring(fullTypeOrKey or "")
+    if configuredKeys and configuredKeys[key] == true then return true, "configured", key end
+    local unlocked = type(data) == "table" and data.unlockedShopItems or nil
+    if type(unlocked) == "table" and unlocked[key] then return true, "unlocked", key end
+    return false, nil, key
+end
+
+function GodSystemShopVariants.setHidden(data, variantKey, hidden)
+    local unlocked = type(data) == "table" and data.unlockedShopItems or nil
+    local key = tostring(variantKey or "")
+    local row = type(unlocked) == "table" and unlocked[key] or nil
+    if type(row) ~= "table" then return false, false, nil end
+    local target = hidden == true
+    local changed = row.hidden ~= target
+    row.hidden = target
+    row.variantKey = key
+    return true, changed, row
+end
+
+function GodSystemShopVariants.getUnlockedRows(data, includeHidden)
+    local result = {}
+    for variantKey, row in pairs((type(data) == "table" and data.unlockedShopItems) or {}) do
+        if type(row) == "table" and (includeHidden == true or row.hidden ~= true) then
+            row.variantKey = tostring(row.variantKey or variantKey)
+            result[#result + 1] = row
+        end
+    end
+    return result
 end
 
 function GodSystemShopVariants.createItem(fullType, worldSprite)

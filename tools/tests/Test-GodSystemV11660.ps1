@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.60",
     [switch]$SkipRuntime
 )
 
@@ -37,10 +38,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.60"' 'Config version must be 1.16.60'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.60\r?$' 'Root mod.info version must be 1.16.60'
-Require-Text $b42Info '(?m)^modversion=1\.16\.60\r?$' 'B42 mod.info version must be 1.16.60'
-Require-Text $workshop '(?m)^description=v1\.16\.60\r?$' 'Workshop metadata must mention v1.16.60'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') ("Config version must be " + $ExpectedVersion)
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') ("Root mod.info version must be " + $ExpectedVersion)
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') ("B42 mod.info version must be " + $ExpectedVersion)
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') ("Workshop metadata must mention v" + $ExpectedVersion)
 
 Require-Text $config 'CarryCapacityPerLevel\s*=\s*2' 'Configured carry behavior must remain unchanged'
 Require-Text $carry 'local function capacityFromDelta' 'Carry result measurement helper is missing'

@@ -16,6 +16,7 @@ if not (isServer and isServer()) then return end
 
 GodSystemServer = GodSystemServer or {}
 GodSystemServer.terminalCache = GodSystemServer.terminalCache or {}
+GodSystemServer.configuredShopKeySet = GodSystemShopVariants.getConfiguredKeySet(GodSystemConfig.ShopItems or {})
 
 local Protocol = GodSystemProtocol or {}
 local MODULE = Protocol.Module or "GodSystem"
@@ -247,7 +248,7 @@ local function playerData(player)
     data.tasks = data.tasks or {}
     data.history = data.history or {}
     data.unlockedShopItems = data.unlockedShopItems or {}
-    GodSystemShopVariants.normalizeUnlocked(data)
+    GodSystemShopVariants.normalizeUnlocked(data, GodSystemServer.configuredShopKeySet)
     data.stats = data.stats or {}
     data.stats.recycledItems = data.stats.recycledItems or 0
     data.stats.recycledPoints = data.stats.recycledPoints or 0
@@ -1735,7 +1736,7 @@ local function shopById(data, id)
             local items = row.items or {}
             for j = 1, #items do
                 if items[j].fullType and GodSystemAdminConfig.isShopItemEnabled(items[j].fullType, true) == false then
-                    return nil
+                    return nil, "disabled"
                 end
             end
             return row
@@ -1744,7 +1745,9 @@ local function shopById(data, id)
     for variantKey, item in pairs(data.unlockedShopItems or {}) do
         local fullType = item.fullType or variantKey
         local unlockedId = "unlocked_" .. tostring(variantKey)
-        if (unlockedId == id or tostring(variantKey) == id) and GodSystemAdminConfig.isShopItemEnabled(fullType, true) ~= false then
+        if unlockedId == id or tostring(variantKey) == id then
+            if item.hidden == true then return nil, "hidden" end
+            if GodSystemAdminConfig.isShopItemEnabled(fullType, true) == false then return nil, "disabled" end
             return {
                 id = unlockedId,
                 fullType = fullType,
@@ -1758,7 +1761,7 @@ local function shopById(data, id)
             }
         end
     end
-    return nil
+    return nil, "missing"
 end
 
 local function itemHasInventory(item)
@@ -1887,9 +1890,15 @@ local function canContextListItem(data, item)
     if not allowed then return false, reason end
     local fullType = item:getFullType()
     if not isAutoShopListOnlyAllowed(fullType) then return false, "notListable" end
-    data.unlockedShopItems = data.unlockedShopItems or {}
     local variantKey = GodSystemShopVariants.getKey(fullType, item)
-    if data.unlockedShopItems[variantKey] then return false, "alreadyListed" end
+    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.configuredShopKeySet, variantKey)
+    if listed then
+        if source == "configured" then return false, "configuredListed" end
+        if data.unlockedShopItems and data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
+            return false, "hiddenListed"
+        end
+        return false, "alreadyListed"
+    end
     return true, nil
 end
 
@@ -1934,15 +1943,19 @@ local function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite
     local buyPrice = autoShopBuyPriceForItem(fullType, baseSell)
     local worldSprite = GodSystemShopVariants.getWorldSprite(itemOrSprite)
     local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
-    local existing = data.unlockedShopItems[variantKey]
-    if existing then
-        existing.sellPrice = math.max(floor(existing.sellPrice, 1), baseSell)
-        existing.buyPrice = math.max(floor(existing.buyPrice, 1), buyPrice)
-        existing.label = label or existing.label
-    else
-        data.unlockedShopItems[variantKey] = { fullType = fullType, worldSprite = worldSprite, variantKey = variantKey, label = label, sellPrice = baseSell, buyPrice = buyPrice, unlockedAt = nowHours() }
-    end
-    return data.unlockedShopItems[variantKey], variantKey
+    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.configuredShopKeySet, variantKey)
+    if listed then return nil, variantKey, source end
+    data.unlockedShopItems[variantKey] = {
+        fullType = fullType,
+        worldSprite = worldSprite,
+        variantKey = variantKey,
+        label = label,
+        sellPrice = baseSell,
+        buyPrice = buyPrice,
+        unlockedAt = nowHours(),
+        hidden = false,
+    }
+    return data.unlockedShopItems[variantKey], variantKey, "created"
 end
 
 local function lotteryNormalizeCategory(categoryKey)
@@ -2826,8 +2839,11 @@ function Commands.buyShop(_, _, player, args)
     if not guard(player) then return end
     local ok, err = pcall(function()
         local data = playerData(player)
-        local row = shopById(data, args and args.id)
-        if not row then return finish(player, false, "商品不存在") end
+        local row, lookupReason = shopById(data, args and args.id)
+        if not row then
+            if lookupReason == "hidden" then return finishCode(player, false, "ShopItemHiddenStale") end
+            return finish(player, false, "商品不存在")
+        end
         local quantity = math.max(1, floor(args and args.quantity, 1))
         local price = shopUnitPrice(row) * quantity
         if not canAfford(player, price, data) then return finish(player, false, "系统币不足") end
@@ -2842,8 +2858,18 @@ function Commands.buyShop(_, _, player, args)
             if grant[i].worldSprite then
                 okGive, added = GodSystemShopVariants.addItems(player:getInventory(), grant[i].fullType, grant[i].worldSprite, grant[i].count)
                 if okGive and sendAddItemToContainer then
-                    for j = 1, #added do pcall(sendAddItemToContainer, player:getInventory(), added[j]) end
-                    markInventoryDirty(player, player:getInventory())
+                    local synced = true
+                    for j = 1, #added do
+                        local spriteOk = GodSystemShopVariants.getWorldSprite(added[j]) == grant[i].worldSprite
+                        local sendOk = spriteOk and pcall(sendAddItemToContainer, player:getInventory(), added[j])
+                        synced = synced and sendOk
+                    end
+                    if synced then
+                        markInventoryDirty(player, player:getInventory())
+                    else
+                        for j = 1, #added do removeItemFromContainer(player:getInventory(), added[j]) end
+                        okGive, added = false, {}
+                    end
                 end
             else
                 okGive, added = giveItem(player, grant[i].fullType, grant[i].count)
@@ -3135,25 +3161,31 @@ function Commands.listOnlyAutoShop(_, _, player, args)
     if not guard(player) then return end
     local ok, err = pcall(function()
         local data = playerData(player)
-        local fullType = args and args.fullType
-        if not fullType or fullType == "" then return finish(player, false, "请选择可回收物品") end
+        local fullType = tostring(args and args.fullType or "")
+        local itemId = tostring(args and args.itemId or "")
+        if fullType == "" or itemId == "" then return finishCode(player, false, "RecycleSelectionChanged") end
         if not isAutoShopListOnlyAllowed(fullType) then return finish(player, false, "该物品无法上架") end
-
-        local found = inventoryItems(player, fullType, false, false)
-        if #found <= 0 then return finish(player, false, "背包中没有该物品") end
-
-        local item = found[1].item
-        local variantKey = GodSystemShopVariants.getKey(fullType, item)
-        data.unlockedShopItems = data.unlockedShopItems or {}
-        if data.unlockedShopItems[variantKey] then return finish(player, true, "该物品已上架") end
-        if not canRecycleItem(item, false) then return finish(player, false, "该物品无法上架") end
+        local item, container = inventoryItemById(player, itemId)
+        if not item or not container or item:getFullType() ~= fullType then
+            return finishCode(player, false, "RecycleSelectionChanged")
+        end
+        local listable, reason = canContextListItem(data, item)
+        if not listable then
+            if reason == "configuredListed" then return finishCode(player, true, "ShopConfiguredAlreadyListed") end
+            if reason == "hiddenListed" then return finishCode(player, true, "ShopHiddenAlreadyListed") end
+            if reason == "alreadyListed" then return finishCode(player, true, "ListOnlyAlreadyUnlocked") end
+            return finish(player, false, "该物品无法上架")
+        end
         local label = item and item.getDisplayName and item:getDisplayName() or fullType
         local sellValue = itemSellPrice(fullType, item)
         local cost, buyPrice = autoShopListOnlyCost(fullType, sellValue)
-        if not canAfford(player, cost, data) then return finish(player, false, "系统币不足") end
-        if not addPoints(player, -cost, data) then return finish(player, false, "系统币不足") end
-
-        unlockAutoShopItem(data, fullType, label, sellValue, item)
+        local paid, fromBank, fromCash = spendCurrency(player, data, cost)
+        if not paid then return finishCode(player, false, "ListOnlyInsufficient") end
+        local unlocked = unlockAutoShopItem(data, fullType, label, sellValue, item)
+        if not unlocked then
+            GodSystemServer.refundCurrencySources(player, data, fromBank, fromCash)
+            return finishCode(player, false, "RecycleSelectionChanged")
+        end
         appendHistory(data, historyEntry("shop", "ListOnlyAutoShop", { label, cost, buyPrice }))
         finish(player, true, "上架成功 -" .. tostring(cost))
     end)
@@ -4336,14 +4368,28 @@ function Commands.toggleWaistRecycleMode(_, _, player)
     data.waistRecycleUnlockMode = data.waistRecycleUnlockMode ~= true
     finishCode(player, true, data.waistRecycleUnlockMode and "WaistRecycleModeUnlock" or "WaistRecycleModeOnly")
 end
-function Commands.removeUnlocked(_, _, player, args)
-    local data = playerData(player)
-    local variantKey = args and args.fullType
-    if variantKey and data.unlockedShopItems then
-        data.unlockedShopItems[variantKey] = nil
-        appendHistory(data, historyEntry("shop", "RemoveUnlocked", { variantKey }))
-    end
-    finish(player, true, "已删除解锁商品")
+function Commands.setShopItemHidden(_, _, player, args)
+    if not guard(player) then return end
+    local ok, err = pcall(function()
+        local data = playerData(player)
+        local variantKey = tostring(args and (args.variantKey or args.fullType) or "")
+        local hidden = args and args.hidden == true
+        local found, changed, item = GodSystemShopVariants.setHidden(data, variantKey, hidden)
+        if not found then return finishCode(player, false, "ShopItemMissing") end
+        local code = hidden and "ShopItemHidden" or "ShopItemVisible"
+        local label = item and (item.label or item.fullType) or variantKey
+        if changed then appendHistory(data, historyEntry("shop", code, { label })) end
+        return finishCode(player, true, code, { label })
+    end)
+    unguard(player)
+    if not ok then errorMessage(player, tostring(err)) end
+end
+
+function Commands.removeUnlocked(module, command, player, args)
+    return Commands.setShopItemHidden(module, command, player, {
+        variantKey = args and (args.variantKey or args.fullType),
+        hidden = true,
+    })
 end
 
 function Commands.lotteryDraw(_, _, player, args)

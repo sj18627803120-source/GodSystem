@@ -12,6 +12,7 @@ require "GodSystem_ShopVariants"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
+GodSystem.configuredShopKeySet = GodSystemShopVariants.getConfiguredKeySet(GodSystemConfig.ShopItems or {})
 GodSystem.updateTicks = 0
 GodSystem.notifyQueue = GodSystem.notifyQueue or {}
 GodSystem.notifyQueueActive = GodSystem.notifyQueueActive == true
@@ -365,7 +366,7 @@ function GodSystem.getData()
     data.tasks = data.tasks or {}
     data.history = data.history or {}
     data.unlockedShopItems = data.unlockedShopItems or {}
-    GodSystemShopVariants.normalizeUnlocked(data)
+    GodSystemShopVariants.normalizeUnlocked(data, GodSystem.configuredShopKeySet)
     data.stats = data.stats or {}
     data.stats.recycledItems = data.stats.recycledItems or 0
     data.stats.recycledPoints = data.stats.recycledPoints or 0
@@ -4725,6 +4726,15 @@ function GodSystem.isAutoShopUnlockAllowed(fullType)
     return moduleName ~= nil and GodSystemConfig.AutoShopAllowedModules[moduleName] == true
 end
 
+function GodSystem.getConfiguredShopKeySet()
+    return GodSystem.configuredShopKeySet or {}
+end
+
+function GodSystem.getShopListingState(fullType, itemOrSprite)
+    local data = GodSystem.getData()
+    return GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), fullType, itemOrSprite)
+end
+
 function GodSystem.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
     if not GodSystem.isAutoShopUnlockAllowed(fullType) then
         return false
@@ -4736,14 +4746,8 @@ function GodSystem.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
     local buyPrice = GodSystem.getAutoShopBuyPriceForItem(fullType, baseSell)
     local worldSprite = GodSystemShopVariants.getWorldSprite(itemOrSprite)
     local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
-    local existing = data.unlockedShopItems[variantKey]
-
-    if existing then
-        existing.label = existing.label or label or GodSystem.getItemDisplayName(fullType)
-        existing.sellPrice = baseSell
-        existing.buyPrice = buyPrice
-        return false
-    end
+    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), variantKey)
+    if known then return false, source, variantKey end
 
     data.unlockedShopItems[variantKey] = {
         fullType = fullType,
@@ -4754,12 +4758,13 @@ function GodSystem.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
         sellPrice = baseSell,
         buyPrice = buyPrice,
         unlockedAt = math.floor(gsNowHours()),
+        hidden = false,
     }
     GodSystem.save()
-    return true
+    return true, "created", variantKey
 end
 
-function GodSystem.listOnlyAutoShopItem(fullType)
+function GodSystem.listOnlyAutoShopItem(fullType, itemId)
     if GodSystem.isFeatureEnabled("EnableRecycle") == false or GodSystem.isFeatureEnabled("EnableShop") == false then
         GodSystem.notify(GodSystem.text("Notify_ListOnlyDisabled", "This item cannot be listed."))
         return false
@@ -4774,17 +4779,31 @@ function GodSystem.listOnlyAutoShopItem(fullType)
     end
 
     local data = GodSystem.getData()
-    local found = gsFindInventoryItems(fullType, false, false)
-    if #found <= 0 then
+    if itemId == nil or tostring(itemId or "") == "" then
+        GodSystem.notify(GodSystem.text("Notify_ListItemChanged", "The selected item changed; reopen the recycle page"))
+        return false
+    end
+    local item = gsInventoryItemById(itemId)
+    if item and item.getFullType and item:getFullType() ~= fullType then item = nil end
+    if not item then
         GodSystem.notify(GodSystem.text("Notify_NoRecycleItem", "No recyclable item"))
         return false
     end
 
-    local item = found[1].item
     local variantKey = GodSystemShopVariants.getKey(fullType, item)
-    data.unlockedShopItems = data.unlockedShopItems or {}
-    if data.unlockedShopItems[variantKey] then
-        GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), variantKey)
+    if known then
+        if source == "configured" then
+            GodSystem.notify(GodSystem.text("Notify_ShopConfiguredAlreadyListed", "This built-in shop item is already listed."))
+        elseif data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
+            GodSystem.notify(GodSystem.text("Notify_ShopHiddenAlreadyListed", "This item is listed but hidden. Restore it from hidden management."))
+        else
+            GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+        end
+        return false
+    end
+    if not GodSystem.canContextRecycleItem(item) then
+        GodSystem.notify(GodSystem.text("Notify_ListOnlyDisabled", "This item cannot be listed."))
         return false
     end
     local label = (item and item.getDisplayName and item:getDisplayName()) or GodSystem.getItemDisplayName(fullType)
@@ -4794,13 +4813,21 @@ function GodSystem.listOnlyAutoShopItem(fullType)
         GodSystem.notify(GodSystem.text("Notify_ListOnlyInsufficient", "Not enough system coins to list this item."))
         return false
     end
-    local paid = GodSystem.spendCurrency(cost)
+    local paid, fromBank, fromCash = GodSystem.spendCurrency(cost)
     if not paid then
         GodSystem.notify(GodSystem.text("Notify_ListOnlyInsufficient", "Not enough system coins to list this item."))
         return false
     end
-    if not GodSystem.unlockAutoShopItem(fullType, label, sellValue, item) then
-        GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+    local created, failureSource = GodSystem.unlockAutoShopItem(fullType, label, sellValue, item)
+    if not created then
+        GodSystem.refundCurrencySources(fromBank, fromCash)
+        if failureSource == "configured" then
+            GodSystem.notify(GodSystem.text("Notify_ShopConfiguredAlreadyListed", "This built-in shop item is already listed."))
+        elseif data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
+            GodSystem.notify(GodSystem.text("Notify_ShopHiddenAlreadyListed", "This item is listed but hidden. Restore it from hidden management."))
+        else
+            GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+        end
         return false
     end
 
@@ -4810,10 +4837,13 @@ function GodSystem.listOnlyAutoShopItem(fullType)
     return true
 end
 
-function GodSystem.getUnlockedShopItemsList()
+function GodSystem.getUnlockedShopItemsList(includeHidden)
     local data = GodSystem.getData()
     local result = {}
-    for variantKey, item in pairs(data.unlockedShopItems or {}) do
+    local rows = GodSystemShopVariants.getUnlockedRows(data, includeHidden)
+    for i = 1, #rows do
+        local item = rows[i]
+        local variantKey = item.variantKey or GodSystemShopVariants.getKey(item.fullType, item.worldSprite)
         local fullType = item.fullType or variantKey
         if GodSystem.itemExists(fullType) then
             table.insert(result, {
@@ -4827,33 +4857,46 @@ function GodSystem.getUnlockedShopItemsList()
                 description = "Unlocked by recycling.",
                 items = { { fullType = fullType, worldSprite = item.worldSprite, count = 1 } },
                 unlocked = true,
+                hidden = item.hidden == true,
             })
         end
     end
     table.sort(result, function(a, b)
-        return (a.label or a.id) < (b.label or b.id)
+        local left = tostring(a.label or a.id)
+        local right = tostring(b.label or b.id)
+        if left == right then return tostring(a.variantKey or a.id) < tostring(b.variantKey or b.id) end
+        return left < right
     end)
     return result
 end
 
-function GodSystem.removeUnlockedShopItem(variantKey)
+function GodSystem.setShopItemHidden(variantKey, hidden)
     if not variantKey then
         GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
         return false
     end
     local data = GodSystem.getData()
-    data.unlockedShopItems = data.unlockedShopItems or {}
-    local item = data.unlockedShopItems[variantKey]
-    if not item then
+    local ok, changed, item = GodSystemShopVariants.setHidden(data, variantKey, hidden)
+    if not ok or not item then
         GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
         return false
     end
     local label = item.label or GodSystem.getItemDisplayName(item.fullType or variantKey)
-    data.unlockedShopItems[variantKey] = nil
-    gsAppendHistory(data, { kind = "shop", text = GodSystem.text("History_RemoveUnlockedShopItem", "Removed unlocked shop item: ") .. tostring(label) })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_RemoveUnlockedShopItem", "Removed unlocked shop item: ") .. tostring(label))
+    local targetHidden = hidden == true
+    if changed then
+        local historyKey = targetHidden and "History_ShopItemHidden" or "History_ShopItemVisible"
+        local historyFallback = targetHidden and "Hidden shop item: " or "Restored shop item: "
+        gsAppendHistory(data, { kind = "shop", text = GodSystem.text(historyKey, historyFallback) .. tostring(label) })
+        GodSystem.save()
+    end
+    local notifyKey = targetHidden and "Notify_ShopItemHidden" or "Notify_ShopItemVisible"
+    local notifyFallback = targetHidden and "Hidden shop item: " or "Restored shop item: "
+    GodSystem.notify(GodSystem.text(notifyKey, notifyFallback) .. tostring(label))
     return true
+end
+
+function GodSystem.removeUnlockedShopItem(variantKey)
+    return GodSystem.setShopItemHidden(variantKey, true)
 end
 
 function GodSystem.getConfiguredShopFullTypeSet()
@@ -5945,6 +5988,18 @@ function GodSystem.buyShopItem(shopItem, quantity)
     if not shopItem then
         return false
     end
+    local data = GodSystem.getData()
+    if shopItem.unlocked == true then
+        local variantKey = shopItem.variantKey or GodSystemShopVariants.getKey(shopItem.fullType, shopItem.worldSprite)
+        local stored = data.unlockedShopItems and data.unlockedShopItems[variantKey] or nil
+        if not stored then
+            GodSystem.notify(GodSystem.text("Notify_ShopItemMissing", "This player-listed item no longer exists."))
+            return false
+        elseif stored.hidden == true then
+            GodSystem.notify(GodSystem.text("Notify_ShopHiddenAlreadyListed", "This item is hidden. Restore it from hidden management."))
+            return false
+        end
+    end
     local primaryFullType = GodSystem.getShopPrimaryFullType(shopItem)
     if primaryFullType and GodSystemAdminConfig.isShopItemEnabled(primaryFullType, true) == false then
         GodSystem.notify("Shop item disabled")
@@ -5963,7 +6018,6 @@ function GodSystem.buyShopItem(shopItem, quantity)
         return false
     end
 
-    local data = GodSystem.getData()
     local expected = 0
     local grantItems = gsMultiplyItems(availableItems or shopItem.items, quantity)
     for i = 1, #(grantItems or {}) do
@@ -6062,8 +6116,14 @@ function GodSystem.canContextListItem(item)
     if not allowed then return false, reason end
     local fullType = item:getFullType()
     if not GodSystem.isAutoShopUnlockAllowed(fullType) then return false, "notListable" end
-    local unlocked = GodSystem.getData().unlockedShopItems or {}
-    if unlocked[GodSystemShopVariants.getKey(fullType, item)] then return false, "alreadyListed" end
+    local data = GodSystem.getData()
+    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), variantKey)
+    if known then
+        if source == "configured" then return false, "configuredListed" end
+        if data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then return false, "hiddenListed" end
+        return false, "alreadyListed"
+    end
     return true, nil
 end
 
@@ -6573,8 +6633,18 @@ function GodSystem.getInventoryRecycleGroups()
                         rawTotalValue = 0,
                         totalValue = 0,
                         unitDivisor = GodSystem.getRecycleUnitDivisor(fullType, item),
+                        itemIds = {},
                     }
                     table.insert(order, fullType)
+                end
+                if item.getID then result[fullType].itemIds[#result[fullType].itemIds + 1] = tostring(item:getID()) end
+                if not result[fullType].listItemId then
+                    local listable = GodSystem.canContextListItem(item)
+                    if listable == true and item.getID then
+                        result[fullType].listItemId = tostring(item:getID())
+                        result[fullType].listVariantKey = GodSystemShopVariants.getKey(fullType, item)
+                        result[fullType].listWorldSprite = GodSystemShopVariants.getWorldSprite(item)
+                    end
                 end
                 result[fullType].count = result[fullType].count + 1
                 result[fullType].rawTotalValue = result[fullType].rawTotalValue + value

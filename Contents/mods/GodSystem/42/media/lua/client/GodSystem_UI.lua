@@ -20,6 +20,7 @@ GodSystemUI.floating = nil
 GodSystemUI.window = nil
 GodSystemUI.taskTracker = nil
 GodSystemUI.shortcutWindow = nil
+GodSystemUI.shopHiddenWindow = nil
 
 local function gsSetLabel(label, text)
     if label then
@@ -1042,6 +1043,259 @@ function GodSystemAdminTextDialog:onCancel()
     if self.removeFromUIManager then
         self:removeFromUIManager()
     end
+end
+
+GodSystemShopHiddenWindow = ISCollapsableWindow:derive("GodSystemShopHiddenWindow")
+
+function GodSystemShopHiddenWindow:new(x, y, width, height, owner)
+    local o = ISCollapsableWindow.new(self, x, y, width, height)
+    o.title = GodSystem.text("ShopHidden_Title", "Hidden shop items")
+    o.owner = owner
+    o.categoryKey = "all"
+    o.statusFilter = "all"
+    o.searchText = ""
+    o.selectedVariantKey = nil
+    o.waitingForServer = false
+    o.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or 0
+    o.resizable = false
+    return o
+end
+
+function GodSystemShopHiddenWindow:createChildren()
+    ISCollapsableWindow.createChildren(self)
+    local margin = 12
+    local top = 30
+    local filterH = 30
+    local buttonH = 34
+
+    self.categoryButton = ISButton:new(margin, top, 190, filterH, "", self, self.onCategoryButton)
+    self.categoryButton:initialise()
+    gsStyleActionButton(self.categoryButton, false)
+    self:addChild(self.categoryButton)
+
+    self.statusButton = ISButton:new(210, top, 170, filterH, "", self, self.onStatusButton)
+    self.statusButton:initialise()
+    gsStyleActionButton(self.statusButton, false)
+    self:addChild(self.statusButton)
+
+    self.searchBox = ISTextEntryBox:new("", 388, top, self.width - 400, filterH)
+    self.searchBox:initialise()
+    self.searchBox:instantiate()
+    self.searchBox.font = UIFont.Small
+    self.searchBox.target = self
+    self.searchBox.onTextChange = function(entry) self:onSearchChange(entry) end
+    self:addChild(self.searchBox)
+
+    self.list = ISScrollingListBox:new(margin, top + filterH + 10, self.width - (margin * 2), self.height - top - filterH - buttonH - 38)
+    self.list:initialise()
+    self.list:instantiate()
+    self.list.itemheight = 32
+    self.list.doDrawItem = function(list, y, row, alt) return self:drawItem(list, y, row, alt) end
+    self.list:setOnMouseDownFunction(self, self.onListMouseDown)
+    gsInstallSafeScrollingListPrerender(self.list)
+    self:addChild(self.list)
+
+    local actionY = self.height - buttonH - 12
+    self.hideButton = ISButton:new(margin, actionY, 150, buttonH, GodSystem.text("ShopHidden_Add", "Hide"), self, self.onHide)
+    self.hideButton:initialise()
+    gsStyleActionButton(self.hideButton, "primary")
+    self:addChild(self.hideButton)
+
+    self.showButton = ISButton:new(172, actionY, 150, buttonH, GodSystem.text("ShopHidden_Remove", "Show"), self, self.onShow)
+    self.showButton:initialise()
+    gsStyleActionButton(self.showButton, false)
+    self:addChild(self.showButton)
+
+    self.closeButton = ISButton:new(self.width - 132, actionY, 120, buttonH, GodSystem.text("ShopHidden_Close", "Close"), self, self.close)
+    self.closeButton:initialise()
+    gsStyleActionButton(self.closeButton, false)
+    self:addChild(self.closeButton)
+
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:prerender()
+    ISCollapsableWindow.prerender(self)
+    gsDrawRect(self, 0, 16, self.width, self.height - 16, gsThemeColor("shell"))
+    gsDrawRectBorder(self, 1, 17, self.width - 2, self.height - 18, gsThemeColor("borderStrong"))
+    self:updateButtons()
+end
+
+function GodSystemShopHiddenWindow:drawItem(list, y, row, alt)
+    local data = row and row.item or nil
+    local color = data and data.hidden == true and gsThemeColor("dimText") or gsThemeColor("text")
+    local background = alt and gsThemeColor("panel") or gsThemeColor("panelDeep")
+    gsDrawRect(list, 0, y, list.width, list.itemheight - 1, background)
+    if list.selected == row.index then
+        gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("rowSelect"))
+    end
+    gsDrawText(list, tostring(row and row.text or ""), 8, y + 8, color, UIFont.Small)
+    return y + list.itemheight
+end
+
+function GodSystemShopHiddenWindow:getSelected()
+    local index = self.list and math.floor(tonumber(self.list.selected) or 0) or 0
+    local row = index > 0 and self.list.items[index] or nil
+    return row and row.item or nil
+end
+
+function GodSystemShopHiddenWindow:onListMouseDown(row)
+    local data = row and (row.item or row) or self:getSelected()
+    if data and data.variantKey then self.selectedVariantKey = data.variantKey end
+    self:updateButtons()
+end
+
+function GodSystemShopHiddenWindow:updateButtons()
+    local row = self:getSelected()
+    local blocked = self.waitingForServer == true
+    self.hideButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden ~= true
+    self.showButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden == true
+end
+
+function GodSystemShopHiddenWindow:statusLabel()
+    if self.statusFilter == "visible" then return GodSystem.text("ShopHidden_FilterVisible", "Visible") end
+    if self.statusFilter == "hidden" then return GodSystem.text("ShopHidden_FilterHidden", "Hidden") end
+    return GodSystem.text("ShopHidden_FilterAll", "All")
+end
+
+function GodSystemShopHiddenWindow:categoryLabel()
+    if self.categoryKey == "all" then return GodSystem.text("ShopHidden_FilterAll", "All") end
+    for i = 1, #(self.categories or {}) do
+        if self.categories[i].key == self.categoryKey then return self.categories[i].label end
+    end
+    return self.categoryKey
+end
+
+function GodSystemShopHiddenWindow:matches(row, category)
+    if self.categoryKey ~= "all" and category.key ~= self.categoryKey then return false end
+    if self.statusFilter == "visible" and row.hidden == true then return false end
+    if self.statusFilter == "hidden" and row.hidden ~= true then return false end
+    local query = string.lower(gsTrim(self.searchText or ""))
+    if query == "" then return true end
+    local haystack = table.concat({
+        tostring(row.label or ""),
+        tostring(row.fullType or ""),
+        tostring(category.key or ""),
+        tostring(category.label or ""),
+        tostring(row.worldSprite or ""),
+    }, " ")
+    return string.find(string.lower(haystack), query, 1, true) ~= nil
+end
+
+function GodSystemShopHiddenWindow:populateItems()
+    if not self.list then return end
+    local oldScroll = self.list.getYScroll and self.list:getYScroll() or 0
+    local selectedKey = self.selectedVariantKey
+    self.list:clear()
+    local rows = GodSystem.getUnlockedShopItemsList(true)
+    local categories, categoryMap = {}, {}
+    for i = 1, #rows do
+        local category = GodSystem.getShopPrimaryCategory(rows[i])
+        if not categoryMap[category.key] then
+            categoryMap[category.key] = true
+            categories[#categories + 1] = category
+        end
+    end
+    table.sort(categories, function(a, b) return tostring(a.label) < tostring(b.label) end)
+    self.categories = categories
+    if self.categoryKey ~= "all" and not categoryMap[self.categoryKey] then self.categoryKey = "all" end
+
+    local visibleCount = 0
+    for i = 1, #rows do
+        local row = rows[i]
+        local category = GodSystem.getShopPrimaryCategory(row)
+        if self:matches(row, category) then
+            local status = row.hidden == true and GodSystem.text("ShopHidden_StatusHidden", "Hidden") or GodSystem.text("ShopHidden_StatusVisible", "Visible")
+            local sprite = row.worldSprite and (" | " .. tostring(row.worldSprite)) or ""
+            local added = self.list:addItem("[" .. status .. "] " .. tostring(row.label or row.fullType) .. " | " .. tostring(row.fullType or "") .. sprite, {
+                variantKey = row.variantKey,
+                fullType = row.fullType,
+                worldSprite = row.worldSprite,
+                hidden = row.hidden == true,
+                label = row.label,
+                categoryKey = category.key,
+            })
+            visibleCount = visibleCount + 1
+            if selectedKey and row.variantKey == selectedKey then self.list.selected = visibleCount end
+        end
+    end
+    if visibleCount == 0 then
+        self.list:addItem(GodSystem.text("ShopHidden_Empty", "No player-listed items match the filters"), { empty = true })
+        self.list.selected = 0
+        self.selectedVariantKey = nil
+    end
+    if self.list.setYScroll then self.list:setYScroll(oldScroll) end
+    gsSetButtonTitle(self.categoryButton, GodSystem.text("ShopHidden_Category", "Category") .. ": " .. self:categoryLabel())
+    gsSetButtonTitle(self.statusButton, GodSystem.text("ShopHidden_Status", "Status") .. ": " .. self:statusLabel())
+    self:updateButtons()
+end
+
+function GodSystemShopHiddenWindow:setCategory(key)
+    self.categoryKey = tostring(key or "all")
+    self.selectedVariantKey = nil
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:onCategoryButton()
+    local player = getPlayer()
+    local context = ISContextMenu.get(player and player:getPlayerNum() or 0, getMouseX(), getMouseY())
+    context:addOption(GodSystem.text("ShopHidden_FilterAll", "All"), self, self.setCategory, "all")
+    for i = 1, #(self.categories or {}) do
+        context:addOption(self.categories[i].label, self, self.setCategory, self.categories[i].key)
+    end
+end
+
+function GodSystemShopHiddenWindow:setStatus(status)
+    self.statusFilter = tostring(status or "all")
+    self.selectedVariantKey = nil
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:onStatusButton()
+    local player = getPlayer()
+    local context = ISContextMenu.get(player and player:getPlayerNum() or 0, getMouseX(), getMouseY())
+    context:addOption(GodSystem.text("ShopHidden_FilterAll", "All"), self, self.setStatus, "all")
+    context:addOption(GodSystem.text("ShopHidden_FilterVisible", "Visible"), self, self.setStatus, "visible")
+    context:addOption(GodSystem.text("ShopHidden_FilterHidden", "Hidden"), self, self.setStatus, "hidden")
+end
+
+function GodSystemShopHiddenWindow:onSearchChange(entry)
+    self.searchText = entry and entry.getInternalText and entry:getInternalText() or ""
+    self.selectedVariantKey = nil
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:setSelectedHidden(hidden)
+    local row = self:getSelected()
+    if not row or not row.variantKey or row.empty then return end
+    self.selectedVariantKey = row.variantKey
+    local sent = GodSystem.setShopItemHidden(row.variantKey, hidden == true)
+    self.waitingForServer = gsIsMultiplayer() and sent ~= false
+    if self.owner and self.owner.finishMultiplayerCommand then self.owner:finishMultiplayerCommand(sent) end
+    if not self.waitingForServer then
+        if self.owner and self.owner.populateList then self.owner:populateList() end
+        self:populateItems()
+    end
+end
+
+function GodSystemShopHiddenWindow:onHide()
+    self:setSelectedHidden(true)
+end
+
+function GodSystemShopHiddenWindow:onShow()
+    self:setSelectedHidden(false)
+end
+
+function GodSystemShopHiddenWindow:onServerStateChanged()
+    self.waitingForServer = false
+    self.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or self.lastStateSerial
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:close()
+    self:setVisible(false)
+    if self.removeFromUIManager then self:removeFromUIManager() end
+    if GodSystemUI.shopHiddenWindow == self then GodSystemUI.shopHiddenWindow = nil end
 end
 
 GodSystemWindow = ISCollapsableWindow:derive("GodSystemWindow")
@@ -2258,7 +2512,10 @@ function GodSystemWindow:getPayloadId(payload)
         return "task:" .. tostring(payload.data.taskId or payload.data.sourceId or "")
     end
     if payload.kind == "shop" and payload.data then
-        return "shop:" .. tostring(payload.data.id or payload.data.fullType or GodSystem.getShopPrimaryFullType(payload.data) or "")
+        if payload.data.unlocked == true then
+            return "shop:unlocked:" .. tostring(payload.data.variantKey or payload.data.id or payload.data.fullType or "")
+        end
+        return "shop:configured:" .. tostring(payload.data.id or payload.data.fullType or GodSystem.getShopPrimaryFullType(payload.data) or "")
     end
     if payload.kind == "recycle" and payload.data then
         return "recycle:" .. tostring(payload.data.fullType or "")
@@ -2592,6 +2849,7 @@ function GodSystemWindow:applyShopActionLayout()
         { id = "third", width = 88, minWidth = 72, visible = thirdVisible == true },
         { id = "fourth", width = 78, minWidth = 62 },
         { id = "fifth", width = 78, minWidth = 62 },
+        { id = "sixth", width = 102, minWidth = 82 },
     })
 end
 
@@ -2935,12 +3193,14 @@ function GodSystemWindow:populateShop()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_Buy", "Buy"))
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
     self.secondaryButton:setVisible(not gsIsMultiplayer())
-    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_RemoveUnlocked", "Remove unlocked"))
+    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_HideUnlocked", "Hide listing"))
     self.thirdButton:setVisible(false)
     gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_ShopPrevPage", "Prev"))
     self.fourthButton:setVisible(true)
     gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_ShopNextPage", "Next"))
     self.fifthButton:setVisible(true)
+    gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_ShopHiddenManager", "Hidden manager"))
+    self.sixthButton:setVisible(true)
     local shopItems = {}
     local categoryMap = {}
     local categories = {}
@@ -5047,7 +5307,11 @@ function GodSystemWindow:onListOnlyAutoShopConfirm(button, payload)
         return
     end
     self:prepareActionSelection(row)
-    local sent = GodSystem.listOnlyAutoShopItem(row.data.fullType)
+    if not row.data.listItemId then
+        GodSystem.notify(GodSystem.text("Notify_ListItemChanged", "The selected item changed; reopen the recycle page"))
+        return
+    end
+    local sent = GodSystem.listOnlyAutoShopItem(row.data.fullType, row.data.listItemId)
     self:finishMultiplayerCommand(sent)
 end
 
@@ -5059,6 +5323,19 @@ function GodSystemWindow:buyShopPayload(payload, count)
     self:prepareActionSelection(payload)
     local sent = GodSystem.buyShopItem(payload.data, count or 1)
     self:finishMultiplayerCommand(sent)
+    return true
+end
+
+function GodSystemWindow:hideShopPayload(payload)
+    if not payload or payload.kind ~= "shop" or not payload.data or payload.data.unlocked ~= true then
+        GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select a player-listed shop item"))
+        return false
+    end
+    local variantKey = payload.data.variantKey or payload.data.fullType
+    if not variantKey then return false end
+    local sent = GodSystem.setShopItemHidden(variantKey, true)
+    self:finishMultiplayerCommand(sent)
+    if not gsIsMultiplayer() then self:populateList() end
     return true
 end
 
@@ -5081,6 +5358,9 @@ function GodSystemWindow:onListRightMouseUp(x, y)
         context:addOption(GodSystem.text("Menu_BuyOne", "Buy 1"), self, self.buyShopPayload, payload, 1)
         context:addOption(GodSystem.text("Menu_BuyTen", "Buy 10"), self, self.buyShopPayload, payload, 10)
         context:addOption(GodSystem.text("Menu_BuyFifty", "Buy 50"), self, self.buyShopPayload, payload, 50)
+        if payload.data.unlocked == true then
+            context:addOption(GodSystem.text("Menu_HideShopItem", "Hide this item"), self, self.hideShopPayload, payload)
+        end
         return true
     end
 
@@ -5279,8 +5559,9 @@ function GodSystemWindow:onThirdAction()
         if not variantKey and payload.data.items and payload.data.items[1] then
             variantKey = GodSystemShopVariants.getKey(payload.data.items[1].fullType, payload.data.items[1].worldSprite)
         end
-        local sent = GodSystem.removeUnlockedShopItem(variantKey)
+        local sent = GodSystem.setShopItemHidden(variantKey, true)
         self:finishMultiplayerCommand(sent)
+        if not gsIsMultiplayer() then self:populateList() end
         return
     end
     if self.mode == "tasks" then
@@ -5359,6 +5640,10 @@ function GodSystemWindow:onFifthAction()
 end
 
 function GodSystemWindow:onSixthAction()
+    if self.mode == "shop" then
+        GodSystemUI.openShopHiddenManager(self)
+        return
+    end
     if self.mode == "waist" then
         local sent = GodSystem.toggleWaistAutoRecycle()
         self:finishMultiplayerCommand(sent)
@@ -5377,6 +5662,7 @@ function GodSystemWindow:onSeventhAction()
 end
 
 function GodSystemWindow:close()
+    if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
     local data = GodSystem.getData()
     data.ui.windowX = math.floor(self.x or 0)
     data.ui.windowY = math.floor(self.y or 0)
@@ -5384,6 +5670,30 @@ function GodSystemWindow:close()
     GodSystem.save()
     ISCollapsableWindow.close(self)
     GodSystemUI.window = nil
+end
+
+function GodSystemUI.openShopHiddenManager(owner)
+    if GodSystemUI.shopHiddenWindow then
+        GodSystemUI.shopHiddenWindow:setVisible(true)
+        GodSystemUI.shopHiddenWindow:bringToTop()
+        GodSystemUI.shopHiddenWindow:populateItems()
+        return GodSystemUI.shopHiddenWindow
+    end
+    local width, height = 760, 520
+    local screenW = getCore():getScreenWidth()
+    local screenH = getCore():getScreenHeight()
+    local x = math.max(0, math.floor((screenW - width) / 2))
+    local y = math.max(0, math.floor((screenH - height) / 2))
+    local window = GodSystemShopHiddenWindow:new(x, y, width, height, owner or GodSystemUI.window)
+    window:initialise()
+    window:addToUIManager()
+    window:setVisible(true)
+    GodSystemUI.shopHiddenWindow = window
+    return window
+end
+
+function GodSystemUI.closeShopHiddenWindow()
+    if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
 end
 
 function GodSystemUI.toggleWindow()
@@ -5526,4 +5836,10 @@ end
 
 if Events.OnGameStart then
     Events.OnGameStart.Add(GodSystemUI.onGameStart)
+end
+if Events.OnDisconnect then
+    Events.OnDisconnect.Add(GodSystemUI.closeShopHiddenWindow)
+end
+if Events.OnMainMenuEnter then
+    Events.OnMainMenuEnter.Add(GodSystemUI.closeShopHiddenWindow)
 end

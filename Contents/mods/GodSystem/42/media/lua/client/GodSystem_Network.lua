@@ -534,6 +534,9 @@ function GodSystemNetwork.refreshOnTick()
         GodSystemUI.window.lastNetworkStateSerial = GodSystemNetwork.stateSerial or 0
         GodSystemUI.window:populateList()
     end
+    if GodSystemUI and GodSystemUI.shopHiddenWindow and GodSystemUI.shopHiddenWindow.getIsVisible and GodSystemUI.shopHiddenWindow:getIsVisible() then
+        GodSystemUI.shopHiddenWindow:onServerStateChanged()
+    end
     if GodSystemUI and GodSystemUI.taskTracker and GodSystemUI.taskTracker.populateTasks then
         GodSystemUI.taskTracker:populateTasks()
     end
@@ -982,8 +985,8 @@ wrap("recycleSelectedItems", function(mode, itemIds, allowDestroyContents, conta
     })
 end)
 
-wrap("listOnlyAutoShopItem", function(fullType)
-    return send("listOnlyAutoShop", { fullType = fullType })
+wrap("listOnlyAutoShopItem", function(fullType, itemId)
+    return send((Protocol.C2S and Protocol.C2S.ListOnlyAutoShop) or "listOnlyAutoShop", { fullType = fullType, itemId = tostring(itemId or "") })
 end)
 
 wrap("recycleWaistSpaceItems", function(selectedFullTypes)
@@ -1118,8 +1121,12 @@ wrap("toggleRecycleUnlockMode", function()
     return send("toggleRecycleMode", {})
 end)
 
-wrap("removeUnlockedShopItem", function(fullType)
-    return send("removeUnlocked", { fullType = fullType })
+wrap("setShopItemHidden", function(variantKey, hidden)
+    return send((Protocol.C2S and Protocol.C2S.SetShopItemHidden) or "setShopItemHidden", { variantKey = variantKey, hidden = hidden == true })
+end)
+
+wrap("removeUnlockedShopItem", function(variantKey)
+    return send((Protocol.C2S and Protocol.C2S.RemoveUnlocked) or "removeUnlocked", { variantKey = variantKey, fullType = variantKey })
 end)
 
 wrap("performShopLottery", function(categoryKey)
