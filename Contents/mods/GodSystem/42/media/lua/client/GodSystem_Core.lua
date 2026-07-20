@@ -1089,13 +1089,13 @@ function GodSystem.upgradeSystem(upgradeType)
         end
         local data = GodSystem.getData()
         local previousLevel = GodSystemTerminalUpgrades.getLevel(data, info.terminalType)
-        local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(entry.item)
+        local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(entry.item, gsPlayer())
         GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel + 1)
-        local applied, report = GodSystemTerminalUpgrades.applyTerminal(entry.item, data)
+        local applied, report = GodSystemTerminalUpgrades.applyTerminal(entry.item, data, gsPlayer())
         if not applied then
             GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel)
             GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
-            GodSystemTerminalUpgrades.applyTerminal(entry.item, data)
+            GodSystemTerminalUpgrades.applyTerminal(entry.item, data, gsPlayer())
             local failureKey = info.terminalType == "relief" and "Notify_TerminalReliefApplyFailed" or "Notify_TerminalUpgradeApplyFailed"
             GodSystem.notify(GodSystem.text(failureKey, "Terminal upgrade failed; no currency spent"))
             return false
@@ -1103,7 +1103,7 @@ function GodSystem.upgradeSystem(upgradeType)
         if not GodSystem.addPoints(-info.cost) then
             GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel)
             GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
-            GodSystemTerminalUpgrades.applyTerminal(entry.item, data)
+            GodSystemTerminalUpgrades.applyTerminal(entry.item, data, gsPlayer())
             return false
         end
         data.autoRecyclerClaimed = true
@@ -3923,7 +3923,7 @@ end
 function GodSystem.applyAutoRecyclerContainerStats(item, level)
     if not item then return false end
     local data = GodSystem.getData()
-    return GodSystemTerminalUpgrades.applyTerminal(item, data)
+    return GodSystemTerminalUpgrades.applyTerminal(item, data, gsPlayer())
 end
 
 function GodSystem.markAutoRecyclerContainer(item, level)
@@ -6358,7 +6358,7 @@ function GodSystem.getAutoRecyclerInfo()
     local reductionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "reduction")
     local reliefInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "relief")
     local inventory, entry = GodSystem.getAutoRecyclerInventory()
-    local appliedStatus = entry and entry.item and GodSystemTerminalUpgrades.getAppliedStatus(entry.item, data) or nil
+    local appliedStatus = entry and entry.item and GodSystemTerminalUpgrades.getAppliedStatus(entry.item, data, gsPlayer()) or nil
     local count = 0
     local contentsWeight = nil
     if inventory and inventory.getItems then

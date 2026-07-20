@@ -115,6 +115,7 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 - For a desired offset `R`, set only the internal Food instance to `hungChange=R/100`, then verify `getActualWeight()` is approximately `-R`. Never mutate the shared `ScriptItem` definition.
 - `ItemContainer.getContentsWeight()` includes the negative result, so Java capacity checks continue to decide whether items fit. This is more reliable than Lua-wrapping exposed capacity helpers, because Java internal calls may bypass Lua method replacement.
 - Keep one hidden, non-edible, favorite and unwanted internal item at the top level of the owned terminal. Exclude its full type from recycle, auto-listing, lottery and player-facing counts.
+- B42.19 favorite and unwanted methods do not share signatures. `isFavorite()` is parameterless, while unwanted state is player-scoped: use `isUnwanted(player)` and `setUnwanted(player, value)`. Pass the local SP player or authoritative MP player through the shared terminal-apply API instead of guessing an overload.
 - Audit only on explicit lifecycle and transaction boundaries. Do not add per-frame, minute, or periodic inventory scans. In MP, create/remove/change the internal item only on the server and use `sendAddItemToContainer`, `sendRemoveItemFromContainer`, `sendItemStats`, and ModData transmission for synchronization.
 - Snapshot the internal item before a paid upgrade. Apply and verify first, charge second, and restore plus synchronize the snapshot if payment or later validation fails.
 

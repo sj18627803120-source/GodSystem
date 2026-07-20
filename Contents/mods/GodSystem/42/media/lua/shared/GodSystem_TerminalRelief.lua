@@ -93,6 +93,23 @@ local function readBoolean(item, method)
     return value == true
 end
 
+local function resolvePlayer(player)
+    if player then return player end
+    if getPlayer then
+        local ok, value = pcall(getPlayer)
+        if ok then return value end
+    end
+    return nil
+end
+
+local function readUnwanted(item, player)
+    player = resolvePlayer(player)
+    if not item or not item.isUnwanted or not player then return nil end
+    local ok, value = pcall(function() return item:isUnwanted(player) end)
+    if not ok then return nil end
+    return value == true
+end
+
 local function containsItem(inventory, target)
     local items = inventoryItems(inventory)
     for i = 0, listSize(items) - 1 do
@@ -123,19 +140,19 @@ local function reliefItems(inventory)
     return result
 end
 
-local function captureItem(item)
+local function captureItem(item, player)
     return {
         item = item,
         id = itemId(item),
         hungChange = readNumber(item, "getHungChange"),
         actualWeight = readNumber(item, "getActualWeight"),
         favorite = readBoolean(item, "isFavorite"),
-        unwanted = readBoolean(item, "isUnwanted"),
+        unwanted = readUnwanted(item, player),
         modData = copyTable(itemModData(item)),
     }
 end
 
-local function restoreItemState(item, state)
+local function restoreItemState(item, state, player)
     if not item or type(state) ~= "table" then return false end
     local ok = true
     if state.hungChange ~= nil and item.setHungChange then
@@ -145,20 +162,23 @@ local function restoreItemState(item, state)
         ok = pcall(function() item:setFavorite(state.favorite == true) end) and ok
     end
     if state.unwanted ~= nil and item.setUnwanted then
-        ok = pcall(function() item:setUnwanted(state.unwanted == true) end) and ok
+        player = resolvePlayer(player)
+        ok = player ~= nil and pcall(function() item:setUnwanted(player, state.unwanted == true) end) and ok
     end
     replaceTable(itemModData(item), state.modData)
     return ok
 end
 
-local function configureItem(item, terminal, level, offset)
+local function configureItem(item, terminal, level, offset, player)
     if not item or not item.setHungChange or not item.getActualWeight then return false, false, "unsupported" end
     if not item.setFavorite or not item.setUnwanted then return false, false, "unprotected" end
+    player = resolvePlayer(player)
+    if not player then return false, false, "playerMissing" end
 
     local desiredHungChange = offset / 100
     local beforeHung = readNumber(item, "getHungChange")
     local beforeFavorite = readBoolean(item, "isFavorite")
-    local beforeUnwanted = readBoolean(item, "isUnwanted")
+    local beforeUnwanted = readUnwanted(item, player)
     local md = itemModData(item)
     if not md then return false, false, "modDataMissing" end
     local markerKey = GodSystemConfig.TerminalReliefItemMarkerKey or "GodSystemTerminalRelief"
@@ -177,7 +197,7 @@ local function configureItem(item, terminal, level, offset)
 
     local ok = pcall(function() item:setHungChange(desiredHungChange) end)
     ok = pcall(function() item:setFavorite(true) end) and ok
-    ok = pcall(function() item:setUnwanted(true) end) and ok
+    ok = pcall(function() item:setUnwanted(player, true) end) and ok
     if not ok then return false, changed, "writeFailed" end
 
     md[markerKey] = true
@@ -190,7 +210,7 @@ local function configureItem(item, terminal, level, offset)
     if actualWeight == nil or math.abs(actualWeight + offset) > math.max(EPSILON, offset * 0.0001) then
         return false, changed, "weightVerificationFailed"
     end
-    if readBoolean(item, "isFavorite") ~= true or readBoolean(item, "isUnwanted") ~= true then
+    if readBoolean(item, "isFavorite") ~= true or readUnwanted(item, player) ~= true then
         return false, changed, "protectionVerificationFailed"
     end
     return true, changed, nil
@@ -254,19 +274,21 @@ function GodSystemTerminalRelief.isReliefItem(item)
     return ok and tostring(fullType or "") == reliefFullType()
 end
 
-function GodSystemTerminalRelief.snapshot(terminal)
+function GodSystemTerminalRelief.snapshot(terminal, player)
     if not terminal or not terminal.getInventory then return {} end
     local ok, inventory = pcall(function() return terminal:getInventory() end)
     if not ok or not inventory then return {} end
     local states = {}
     local items = reliefItems(inventory)
-    for i = 1, #items do states[#states + 1] = captureItem(items[i]) end
-    return { terminal = terminal, inventory = inventory, items = states }
+    player = resolvePlayer(player)
+    for i = 1, #items do states[#states + 1] = captureItem(items[i], player) end
+    return { terminal = terminal, inventory = inventory, items = states, player = player }
 end
 
-function GodSystemTerminalRelief.restore(snapshot)
+function GodSystemTerminalRelief.restore(snapshot, player)
     if type(snapshot) ~= "table" or not snapshot.inventory then return true, { addedItems = {}, removedItems = {}, items = {} } end
     local inventory = snapshot.inventory
+    player = resolvePlayer(player or snapshot.player)
     local expected = snapshot.items or {}
     local keep = {}
     for i = 1, #expected do
@@ -292,7 +314,7 @@ function GodSystemTerminalRelief.restore(snapshot)
         end
         if not item then
             ok = false
-        elseif not restoreItemState(item, state) then
+        elseif not restoreItemState(item, state, player) then
             ok = false
         else
             report.items[#report.items + 1] = item
@@ -301,7 +323,7 @@ function GodSystemTerminalRelief.restore(snapshot)
     return ok, report
 end
 
-function GodSystemTerminalRelief.ensureTerminal(terminal, data)
+function GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
     if not terminal or not terminal.getInventory then return false, { reason = "missing" } end
     if terminal.getFullType then
         local okType, fullType = pcall(function() return terminal:getFullType() end)
@@ -322,7 +344,8 @@ function GodSystemTerminalRelief.ensureTerminal(terminal, data)
         }
     end
 
-    local before = GodSystemTerminalRelief.snapshot(terminal)
+    player = resolvePlayer(player)
+    local before = GodSystemTerminalRelief.snapshot(terminal, player)
     local level = GodSystemTerminalRelief.getLevel(data)
     local offset = GodSystemTerminalRelief.getOffset(data)
     local report = {
@@ -367,7 +390,7 @@ function GodSystemTerminalRelief.ensureTerminal(terminal, data)
         report.removedDuplicates = report.removedDuplicates + 1
     end
 
-    local configured, changed, reason = configureItem(relief, terminal, level, offset)
+    local configured, changed, reason = configureItem(relief, terminal, level, offset, player)
     if not configured then
         GodSystemTerminalRelief.restore(before)
         return false, { reason = reason or "configureFailed", offset = offset }

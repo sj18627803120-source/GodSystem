@@ -27,6 +27,7 @@ local function newList(items)
 end
 
 local nextId = 100
+local testPlayer = { id = 1 }
 local function newReliefItem()
     nextId = nextId + 1
     local item = {
@@ -45,8 +46,14 @@ local function newReliefItem()
     function item:getActualWeight() return -(self.hungChange * 100) end
     function item:setFavorite(value) self.favorite = value == true end
     function item:isFavorite() return self.favorite end
-    function item:setUnwanted(value) self.unwanted = value == true end
-    function item:isUnwanted() return self.unwanted end
+    function item:setUnwanted(player, value)
+        assert(player == testPlayer, "setUnwanted requires the owning player")
+        self.unwanted = value == true
+    end
+    function item:isUnwanted(player)
+        assert(player == testPlayer, "isUnwanted requires the owning player")
+        return self.unwanted
+    end
     return item
 end
 
@@ -83,30 +90,30 @@ local info = GodSystemTerminalRelief.getUpgradeInfo(data)
 assert(info.level == 0 and info.offset == 0 and info.nextOffset == 5 and info.nextCost == 2000)
 
 local terminal, inventory, items = newTerminal()
-local ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data)
+local ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer)
 assert(ok == true and #items == 0 and report.offset == 0, "level zero must not create a hidden item")
 
 GodSystemTerminalRelief.setLevel(data, 1)
-ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data)
+ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer)
 assert(ok == true and #items == 1 and report.offset == 5, "level one must create one hidden item")
 local relief = items[1]
 assert(relief:getActualWeight() == -5, "level one must contribute -5 weight")
-assert(relief:isFavorite() and relief:isUnwanted(), "hidden item must carry bulk-transfer guards")
+assert(relief:isFavorite() and relief:isUnwanted(testPlayer), "hidden item must carry bulk-transfer guards")
 assert(GodSystemTerminalRelief.isReliefItem(relief), "internal item identity must be exact")
 
 items[#items + 1] = newReliefItem()
-ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data)
+ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer)
 assert(ok == true and #items == 1 and report.removedDuplicates == 1, "audit must remove duplicate internal items")
 
 GodSystemTerminalRelief.setLevel(data, 400)
-ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data)
+ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer)
 assert(ok == true and report.offset == 2000 and items[1]:getActualWeight() == -2000, "maximum relief must be -2000")
 info = GodSystemTerminalRelief.getUpgradeInfo(data)
 assert(info.level == 400 and info.nextCost == nil and info.nextOffset == nil, "maximum relief must stop further purchases")
 
-local snapshot = GodSystemTerminalRelief.snapshot(terminal)
+local snapshot = GodSystemTerminalRelief.snapshot(terminal, testPlayer)
 GodSystemTerminalRelief.setLevel(data, 10)
-assert(GodSystemTerminalRelief.ensureTerminal(terminal, data) == true)
+assert(GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer) == true)
 assert(items[1]:getActualWeight() == -50)
 assert(GodSystemTerminalRelief.restore(snapshot) == true)
 assert(items[1]:getActualWeight() == -2000, "rollback must restore the previous internal weight")

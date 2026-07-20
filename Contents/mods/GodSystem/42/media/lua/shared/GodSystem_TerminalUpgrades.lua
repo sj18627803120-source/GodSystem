@@ -135,7 +135,7 @@ function GodSystemTerminalUpgrades.getRecoveryLevel(data)
     )
 end
 
-function GodSystemTerminalUpgrades.snapshotTerminal(terminal)
+function GodSystemTerminalUpgrades.snapshotTerminal(terminal, player)
     if not terminal or not terminal.getInventory then return {} end
     local ok, inventory = pcall(function() return terminal:getInventory() end)
     if not ok or not inventory then return {} end
@@ -146,7 +146,7 @@ function GodSystemTerminalUpgrades.snapshotTerminal(terminal)
         innerCapacity = readNumberMethod(inventory, "getCapacity"),
         outerReduction = readNumberMethod(terminal, "getWeightReduction"),
         innerReduction = readNumberMethod(inventory, "getWeightReduction"),
-        relief = GodSystemTerminalRelief.snapshot(terminal),
+        relief = GodSystemTerminalRelief.snapshot(terminal, player),
     }
 end
 
@@ -161,7 +161,7 @@ function GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
     return reliefOk and ok, reliefReport
 end
 
-function GodSystemTerminalUpgrades.applyTerminal(terminal, data)
+function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
     if not terminal or not terminal.getInventory then return false, { reason = "missing" } end
     GodSystemTerminalUpgrades.normalizeData(data)
     local okInventory, inventory = pcall(function() return terminal:getInventory() end)
@@ -189,7 +189,7 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data)
     if canRestoreLegacyWeights() then
         migrationOk, restoredItems, migrationFailed = GodSystemLegacyCompressionCleanup.restoreTerminal(terminal)
     end
-    local reliefOk, reliefReport = GodSystemTerminalRelief.ensureTerminal(terminal, data)
+    local reliefOk, reliefReport = GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
     if not reliefOk then return false, { reason = "reliefApplyFailed", relief = reliefReport } end
 
     local report = {
@@ -210,7 +210,7 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data)
     return true, report
 end
 
-function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data)
+function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
     GodSystemTerminalUpgrades.normalizeData(data)
     local inventory = nil
     if terminal and terminal.getInventory then
@@ -220,7 +220,7 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data)
     local expectedCapacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity").value or 10
     local expectedReduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction").value or 50
     local expectedRelief = GodSystemTerminalRelief.getOffset(data)
-    local reliefSnapshot = GodSystemTerminalRelief.snapshot(terminal)
+    local reliefSnapshot = GodSystemTerminalRelief.snapshot(terminal, player)
     local reliefStates = reliefSnapshot.items or {}
     local actualRelief = #reliefStates == 1 and -(tonumber(reliefStates[1].actualWeight) or 0) or 0
     local outerCapacity = readNumberMethod(terminal, "getCapacity")
