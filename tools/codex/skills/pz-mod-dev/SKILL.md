@@ -115,12 +115,14 @@ For compatibility-first B42 mods:
 - B42.19's vanilla server vehicle command ultimately calls `vehicle:repair()`. A paid MOD item may call that server-side method after its own validation; do not expose a client-authoritative repair path, and do not claim compatibility with vehicles that replace `BaseVehicle` repair behavior.
 - Keep SP paid repair behind the same command boundary when direct client mutation proves ineffective. A guarded SP server Lua file can handle the existing command locally, consume/refund the real item, call the shared repair helper, and return a structured result without adding a second business path.
 - After full repair, refresh part and bullet statistics and transmit each part's condition, inventory item, and ModData where those methods exist. Verify the real post-repair damage summary before reporting success.
+- Some MOD vehicles retain an invalid missing part after `vehicle:repair()` while other damage is actually fixed. Settle a paid repair by measurable progress: success when the post-repair damaged count is lower, and refund only on an exception or no change. Do not duplicate the consumable because one unrecoverable custom part remains.
 
 ## B42 Wearable Containers
 
 - A custom wearable container needs the same namespaced location in four places: `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. Registering the ID without adding it to the Human group leaves the runtime slot incomplete.
 - Treat those four declarations as necessary, not sufficient. Verify the target B42 patch in SP and MP before calling the slot stable.
 - On MP clients, container discovery and UI reads must not mutate capacity, reduction, name, ModData, or internal helper items. Keep instance mutation authoritative on the server and skip setter/stat/ModData synchronization when the verified value is already correct.
+- Dynamic server-side container fields may persist correctly while an already-held client item instance remains stale. Send a server-authored payload keyed by the real item ID, use native item-field synchronization, and let the client apply only that explicit payload. A one-shot page-open request may repair missed state, but must not run from list population or rendering.
 - Defer background item/state synchronization while a vanilla Timed Action or inventory interaction is active. Use a bounded retry interval rather than checking a deferred interaction every frame.
 - B42.19 rejects `ItemContainer.setCapacity()` values above 50. Keep dynamic container capacity at 49 or below and verify the game log; wrapping the call in `pcall` does not make an over-limit assignment succeed.
 - When a custom container has a unique full type, identify it by that full type instead of retaining name-based recognition and vanilla-container aliases from an unpublished prototype.

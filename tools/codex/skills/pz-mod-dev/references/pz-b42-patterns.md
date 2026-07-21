@@ -117,12 +117,14 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 - The vanilla command is admin/cheat oriented. A paid repair consumable should keep its own server-authoritative business checks and call `vehicle:repair()` only after those checks; never trust a client-side repair result.
 - If SP direct client repair is ineffective, load a guarded SP server bridge and reuse the same consumable command. Consume before repair, refund on verified failure, and return the same structured result shape used by MP.
 - After `vehicle:repair()`, refresh part/bullet statistics and transmit part condition, item, and ModData when available. Re-read the damage summary before success; a successful Java call is not by itself proof that a custom vehicle accepted the repair.
+- A MOD vehicle may log an uncreatable missing item such as `Couldn't find item nil2` and retain that part even though other damage was repaired. For a paid consumable, compare pre/post damage counts: any measurable decrease is a successful repair and consumes the item; refund only when the call errors or produces no change.
 - Treat `vehicle:repair()` as `BaseVehicle` compatibility. Do not promise support for MOD vehicles that replace the standard part or repair system.
 
 ## B42.19 Wearable Containers
 
 - A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. The registry ID alone does not create the location in the Human body-location group.
 - Static agreement across those declarations does not replace SP and MP live wear tests. Keep MP clients read-only for discovered container instances, and let the server synchronize only verified changes so inventory packets do not compete with `ISWearClothing`/`ISUnequipAction`.
+- If dropping/reacquiring or reconnecting fixes a dynamic capacity display, the server state is probably correct but the current client Java item instance is stale. Return authoritative capacity/reduction/helper state keyed by exact item ID after each mutation, call the native item-field sync path, and apply that payload only after active wear/transfer actions finish. Page-open sync is a bounded fallback, not a render-loop refresh.
 
 ## Sandbox Defaults
 
