@@ -177,6 +177,7 @@ local function configureItem(item, terminal, level, offset, player)
 
     local desiredHungChange = offset / 100
     local beforeHung = readNumber(item, "getHungChange")
+    local beforeActual = readNumber(item, "getActualWeight")
     local beforeFavorite = readBoolean(item, "isFavorite")
     local beforeUnwanted = readUnwanted(item, player)
     local md = itemModData(item)
@@ -187,6 +188,8 @@ local function configureItem(item, terminal, level, offset, player)
     local offsetKey = GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"
     local versionKey = GodSystemConfig.TerminalReliefVersionKey or "GodSystemTerminalReliefVersion"
     local changed = math.abs((beforeHung or -999999) - desiredHungChange) > 0.000001
+        or beforeActual == nil
+        or math.abs(beforeActual + offset) > math.max(EPSILON, offset * 0.0001)
         or beforeFavorite ~= true
         or beforeUnwanted ~= true
         or md[markerKey] ~= true
@@ -194,6 +197,8 @@ local function configureItem(item, terminal, level, offset, player)
         or tonumber(md[levelKey]) ~= level
         or tonumber(md[offsetKey]) ~= offset
         or tonumber(md[versionKey]) ~= AUDIT_VERSION
+
+    if not changed then return true, false, nil end
 
     local ok = pcall(function() item:setHungChange(desiredHungChange) end)
     ok = pcall(function() item:setFavorite(true) end) and ok

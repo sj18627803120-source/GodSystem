@@ -1286,4 +1286,8 @@ IGUI_CH = {
     IGUI_GodSystem_AdminSetting_TerminalReliefPerLevel_Desc = "每购买一级空间减载所增加的减载点数。修改后保留等级，并按新参数重新计算当前减载。",
     IGUI_GodSystem_AdminSetting_TerminalReliefMaxOffset = "空间减载最大值",
     IGUI_GodSystem_AdminSetting_TerminalReliefMaxOffset_Desc = "空间减载允许达到的最大点数。设为0可停止继续升级；已有等级会按新上限夹紧。",
+
+    IGUI_GodSystem_Notify_TerminalWearReset = "系统空间终端已从旧项链位置解除，请重新穿戴到独立终端位置",
+    IGUI_GodSystem_Notify_TerminalWearFailed = "终端穿戴操作未正常完成，请重试；若再次发生请提供日志",
+    IGUI_GodSystem_NotifyMP_TerminalWearReset = "系统空间终端已从旧项链位置解除，请重新穿戴到独立终端位置",
 }

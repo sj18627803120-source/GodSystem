@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
-    [string]$ExpectedVersion = "1.16.55"
+    [string]$ExpectedVersion = "1.16.55",
+    [switch]$AllowCustomTerminalSlot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,10 +50,12 @@ Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod
 Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
-Require-Text $items 'BodyLocation\s*=\s*base:necklace\s*,' 'System terminal must use the vanilla necklace body location'
-Require-Text $items 'CanBeEquipped\s*=\s*base:necklace\s*,' 'System terminal must equip in the vanilla necklace body location'
-Reject-Text $items 'GodSystem:GodSystemTerminal' 'Custom terminal body location remains in the item script'
-if (Test-Path -LiteralPath (Join-Path $Media 'registries.lua')) { throw 'Obsolete custom body-location registry must be removed' }
+if (-not $AllowCustomTerminalSlot) {
+    Require-Text $items 'BodyLocation\s*=\s*base:necklace\s*,' 'System terminal must use the vanilla necklace body location'
+    Require-Text $items 'CanBeEquipped\s*=\s*base:necklace\s*,' 'System terminal must equip in the vanilla necklace body location'
+    Reject-Text $items 'GodSystem:GodSystemTerminal' 'Custom terminal body location remains in the item script'
+    if (Test-Path -LiteralPath (Join-Path $Media 'registries.lua')) { throw 'Obsolete custom body-location registry must be removed' }
+}
 
 Require-Text $ui 'function\s+GodSystemWindow:getNavPageLayout\b' 'Adaptive navigation page helper missing'
 Require-Text $ui 'math\.floor\(\(viewportH\s*\+\s*gap\)\s*/\s*math\.max\(1,\s*itemH\s*\+\s*gap\)\)' 'Navigation capacity must be derived from available height'

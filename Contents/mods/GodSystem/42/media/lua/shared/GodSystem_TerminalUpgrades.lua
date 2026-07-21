@@ -25,11 +25,20 @@ local function readNumberMethod(target, method)
 end
 
 local function writeNumberMethod(target, setter, getter, value)
-    if not target or not target[setter] or not target[getter] then return false, "unsupported" end
+    if not target or not target[setter] or not target[getter] then return false, false, "unsupported" end
+    local before = readNumberMethod(target, getter)
+    if before == nil then return false, false, "readFailed" end
+    if math.abs(before - value) <= EPSILON then return true, false end
     local ok = pcall(function() target[setter](target, value) end)
-    if not ok then return false, "writeException" end
+    if not ok then return false, false, "writeException" end
     local after = readNumberMethod(target, getter)
-    if after == nil or math.abs(after - value) > EPSILON then return false, "verificationFailed" end
+    if after == nil or math.abs(after - value) > EPSILON then return false, false, "verificationFailed" end
+    return true, true
+end
+
+local function writeTableValue(target, key, value)
+    if not target or target[key] == value then return false end
+    target[key] = value
     return true
 end
 
@@ -153,11 +162,21 @@ end
 function GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
     if type(snapshot) ~= "table" or not snapshot.terminal or not snapshot.inventory then return true, nil end
     local ok = true
-    if finite(snapshot.outerCapacity) then ok = writeNumberMethod(snapshot.terminal, "setCapacity", "getCapacity", snapshot.outerCapacity) and ok end
-    if finite(snapshot.innerCapacity) then ok = writeNumberMethod(snapshot.inventory, "setCapacity", "getCapacity", snapshot.innerCapacity) and ok end
-    if finite(snapshot.outerReduction) then ok = writeNumberMethod(snapshot.terminal, "setWeightReduction", "getWeightReduction", snapshot.outerReduction) and ok end
-    if finite(snapshot.innerReduction) then ok = writeNumberMethod(snapshot.inventory, "setWeightReduction", "getWeightReduction", snapshot.innerReduction) and ok end
+    local terminalChanged = false
+    local function restoreNumber(target, setter, getter, value)
+        if not finite(value) then return end
+        local writeOk, changed = writeNumberMethod(target, setter, getter, value)
+        ok = writeOk and ok
+        terminalChanged = changed or terminalChanged
+    end
+    restoreNumber(snapshot.terminal, "setCapacity", "getCapacity", snapshot.outerCapacity)
+    restoreNumber(snapshot.inventory, "setCapacity", "getCapacity", snapshot.innerCapacity)
+    restoreNumber(snapshot.terminal, "setWeightReduction", "getWeightReduction", snapshot.outerReduction)
+    restoreNumber(snapshot.inventory, "setWeightReduction", "getWeightReduction", snapshot.innerReduction)
     local reliefOk, reliefReport = GodSystemTerminalRelief.restore(snapshot.relief)
+    reliefReport = type(reliefReport) == "table" and reliefReport or {}
+    reliefReport.inventory = reliefReport.inventory or snapshot.inventory
+    reliefReport.terminalChanged = terminalChanged
     return reliefOk and ok, reliefReport
 end
 
@@ -169,20 +188,21 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
 
     local capacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity").value or 10
     local reduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction").value or 50
-    local outerCapacityOk = writeNumberMethod(terminal, "setCapacity", "getCapacity", capacity)
-    local innerCapacityOk = writeNumberMethod(inventory, "setCapacity", "getCapacity", capacity)
+    local outerCapacityOk, outerCapacityChanged = writeNumberMethod(terminal, "setCapacity", "getCapacity", capacity)
+    local innerCapacityOk, innerCapacityChanged = writeNumberMethod(inventory, "setCapacity", "getCapacity", capacity)
     if not outerCapacityOk or not innerCapacityOk then return false, { reason = "capacityWriteFailed" } end
 
-    local outerReductionOk = writeNumberMethod(terminal, "setWeightReduction", "getWeightReduction", reduction)
-    local innerReductionOk = writeNumberMethod(inventory, "setWeightReduction", "getWeightReduction", reduction)
+    local outerReductionOk, outerReductionChanged = writeNumberMethod(terminal, "setWeightReduction", "getWeightReduction", reduction)
+    local innerReductionOk, innerReductionChanged = writeNumberMethod(inventory, "setWeightReduction", "getWeightReduction", reduction)
     if not outerReductionOk or not innerReductionOk then return false, { reason = "reductionWriteFailed" } end
 
+    local terminalDataChanged = false
     local terminalData = itemModData(terminal)
     if terminalData then
-        terminalData[GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel"] = GodSystemTerminalUpgrades.getLevel(data, "capacity")
-        terminalData[GodSystemConfig.AutoRecyclerReductionLevelKey or "GodSystemTerminalReductionLevel"] = GodSystemTerminalUpgrades.getLevel(data, "reduction")
-        terminalData[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"] = GodSystemTerminalUpgrades.getLevel(data, "capacity")
-        terminalData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = GodSystemTerminalRelief.getLevel(data)
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel", GodSystemTerminalUpgrades.getLevel(data, "capacity")) or terminalDataChanged
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerReductionLevelKey or "GodSystemTerminalReductionLevel", GodSystemTerminalUpgrades.getLevel(data, "reduction")) or terminalDataChanged
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel", GodSystemTerminalUpgrades.getLevel(data, "capacity")) or terminalDataChanged
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel", GodSystemTerminalRelief.getLevel(data)) or terminalDataChanged
     end
 
     local migrationOk, restoredItems, migrationFailed = true, {}, 0
@@ -205,6 +225,8 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
         removedItems = reliefReport.removedItems or {},
         inventory = reliefReport.inventory or inventory,
         restoredItems = restoredItems or {},
+        terminalChanged = outerCapacityChanged or innerCapacityChanged
+            or outerReductionChanged or innerReductionChanged or terminalDataChanged,
         skipped = 0,
     }
     return true, report

@@ -37,17 +37,21 @@ local function newReliefItem()
         favorite = false,
         unwanted = false,
         modData = {},
+        setHungCalls = 0,
+        setFavoriteCalls = 0,
+        setUnwantedCalls = 0,
     }
     function item:getID() return self.id end
     function item:getFullType() return self.fullType end
     function item:getModData() return self.modData end
-    function item:setHungChange(value) self.hungChange = value end
+    function item:setHungChange(value) self.setHungCalls = self.setHungCalls + 1 self.hungChange = value end
     function item:getHungChange() return self.hungChange end
     function item:getActualWeight() return -(self.hungChange * 100) end
-    function item:setFavorite(value) self.favorite = value == true end
+    function item:setFavorite(value) self.setFavoriteCalls = self.setFavoriteCalls + 1 self.favorite = value == true end
     function item:isFavorite() return self.favorite end
     function item:setUnwanted(player, value)
         assert(player == testPlayer, "setUnwanted requires the owning player")
+        self.setUnwantedCalls = self.setUnwantedCalls + 1
         self.unwanted = value == true
     end
     function item:isUnwanted(player)
@@ -100,6 +104,11 @@ local relief = items[1]
 assert(relief:getActualWeight() == -5, "level one must contribute -5 weight")
 assert(relief:isFavorite() and relief:isUnwanted(testPlayer), "hidden item must carry bulk-transfer guards")
 assert(GodSystemTerminalRelief.isReliefItem(relief), "internal item identity must be exact")
+local writeCounts = { relief.setHungCalls, relief.setFavoriteCalls, relief.setUnwantedCalls }
+ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer)
+assert(ok == true and #report.items == 0 and #report.addedItems == 0 and #report.removedItems == 0, "unchanged relief audit must report no writes")
+assert(relief.setHungCalls == writeCounts[1] and relief.setFavoriteCalls == writeCounts[2]
+    and relief.setUnwantedCalls == writeCounts[3], "unchanged relief audit must skip native setters")
 
 items[#items + 1] = newReliefItem()
 ok, report = GodSystemTerminalRelief.ensureTerminal(terminal, data, testPlayer)

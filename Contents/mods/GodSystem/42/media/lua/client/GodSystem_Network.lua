@@ -2,6 +2,8 @@ require "GodSystem_Config"
 require "GodSystem_Core"
 require "GodSystem_Protocol"
 require "GodSystem_Maintenance"
+require "TimedActions/ISTimedActionQueue"
+require "ISUI/ISInventoryPane"
 
 if not (isClient and isClient()) then return end
 
@@ -27,6 +29,7 @@ local lastObservedKills = nil
 local pendingKillDelta = 0
 local nextBackgroundSyncMs = 0
 local BACKGROUND_SYNC_MS = Protocol.BackgroundSyncMs or 300000
+local BACKGROUND_BUSY_RETRY_MS = 1000
 local KILL_SYNC_THRESHOLD = Protocol.KillSyncThreshold or 10
 local STATE_THROTTLE_MS = Protocol.StateThrottleMs or 1200
 local KEY_COMMAND_TIMEOUT_MS = Protocol.KeyCommandTimeoutMs or 15000
@@ -41,10 +44,12 @@ local timedOutAttributeOperation = nil
 local operationSeq = math.max(0, tonumber(GodSystemNetwork.operationSeq) or 0)
 local operationSessionId = tostring(GodSystemNetwork.operationSessionId or "")
 local lastWaistAutoRecycleHour = nil
+local nextWaistBusyRetryMs = 0
 local lastAutoTaskClaimHour = nil
 local lastAutoDepositHour = nil
 local investmentRuntimeHour = nil
 local investmentWasActive = false
+local terminalWear = nil
 local send
 
 function GodSystemNetwork.resetInvestmentRuntime()
@@ -126,6 +131,116 @@ end
 local function nowMs()
     if getTimestampMs then return getTimestampMs() end
     return math.floor(os.time() * 1000)
+end
+
+local function hasSelectedInventoryItems(pane)
+    if not pane or type(pane.selected) ~= "table" then return false end
+    for _, item in pairs(pane.selected) do
+        if item ~= nil then return true end
+    end
+    return false
+end
+
+function GodSystemNetwork.isTimedActionBusy(p)
+    p = p or player()
+    if p and ISTimedActionQueue and ISTimedActionQueue.getTimedActionQueue then
+        local queue = ISTimedActionQueue.getTimedActionQueue(p)
+        if queue and queue.queue and queue.queue[1] then return true, queue.queue[1] end
+    end
+    if ISMouseDrag and ISMouseDrag.dragging and #ISMouseDrag.dragging > 0 then return true end
+    local cell = getCell and getCell() or nil
+    local drag = cell and cell.getDrag and cell:getDrag(0) or nil
+    if drag and drag.Type == "ISMoveableCursor" then return true end
+    return false
+end
+
+function GodSystemNetwork.isInventoryInteractionBusy(p)
+    local busy, action = GodSystemNetwork.isTimedActionBusy(p)
+    if busy then return true, action end
+    local inventoryPage = getPlayerInventory and getPlayerInventory(0) or nil
+    if inventoryPage and hasSelectedInventoryItems(inventoryPage.inventoryPane) then return true end
+    local lootPage = getPlayerLoot and getPlayerLoot(0) or nil
+    if lootPage and hasSelectedInventoryItems(lootPage.inventoryPane) then return true end
+    return false
+end
+
+local function isTerminalItem(item)
+    if not item or not item.getFullType then return false end
+    return tostring(item:getFullType() or "") == (GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal")
+end
+
+local function terminalWearLog(stage, state, success, currentType)
+    local suffix = success == nil and "" or (" success=" .. tostring(success))
+    print("[GodSystem][TerminalWear] " .. tostring(stage)
+        .. " action=" .. tostring(state and state.actionType or "?")
+        .. " item=" .. tostring(state and state.itemId or "?")
+        .. " slot=" .. tostring(state and state.slot or "?")
+        .. " parent=" .. tostring(state and state.parentType or "?")
+        .. " current=" .. tostring(currentType or "none") .. suffix)
+end
+
+function GodSystemNetwork.updateTerminalWearDiagnostics(p)
+    p = p or player()
+    if not p then terminalWear = nil return end
+    local queue = ISTimedActionQueue and ISTimedActionQueue.getTimedActionQueue and ISTimedActionQueue.getTimedActionQueue(p) or nil
+    local current = queue and queue.queue and queue.queue[1] or nil
+    local currentItem = current and current.item or nil
+    local currentType = current and tostring(current.Type or "") or ""
+    local terminalAction = isTerminalItem(currentItem)
+        and (currentType == "ISWearClothing" or currentType == "ISUnequipAction")
+
+    if terminalAction then
+        if not terminalWear or terminalWear.action ~= current then
+            local slot = currentItem.canBeEquipped and currentItem:canBeEquipped() or nil
+            local parentType = "none"
+            if currentItem.getContainer then
+                local okContainer, container = pcall(currentItem.getContainer, currentItem)
+                if okContainer and container and container.getType then
+                    local okType, value = pcall(container.getType, container)
+                    if okType then parentType = tostring(value or "none") end
+                end
+            end
+            terminalWear = {
+                action = current,
+                actionType = currentType,
+                item = currentItem,
+                itemId = currentItem.getID and tostring(currentItem:getID()) or "?",
+                slot = tostring(slot or ""),
+                parentType = parentType,
+                completedAtMs = nil,
+            }
+            terminalWearLog("start", terminalWear, nil, currentType)
+        else
+            terminalWear.completedAtMs = nil
+        end
+        return
+    end
+
+    if not terminalWear then return end
+    if not terminalWear.completedAtMs then
+        terminalWear.completedAtMs = nowMs()
+        return
+    end
+    if nowMs() - terminalWear.completedAtMs < 1500 then return end
+
+    local item = terminalWear.item
+    local slot = item and item.canBeEquipped and item:canBeEquipped() or nil
+    local worn = false
+    if slot and p.getWornItem then
+        local okWorn, wornItem = pcall(p.getWornItem, p, slot)
+        worn = okWorn and wornItem == item
+    end
+    local expectedWorn = terminalWear.actionType == "ISWearClothing"
+    local success = worn == expectedWorn
+    terminalWearLog("finish", terminalWear, success, currentType)
+    if not success then
+        if item and item.setJobDelta then pcall(item.setJobDelta, item, 0) end
+        if item and item.setJobType then pcall(item.setJobType, item, "") end
+        if terminalWear.action and terminalWear.action.stopSound then pcall(terminalWear.action.stopSound, terminalWear.action) end
+        GodSystemNetwork.lastTerminalWearFailure = terminalWear.itemId
+        notify(GodSystem.text("Notify_TerminalWearFailed", "The terminal equipment action did not finish. Try again and provide the log if it repeats."))
+    end
+    terminalWear = nil
 end
 
 local function nextAttributeOperationId()
@@ -391,6 +506,10 @@ function GodSystemNetwork.requestState(force)
         GodSystemNetwork.lastRefreshSkippedReason = "pendingKeyCommand"
         return false
     end
+    if GodSystemNetwork.isTimedActionBusy(player()) then
+        GodSystemNetwork.lastRefreshSkippedReason = "inventoryInteraction"
+        return false
+    end
     if not force and t - lastStateRequestMs < STATE_THROTTLE_MS then return false end
     lastStateRequestMs = t
     if not sentHello then
@@ -422,6 +541,11 @@ function GodSystemNetwork.requestBackgroundState()
     end
     if pendingKeyCommand then
         GodSystemNetwork.lastRefreshSkippedReason = "pendingKeyCommand"
+        return false
+    end
+    if GodSystemNetwork.isInventoryInteractionBusy(player()) then
+        GodSystemNetwork.lastRefreshSkippedReason = "inventoryInteraction"
+        nextBackgroundSyncMs = t + BACKGROUND_BUSY_RETRY_MS
         return false
     end
     nextBackgroundSyncMs = t + BACKGROUND_SYNC_MS
@@ -693,6 +817,7 @@ end
 function GodSystemNetwork.onPlayerUpdate(p)
     if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
     checkPendingTimeout()
+    GodSystemNetwork.updateTerminalWearDiagnostics(p or player())
     playerUpdateTicks = (playerUpdateTicks or 0) + 1
     if playerUpdateTicks % 60 == 0 and GodSystem and GodSystem.updateMoveDistance then
         GodSystem.updateMoveDistance(p or player())
@@ -716,6 +841,13 @@ end
 function GodSystemNetwork.updateWaistAutoRecycle()
     if not GodSystem or not GodSystem.getData then return end
     if pendingKeyCommand then return end
+    local currentMs = nowMs()
+    if currentMs < nextWaistBusyRetryMs then return end
+    if GodSystemNetwork.isInventoryInteractionBusy(player()) then
+        nextWaistBusyRetryMs = currentMs + BACKGROUND_BUSY_RETRY_MS
+        return
+    end
+    nextWaistBusyRetryMs = 0
     local data = GodSystem.getData()
     if data.waistAutoRecycleUnlocked ~= true or data.waistAutoRecycleEnabled ~= true then return end
     local interval = 1

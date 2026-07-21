@@ -9,7 +9,7 @@ ItemName_CH = {
     Tooltip_GodSystem_DurabilityCore = "一次性使用。使当前右手物品的主体/握把最大耐久永久增加 2，并使当前耐久增加 2。可重复使用，不设强化次数上限。不会提高头部耐久上限。双手物品及采用标准耐久接口的 MOD 物品有效。",
 
     ItemName_GodSystem.SystemSpaceTerminal = "系统空间终端",
-    Tooltip_GodSystem_SystemSpaceTerminal = "无人物模型的系统空间终端，占用项链位置。原生容量最高49；可继续升级终端减重与空间减载，默认每次增加5点减载、最高2000。终端自身不可回收、抽奖或自动上架。",
+    Tooltip_GodSystem_SystemSpaceTerminal = "无人物模型的系统空间终端，使用独立穿戴位置，不占用项链、背包或背带栏位。原生容量最高49；可继续升级终端减重与空间减载，默认每次增加5点减载、最高2000。终端自身不可回收、抽奖或自动上架。",
     ItemName_GodSystem.SystemVehicleRepairModule = "系统车辆修复模块",
     Tooltip_GodSystem_SystemVehicleRepairModule = "一次性使用。持有后右键目标车辆，可完整修复车辆及缺失的标准部件。不会补充燃油或修改车内物品；自定义车辆系统可能无法兼容。",
 

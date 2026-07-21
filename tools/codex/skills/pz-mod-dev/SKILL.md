@@ -118,8 +118,10 @@ For compatibility-first B42 mods:
 
 ## B42 Wearable Containers
 
-- A custom wearable container needs the same registered namespaced location in all three places: `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`. `CanBeEquipped` alone can leave the worn-item location null and crash both context-menu tooltip checks and the wear timed action.
-- Treat those three declarations as necessary, not sufficient. If the target B42 patch still rejects the custom slot in a live wear test, use a verified vanilla body location such as `base:necklace` and remove the unpublished registry instead of layering migrations around a broken prototype.
+- A custom wearable container needs the same namespaced location in four places: `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. Registering the ID without adding it to the Human group leaves the runtime slot incomplete.
+- Treat those four declarations as necessary, not sufficient. Verify the target B42 patch in SP and MP before calling the slot stable.
+- On MP clients, container discovery and UI reads must not mutate capacity, reduction, name, ModData, or internal helper items. Keep instance mutation authoritative on the server and skip setter/stat/ModData synchronization when the verified value is already correct.
+- Defer background item/state synchronization while a vanilla Timed Action or inventory interaction is active. Use a bounded retry interval rather than checking a deferred interaction every frame.
 - B42.19 rejects `ItemContainer.setCapacity()` values above 50. Keep dynamic container capacity at 49 or below and verify the game log; wrapping the call in `pcall` does not make an over-limit assignment succeed.
 - When a custom container has a unique full type, identify it by that full type instead of retaining name-based recognition and vanilla-container aliases from an unpublished prototype.
 

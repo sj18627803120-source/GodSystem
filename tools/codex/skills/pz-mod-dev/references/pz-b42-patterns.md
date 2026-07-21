@@ -121,8 +121,8 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 
 ## B42.19 Wearable Containers
 
-- A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`; a missing script `BodyLocation` yields a null runtime location even when the registry and `CanBeEquipped` exist.
-- Static agreement across those declarations does not replace a live wear test. If the target patch still rejects the custom location, switch the unpublished item to a verified vanilla slot and remove the custom registry rather than preserving compatibility for a build that was never released.
+- A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. The registry ID alone does not create the location in the Human body-location group.
+- Static agreement across those declarations does not replace SP and MP live wear tests. Keep MP clients read-only for discovered container instances, and let the server synchronize only verified changes so inventory packets do not compete with `ISWearClothing`/`ISUnequipAction`.
 
 ## Sandbox Defaults
 

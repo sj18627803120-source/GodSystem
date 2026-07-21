@@ -2100,8 +2100,10 @@ function GodSystemServer.syncTerminalApplyReport(item, report)
         if sendItemStats then pcall(sendItemStats, restoredItem) end
         if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
     end
-    if item and item.transmitModData then pcall(item.transmitModData, item) end
-    if item and sendItemStats then pcall(sendItemStats, item) end
+    if report.terminalChanged == true then
+        if item and item.transmitModData then pcall(item.transmitModData, item) end
+        if item and sendItemStats then pcall(sendItemStats, item) end
+    end
 end
 
 function GodSystemServer.syncEscapedReliefRemovals(entries)
@@ -2119,20 +2121,82 @@ function GodSystemServer.cleanupEscapedRelief(player, terminal)
     return removed
 end
 
-local function markAutoRecycler(data, item, player, preappliedReport)
+local function markAutoRecycler(data, item, player, preappliedReport, deferSync)
     if not item or not item.getFullType or not isAutoRecyclerFullType(item:getFullType()) then return false end
     local level = GodSystemTerminalUpgrades.getLevel(data, "capacity")
-    local md = item.getModData and item:getModData() or nil
-    if md then
-        md[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] = true
-        md[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"] = level
-    end
-    if item.setName then pcall(item.setName, item, autoRecyclerDisplayName(level)) end
-    if item.setCustomName then pcall(item.setCustomName, item, true) end
     local applied, report = true, preappliedReport
     if not report then applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data, player) end
-    GodSystemServer.syncTerminalApplyReport(item, report)
-    return applied == true, report
+    report = type(report) == "table" and report or {}
+    if applied ~= true then return false, report end
+
+    local terminalChanged = report.terminalChanged == true
+    local md = item.getModData and item:getModData() or nil
+    if md then
+        local markerKey = GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"
+        local levelKey = GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"
+        if md[markerKey] ~= true then
+            md[markerKey] = true
+            terminalChanged = true
+        end
+        if md[levelKey] ~= level then
+            md[levelKey] = level
+            terminalChanged = true
+        end
+    end
+    local expectedName = autoRecyclerDisplayName(level)
+    if item.setName and item.getName and tostring(item:getName() or "") ~= expectedName then
+        local nameOk = pcall(item.setName, item, expectedName)
+        terminalChanged = nameOk or terminalChanged
+        if nameOk and item.setCustomName then pcall(item.setCustomName, item, true) end
+    end
+    report.terminalChanged = terminalChanged
+    if deferSync ~= true then GodSystemServer.syncTerminalApplyReport(item, report) end
+    return true, report
+end
+
+function GodSystemServer.migrateLegacyTerminalWear(player)
+    if not player or not player.getWornItem or not ItemBodyLocation or not ItemBodyLocation.NECKLACE then return false end
+    local okItem, item = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
+    if not okItem or not item or not isAutoRecyclerContainer(item) then return false end
+    local itemId = item.getID and tostring(item:getID()) or "?"
+    local removed = pcall(player.removeWornItem, player, item)
+    if not removed then
+        print("[GodSystem][TerminalWear] legacy-unwear failed item=" .. itemId)
+        return false
+    end
+    local verifyOk, stillWorn = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
+    if verifyOk and stillWorn == item then
+        print("[GodSystem][TerminalWear] legacy-unwear verification-failed item=" .. itemId)
+        return false
+    end
+    if not verifyOk then print("[GodSystem][TerminalWear] legacy-unwear verification-unavailable item=" .. itemId) end
+    if item.setJobDelta then pcall(item.setJobDelta, item, 0) end
+    if item.setJobType then pcall(item.setJobType, item, "") end
+    if sendEquip then pcall(sendEquip, player) end
+    print("[GodSystem][TerminalWear] legacy-unwear success item=" .. itemId .. " slot=base:necklace")
+    notifyCode(player, "TerminalWearReset")
+    return true
+end
+
+function GodSystemServer.giveConfiguredTerminal(player, data)
+    if not player or not player.getInventory then return false, nil end
+    local inventory = player:getInventory()
+    local fullType = GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"
+    local item = inventory and inventory.AddItem and inventory:AddItem(fullType) or nil
+    if not item then return false, nil end
+    local applied, report = markAutoRecycler(data, item, player, nil, true)
+    if applied ~= true then
+        if inventory.Remove then pcall(inventory.Remove, inventory, item) end
+        return false, nil
+    end
+    local synced = sendAddItemToContainer and pcall(sendAddItemToContainer, inventory, item)
+    if not synced then
+        if inventory.Remove then pcall(inventory.Remove, inventory, item) end
+        return false, nil
+    end
+    markInventoryDirty(player, inventory)
+    print("[GodSystem][TerminalWear] grant item=" .. tostring(item.getID and item:getID() or "?") .. " slot=GodSystem:SystemSpaceTerminal")
+    return true, item, report
 end
 
 function GodSystemServer.restoreTerminalWeights(terminal)
@@ -2578,6 +2642,7 @@ local Commands = {}
 
 function Commands.hello(_, _, player)
     local data = playerData(player)
+    GodSystemServer.migrateLegacyTerminalWear(player)
     if not data.currencyInitialized then
         local grant = 0
         if data.points and data.points > 0 then grant = floor(data.points, 0)
@@ -3321,15 +3386,14 @@ function Commands.claimWaist(_, _, player)
         end
         if cost > 0 and not canAfford(player, cost, data) then return finishCode(player, false, "CurrencyNotEnough") end
         if cost > 0 and not addPoints(player, -cost, data) then return finishCode(player, false, "CurrencyNotEnough") end
-        local okGive, added = giveItem(player, GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal", 1)
-        if not okGive or not added[1] then
+        local okGive, added = GodSystemServer.giveConfiguredTerminal(player, data)
+        if not okGive or not added then
             if cost > 0 then giveCurrency(player, cost) end
             return finishCode(player, false, "ItemGrantFailed")
         end
         data.autoRecyclerClaimed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
-        markAutoRecycler(data, added[1], player)
-        GodSystemServer.terminalCache[userKey(player)] = { player = player, item = added[1] }
+        GodSystemServer.terminalCache[userKey(player)] = { player = player, item = added }
         local code = cost > 0 and "ClaimWaistPaid" or "ClaimWaist"
         appendHistory(data, historyEntry("system", code, { cost }))
         finishCode(player, true, code, { cost })

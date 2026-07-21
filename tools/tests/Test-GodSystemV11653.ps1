@@ -93,8 +93,10 @@ if (-not $SkipLegacyTerminalChecks) {
     Require-Text $server 'migrateSystemSpaceTerminal' 'MP terminal migration entry missing'
 }
 else {
-    Require-Text $items 'CanBeEquipped\s*=\s*base:necklace' 'Current system terminal must use the vanilla necklace slot'
-    if (Test-Path -LiteralPath (Join-Path $Media 'registries.lua')) { throw 'Legacy terminal registry must be absent when legacy checks are skipped' }
+    Require-Text $items 'BodyLocation\s*=\s*GodSystem:SystemSpaceTerminal' 'Current system terminal BodyLocation must use the independent slot'
+    Require-Text $items 'CanBeEquipped\s*=\s*GodSystem:SystemSpaceTerminal' 'Current system terminal must use the independent slot'
+    Require-Text (Read-Utf8 (Join-Path $Media 'registries.lua')) 'ItemBodyLocation\.register\("GodSystem:SystemSpaceTerminal"\)' 'Current terminal registry entry missing'
+    Require-Text (Read-Utf8 (Join-Path $Lua 'shared\GodSystem_BodyLocations.lua')) 'getOrCreateLocation' 'Current terminal slot must join the Human body-location group'
 }
 Require-Text $core 'function\s+GodSystem\.removeCurrency[\s\S]*GodSystem\.removeCurrencyItem\(' 'SP currency removal must verify each exact item removal'
 Require-Text $server 'local function removeCurrency[\s\S]*if\s+not\s+removeItemFromContainer\(' 'MP currency removal must verify each exact item removal'

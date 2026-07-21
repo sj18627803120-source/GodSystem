@@ -3922,6 +3922,9 @@ end
 
 function GodSystem.applyAutoRecyclerContainerStats(item, level)
     if not item then return false end
+    if (isClient and isClient()) or (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        return true
+    end
     local data = GodSystem.getData()
     return GodSystemTerminalUpgrades.applyTerminal(item, data, gsPlayer())
 end
@@ -3932,6 +3935,10 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     end
     if not GodSystem.isAutoRecyclerFullType(item:getFullType()) then
         return false
+    end
+    if (isClient and isClient()) or (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        GodSystem.autoRecyclerCache = { item = item }
+        return true
     end
     local playerData = GodSystem.getData()
     level = GodSystemTerminalUpgrades.getLevel(playerData, "capacity")
@@ -3952,6 +3959,23 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     local applied = GodSystem.applyAutoRecyclerContainerStats(item)
     GodSystem.autoRecyclerCache = { item = item }
     return applied == true
+end
+
+function GodSystem.migrateLegacyTerminalWear(player)
+    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return false end
+    player = player or gsPlayer()
+    if not player or not player.getWornItem or not ItemBodyLocation or not ItemBodyLocation.NECKLACE then return false end
+    local okItem, item = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
+    if not okItem or not item or not item.getFullType or not GodSystem.isAutoRecyclerFullType(item:getFullType()) then return false end
+    if not pcall(player.removeWornItem, player, item) then return false end
+    local verifyOk, stillWorn = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
+    if verifyOk and stillWorn == item then return false end
+    if item.setJobDelta then pcall(item.setJobDelta, item, 0) end
+    if item.setJobType then pcall(item.setJobType, item, "") end
+    if triggerEvent then pcall(triggerEvent, "OnClothingUpdated", player) end
+    print("[GodSystem][TerminalWear] legacy-unwear success item=" .. tostring(item.getID and item:getID() or "?") .. " slot=base:necklace")
+    GodSystem.notify(GodSystem.text("Notify_TerminalWearReset", "The system space terminal moved to its independent equipment slot. Please equip it again."))
+    return true
 end
 
 function GodSystem.getAutoRecyclerItemLevel(item)
@@ -7557,6 +7581,7 @@ end
 
 function GodSystem.onGameStart()
     local data = GodSystem.getData()
+    GodSystem.migrateLegacyTerminalWear(gsPlayer())
     GodSystem.applyCarryCapacity(gsPlayer(), data)
     GodSystem.ensureCurrencyInitialized()
     GodSystem.generateDailyTasks(false)
