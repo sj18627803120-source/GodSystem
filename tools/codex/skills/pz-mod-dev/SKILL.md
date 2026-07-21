@@ -8,7 +8,7 @@ description: Project Zomboid mod development workflow for Build 42/B42.19 and si
 ## Core Workflow
 
 1. Confirm the target game version, mod directory, and whether the user wants live-test edits or stable backup edits.
-2. Use Superpowers as the default process layer for GodSystem work; do not treat a "small change" label as a reason to skip it. Use `brainstorming` before new features, unclear requirements, UI/MP/economy behavior changes, or scope expansion; use `writing-plans` before multi-file or risky changes; use `subagent-driven-development` when executing a planned complex change with separable workstreams; use `dispatching-parallel-agents` for independent research/review tasks or disjoint write scopes when subagents are authorized; use `systematic-debugging` for any bug, red error, regression, encoding issue, or test failure; use `verification-before-completion` before claiming the handoff is complete.
+2. Use the direct repository workflow: clarify requirements, inspect the existing call path, verify B42.19 APIs against vanilla or official evidence, define the smallest change, implement on a Git branch, and run fresh verification before handoff. For bugs, trace the stack and data flow to the root cause before editing. Do not guess method signatures or silently expand scope.
 3. Read the existing mod before designing changes. Prefer `rg`, `rg --files`, and focused file reads.
 4. Check same-version official docs or vanilla files first when available; then inspect same-version reference mods; then use older docs/mods only as weaker evidence.
 5. Make the smallest change that matches the existing mod style. Do not refactor unrelated systems while fixing one feature.
@@ -31,16 +31,13 @@ When the current repository contains `docs/reference-mod-research/README.md`, re
 - Do not copy or commit third-party source/assets. Record relative source paths, symbol names, behavior summaries, limits, search terms, and adoption guidance.
 - When a stable cross-source rule is promoted into this skill, retain a link to at least one source report in `references/pz-b42-patterns.md`.
 
-## Superpowers Coordination
+## Direct Engineering Workflow
 
-Use Superpowers to turn broad requests into bounded work instead of jumping straight into Lua edits:
-
-- Run `brainstorming` when the user asks for a new feature, UI change, economy change, multiplayer behavior, or any request with unclear acceptance criteria.
-- Run `writing-plans` before touching code for changes that span multiple files, alter MP/SP contracts, touch economy persistence, or require staged validation.
-- Prefer `subagent-driven-development` for an approved plan whose tasks can be separated and reviewed independently.
-- Use `dispatching-parallel-agents` for independent fact-finding: compare reference mods, inspect vanilla B42 files, audit localization coverage, check packaging, or review a risky diff. Keep prompts narrow and self-contained.
-- Use `systematic-debugging` before proposing fixes for red errors, UI disappearing, MP desync, encoding corruption, task progress regressions, or player feedback that might be a real bug.
-- Use `verification-before-completion` at the end of every handoff, including documentation-only work, and report what was actually checked.
+- For new features, UI, economy, or multiplayer changes, confirm the business rules, scope, failure paths, and acceptance checks before editing.
+- For multi-file or high-risk changes, write a short task checklist with affected files, protocol/save impact, rollback behavior, and verification commands. Do not use a plan as permission to refactor unrelated code.
+- For bugs, preserve the stack trace, reproduce or model the smallest failing path, compare against a working same-version example, and add a focused regression test when practical.
+- For independent research, read-only audits may be separated by file or topic. Never let concurrent workers edit the same Lua file, decide final architecture independently, or replace the main integration and verification pass.
+- Before handoff, run the relevant tests, encoding checks, and Lua 5.1 compilation. State exactly what was verified and what still needs game or MP testing.
 
 Subagent boundaries:
 

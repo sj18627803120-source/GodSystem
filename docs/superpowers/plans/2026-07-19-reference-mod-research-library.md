@@ -1,6 +1,6 @@
 # Reference MOD Research Library Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 历史实施计划：按根目录 `AGENTS.md` 和任务复选框逐项执行，不依赖任何 Superpowers 技能。
 
 **Goal:** Build a self-contained GitHub research library for all 11 local Project Zomboid reference MOD sources and distill verified reusable rules into the repository's portable `pz-mod-dev` skill.
 

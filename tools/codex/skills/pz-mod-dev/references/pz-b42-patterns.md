@@ -14,6 +14,18 @@ Version match matters. Official source wins only when it matches or clearly appl
 
 When working in GodSystem, start with the repository's [reference MOD research index](../../../../../docs/reference-mod-research/README.md) and [version catalog](../../../../../docs/reference-mod-research/catalog.md). Reports deliberately separate `代码确认`, `作者声明`, `合理推断`, and `待实机验证`; do not collapse those labels when promoting a rule.
 
+## Official B42 Migration Evidence
+
+Read the repository's [official B42 development reference](../../../../../docs/PZ_B42_OFFICIAL_DEVELOPMENT_CN.md) before relying on community summaries.
+
+- The Indie Stone's published migration guide targets 42.13, which introduced the registry and multiplayer Inventory Item architecture still used by 42.19. It is strong architectural evidence, but not a substitute for current 42.19 method signatures.
+- `media/registries.lua` must have that exact path and name and loads before scripts and ordinary Lua. Register custom `ItemType`, `ItemTag`, `ItemBodyLocation`, trait/profession IDs, and other listed identifiers before script use.
+- B42 item scripts use `ItemType`, not the old `Type`; item display names come from translation keys rather than a script `DisplayName` field.
+- In MP, create, remove, and mutate inventory items on the server. Synchronize with the matching add/remove/field/stat/ModData function. A client-created item is not authoritative and may disappear after relog.
+- Network Timed Actions keep visual work in client `perform()` and item/object mutation in server/SP `complete()`. Constructor argument names must match serializable object fields, and `getDuration()` must recompute duration on the authority side.
+- For non-Timed-Action commands, `sendClientCommand(player, module, command, args)` reaches `OnClientCommand(module, command, player, args)`. The handler must re-resolve real objects and validate all authoritative state.
+- The official guide itself says changed Lua APIs should be checked against decompiled Java and warns that unstable patches continue changing APIs. Java existence still does not prove a Kahlua-callable overload; verify a same-version vanilla call or a minimal live test.
+
 ## Cross-Source Research Rules
 
 - Server-authoritative economy means the server resolves the listing, price, stock, balance, item ownership, and final mutation. A server handler alone is insufficient when it still trusts a client price or item snapshot. Compare [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md), [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md), and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).

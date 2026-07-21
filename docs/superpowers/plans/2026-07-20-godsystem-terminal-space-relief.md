@@ -1,6 +1,6 @@
 # GodSystem v1.16.63 Space Relief Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 历史实施计划：按根目录 `AGENTS.md` 和任务复选框逐项执行，不依赖任何 Superpowers 技能。
 
 **Goal:** Replace the failed oversized terminal-capacity experiment with a hidden native negative-weight item controlled by a paid, configurable "空间减载" upgrade.
 
