@@ -17,6 +17,10 @@ GodSystemNetwork.failedCommands = tonumber(GodSystemNetwork.failedCommands) or 0
 GodSystemNetwork.receivedStates = tonumber(GodSystemNetwork.receivedStates) or 0
 GodSystemNetwork.pendingShopLotteryResult = GodSystemNetwork.pendingShopLotteryResult or nil
 GodSystemNetwork.pendingLotteryResult = GodSystemNetwork.pendingLotteryResult or nil
+GodSystemNetwork.pendingTerminalSync = GodSystemNetwork.pendingTerminalSync or nil
+GodSystemNetwork.pendingTerminalPageSync = GodSystemNetwork.pendingTerminalPageSync == true
+GodSystemNetwork.TERMINAL_SYNC_EXPIRE_MS = 10000
+GodSystemNetwork.TERMINAL_SYNC_RETRY_MS = 250
 
 local Protocol = GodSystemProtocol or {}
 local MODULE = Protocol.Module or "GodSystem"
@@ -55,6 +59,12 @@ local send
 function GodSystemNetwork.resetInvestmentRuntime()
     investmentRuntimeHour = nil
     investmentWasActive = false
+end
+
+function GodSystemNetwork.resetTerminalSyncRuntime()
+    GodSystemNetwork.pendingTerminalSync = nil
+    GodSystemNetwork.pendingTerminalPageSync = false
+    GodSystemNetwork.lastTerminalSync = nil
 end
 
 local function player()
@@ -167,6 +177,215 @@ end
 local function isTerminalItem(item)
     if not item or not item.getFullType then return false end
     return tostring(item:getFullType() or "") == (GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal")
+end
+
+function GodSystemNetwork.findTerminalByItemId(itemId, p)
+    itemId = tostring(itemId or "")
+    p = p or player()
+    if itemId == "" or not p then return nil end
+
+    local seen = {}
+    local function searchItem(item, depth)
+        if not item or seen[item] or depth > 34 then return nil end
+        seen[item] = true
+        if item.getID and tostring(item:getID()) == itemId and isTerminalItem(item) then return item end
+        if item.getInventory then
+            local okInventory, inventory = pcall(function() return item:getInventory() end)
+            if okInventory and inventory and inventory.getItems then
+                local okItems, items = pcall(function() return inventory:getItems() end)
+                if okItems and items and items.size and items.get then
+                    for i = 0, items:size() - 1 do
+                        local found = searchItem(items:get(i), depth + 1)
+                        if found then return found end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local inventory = p.getInventory and p:getInventory() or nil
+    if inventory and inventory.getItems then
+        local okItems, items = pcall(function() return inventory:getItems() end)
+        if okItems and items and items.size and items.get then
+            for i = 0, items:size() - 1 do
+                local found = searchItem(items:get(i), 0)
+                if found then return found end
+            end
+        end
+    end
+
+    local primary = p.getPrimaryHandItem and p:getPrimaryHandItem() or nil
+    local found = searchItem(primary, 0)
+    if found then return found end
+    local secondary = p.getSecondaryHandItem and p:getSecondaryHandItem() or nil
+    found = searchItem(secondary, 0)
+    if found then return found end
+
+    if p.getWornItems then
+        local okWorn, wornItems = pcall(function() return p:getWornItems() end)
+        if okWorn and wornItems and wornItems.size and wornItems.get then
+            local okSize, size = pcall(function() return wornItems:size() end)
+            if okSize then
+                for i = 0, size - 1 do
+                    local okEntry, entry = pcall(function() return wornItems:get(i) end)
+                    local wornItem = okEntry and entry or nil
+                    if wornItem and wornItem.getItem then
+                        local okItem, value = pcall(function() return wornItem:getItem() end)
+                        wornItem = okItem and value or nil
+                    end
+                    found = searchItem(wornItem, 0)
+                    if found then return found end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function GodSystemNetwork.queueTerminalSync(payload)
+    if type(payload) ~= "table" or tostring(payload.kind or "") ~= "terminalSync" then return false end
+    GodSystemNetwork.pendingTerminalSync = {
+        payload = payload,
+        expiresAtMs = nowMs() + GodSystemNetwork.TERMINAL_SYNC_EXPIRE_MS,
+        nextAttemptAtMs = nowMs() + GodSystemNetwork.TERMINAL_SYNC_RETRY_MS,
+    }
+    return true
+end
+
+function GodSystemNetwork.refreshTerminalInventoryUI(item)
+    local p = player()
+    local containers = {}
+    if p and p.getInventory then containers[#containers + 1] = p:getInventory() end
+    if item and item.getContainer then
+        local okContainer, container = pcall(function() return item:getContainer() end)
+        if okContainer and container then containers[#containers + 1] = container end
+    end
+    if item and item.getInventory then
+        local okInventory, inventory = pcall(function() return item:getInventory() end)
+        if okInventory and inventory then containers[#containers + 1] = inventory end
+    end
+    for i = 1, #containers do
+        local container = containers[i]
+        if container and container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
+    end
+
+    local playerNum = p and p.getPlayerNum and p:getPlayerNum() or 0
+    local inventoryPage = getPlayerInventory and getPlayerInventory(playerNum) or nil
+    if inventoryPage and inventoryPage.refreshBackpacks then pcall(function() inventoryPage:refreshBackpacks() end) end
+    local lootPage = getPlayerLoot and getPlayerLoot(playerNum) or nil
+    if lootPage and lootPage.refreshBackpacks then pcall(function() lootPage:refreshBackpacks() end) end
+    if ISInventoryPage and ISInventoryPage.dirtyUI then pcall(ISInventoryPage.dirtyUI) end
+    if GodSystemUI and GodSystemUI.window and GodSystemUI.window.mode == "waist"
+        and GodSystemUI.window.requestDeferredPopulate then
+        GodSystemUI.window:requestDeferredPopulate(1)
+    end
+end
+
+function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttempt)
+    if type(payload) ~= "table" or tostring(payload.kind or "") ~= "terminalSync" then return false end
+    local itemId = tostring(payload.itemId or "")
+    if itemId == "" then return false end
+    if GodSystemNetwork.isTimedActionBusy(player()) then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
+        return false
+    end
+
+    local item = GodSystemNetwork.findTerminalByItemId(itemId, player())
+    if not item then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
+        return false
+    end
+    local okInventory, inventory = pcall(function() return item:getInventory() end)
+    if not okInventory or not inventory then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
+        return false
+    end
+
+    local function finite(value)
+        value = tonumber(value)
+        return value ~= nil and value == value and value ~= math.huge and value ~= -math.huge
+    end
+    local function writeNumber(target, setter, getter, value)
+        if not finite(value) or not target or not target[setter] or not target[getter] then return false end
+        value = tonumber(value)
+        local okBefore, before = pcall(function() return target[getter](target) end)
+        before = okBefore and tonumber(before) or nil
+        if before == nil then return false end
+        if math.abs(before - value) <= 0.0001 then return true end
+        local okWrite = pcall(function() target[setter](target, value) end)
+        if not okWrite then return false end
+        local okAfter, after = pcall(function() return target[getter](target) end)
+        after = okAfter and tonumber(after) or nil
+        return after ~= nil and math.abs(after - value) <= 0.0001
+    end
+
+    local applied = writeNumber(item, "setCapacity", "getCapacity", payload.outerCapacity)
+        and writeNumber(inventory, "setCapacity", "getCapacity", payload.innerCapacity)
+        and writeNumber(item, "setWeightReduction", "getWeightReduction", payload.outerReduction)
+        and writeNumber(inventory, "setWeightReduction", "getWeightReduction", payload.innerReduction)
+    if not applied then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
+        return false
+    end
+
+    local reliefOffset = math.max(0, tonumber(payload.reliefOffset) or 0)
+    local reliefLevel = math.max(0, math.floor(tonumber(payload.reliefLevel) or 0))
+    local reliefItem = nil
+    local okItems, items = pcall(function() return inventory:getItems() end)
+    if okItems and items and items.size and items.get then
+        for i = 0, items:size() - 1 do
+            local candidate = items:get(i)
+            if GodSystemTerminalRelief and GodSystemTerminalRelief.isReliefItem
+                and GodSystemTerminalRelief.isReliefItem(candidate) then
+                reliefItem = candidate
+                break
+            end
+        end
+    end
+    if reliefOffset > 0 and not reliefItem then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
+        return false
+    end
+    if reliefItem and reliefItem.setHungChange then
+        local okRelief = pcall(function() reliefItem:setHungChange(reliefOffset / 100) end)
+        if not okRelief then
+            if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
+            return false
+        end
+        local reliefData = reliefItem.getModData and reliefItem:getModData() or nil
+        if reliefData then
+            reliefData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
+            reliefData[GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"] = reliefOffset
+        end
+    end
+    local terminalData = item.getModData and item:getModData() or nil
+    if terminalData then
+        terminalData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
+    end
+
+    GodSystem.autoRecyclerCache = { item = item }
+    GodSystemNetwork.lastTerminalSync = payload
+    local pending = GodSystemNetwork.pendingTerminalSync
+    if pending and pending.payload and tostring(pending.payload.itemId or "") == itemId then
+        GodSystemNetwork.pendingTerminalSync = nil
+    end
+    GodSystemNetwork.refreshTerminalInventoryUI(item)
+    return true
+end
+
+function GodSystemNetwork.updatePendingTerminalSync()
+    local pending = GodSystemNetwork.pendingTerminalSync
+    if not pending or type(pending.payload) ~= "table" then return end
+    local currentMs = nowMs()
+    if currentMs >= (tonumber(pending.expiresAtMs) or 0) then
+        GodSystemNetwork.pendingTerminalSync = nil
+        GodSystemNetwork.lastTerminalSyncFailure = "expired"
+        return
+    end
+    if currentMs < (tonumber(pending.nextAttemptAtMs) or 0) then return end
+    pending.nextAttemptAtMs = currentMs + GodSystemNetwork.TERMINAL_SYNC_RETRY_MS
+    GodSystemNetwork.applyAuthoritativeTerminalState(pending.payload, true)
 end
 
 local function terminalWearLog(stage, state, success, currentType)
@@ -679,6 +898,31 @@ function GodSystemNetwork.send(command, args)
     return send(command, args)
 end
 
+function GodSystemNetwork.requestTerminalState()
+    if pendingKeyCommand or GodSystemNetwork.pendingState
+        or GodSystemNetwork.isTimedActionBusy(player()) then
+        GodSystemNetwork.pendingTerminalPageSync = true
+        return false
+    end
+    local sent = send((Protocol.C2S and Protocol.C2S.SyncClientData) or "syncClientData", {
+        terminalSync = true,
+    })
+    if sent then GodSystemNetwork.pendingTerminalPageSync = false end
+    return sent
+end
+
+function GodSystemNetwork.updatePendingTerminalPageSync()
+    if GodSystemNetwork.pendingTerminalPageSync ~= true then return end
+    local window = GodSystemUI and GodSystemUI.window or nil
+    if not window or not window.getIsVisible or not window:getIsVisible() or window.mode ~= "waist" then
+        GodSystemNetwork.pendingTerminalPageSync = false
+        return
+    end
+    if pendingKeyCommand or GodSystemNetwork.pendingState
+        or GodSystemNetwork.isTimedActionBusy(player()) then return end
+    GodSystemNetwork.requestTerminalState()
+end
+
 function GodSystemNetwork.hasPendingOperation()
     checkPendingTimeout()
     return pendingKeyCommand ~= nil
@@ -750,6 +994,9 @@ local function OnServerCommand(module, command, args)
         return
     end
     if command == ((Protocol.S2C and Protocol.S2C.State) or "state") then
+        if args and args.terminalSync then
+            GodSystemNetwork.applyAuthoritativeTerminalState(args.terminalSync)
+        end
         GodSystem.serverAdmin = args and args.admin == true
         if args and args.adminConfig and GodSystem.applyAdminConfigSnapshot then
             GodSystem.applyAdminConfigSnapshot(args.adminConfig)
@@ -790,6 +1037,11 @@ local function OnServerCommand(module, command, args)
         GodSystemNetwork.lastResultOk = args and args.ok == true
         GodSystemNetwork.lastResultMessage = resultMessagePayload(args)
         GodSystemNetwork.lastResultAtMs = nowMs()
+        if args and args.payload and args.payload.terminalSync then
+            GodSystemNetwork.applyAuthoritativeTerminalState(args.payload.terminalSync)
+        elseif args and args.payload and args.payload.kind == "terminalSync" then
+            GodSystemNetwork.applyAuthoritativeTerminalState(args.payload)
+        end
         if args and args.ok == true and args.payload and args.payload.kind == "shopLottery" then
             GodSystemNetwork.pendingShopLotteryResult = args.payload
         end
@@ -818,6 +1070,8 @@ function GodSystemNetwork.onPlayerUpdate(p)
     if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
     checkPendingTimeout()
     GodSystemNetwork.updateTerminalWearDiagnostics(p or player())
+    GodSystemNetwork.updatePendingTerminalSync()
+    GodSystemNetwork.updatePendingTerminalPageSync()
     playerUpdateTicks = (playerUpdateTicks or 0) + 1
     if playerUpdateTicks % 60 == 0 and GodSystem and GodSystem.updateMoveDistance then
         GodSystem.updateMoveDistance(p or player())
@@ -1020,10 +1274,14 @@ end
 if Events.OnConnected then
     Events.OnConnected.Remove(GodSystemNetwork.resetInvestmentRuntime)
     Events.OnConnected.Add(GodSystemNetwork.resetInvestmentRuntime)
+    Events.OnConnected.Remove(GodSystemNetwork.resetTerminalSyncRuntime)
+    Events.OnConnected.Add(GodSystemNetwork.resetTerminalSyncRuntime)
 end
 if Events.OnDisconnect then
     Events.OnDisconnect.Remove(GodSystemNetwork.resetInvestmentRuntime)
     Events.OnDisconnect.Add(GodSystemNetwork.resetInvestmentRuntime)
+    Events.OnDisconnect.Remove(GodSystemNetwork.resetTerminalSyncRuntime)
+    Events.OnDisconnect.Add(GodSystemNetwork.resetTerminalSyncRuntime)
 end
 
 local original = {}

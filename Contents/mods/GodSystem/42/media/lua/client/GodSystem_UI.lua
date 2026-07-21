@@ -2200,6 +2200,9 @@ function GodSystemWindow:onModeButton(button)
     if self.mode == "info" then
         self:recordInfoSecretClick()
     end
+    if self.mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
+        GodSystemNetwork.requestTerminalState()
+    end
     self:updateModeButtonStyles()
     self:populateList()
     self:requestDeferredPopulate(1)
@@ -5777,6 +5780,9 @@ function GodSystemUI.openMode(mode)
     end
     window:captureSelection()
     window.mode = mode
+    if mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
+        GodSystemNetwork.requestTerminalState()
+    end
     window:updateModeButtonStyles()
     window:populateList()
     window:requestDeferredPopulate(1)

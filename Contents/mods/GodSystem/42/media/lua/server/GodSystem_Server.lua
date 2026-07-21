@@ -2070,9 +2070,13 @@ local function autoRecyclerDisplayName(level)
     return "System Space Terminal Lv." .. tostring(level)
 end
 
-function GodSystemServer.syncTerminalApplyReport(item, report)
+function GodSystemServer.syncTerminalApplyReport(item, report, forceSync)
     report = type(report) == "table" and report or {}
     local inventory = report.inventory
+    if not inventory and item and item.getInventory then
+        local okInventory, value = pcall(function() return item:getInventory() end)
+        if okInventory then inventory = value end
+    end
     local seen = {}
     for i = 1, #((report.removedItems) or {}) do
         local removedItem = report.removedItems[i]
@@ -2091,19 +2095,78 @@ function GodSystemServer.syncTerminalApplyReport(item, report)
         local changedItem = report.items[i]
         if changedItem then seen[changedItem] = true end
     end
+    if forceSync == true and inventory and inventory.getItems then
+        local okItems, items = pcall(function() return inventory:getItems() end)
+        if okItems and items and items.size and items.get then
+            for i = 0, items:size() - 1 do
+                local changedItem = items:get(i)
+                if GodSystemTerminalRelief.isReliefItem(changedItem) then seen[changedItem] = true end
+            end
+        end
+    end
     for changedItem in pairs(seen) do
+        if changedItem.syncItemFields then pcall(function() changedItem:syncItemFields() end) end
         if sendItemStats then pcall(sendItemStats, changedItem) end
         if changedItem.transmitModData then pcall(changedItem.transmitModData, changedItem) end
     end
     for i = 1, #((report.restoredItems) or {}) do
         local restoredItem = report.restoredItems[i]
+        if restoredItem and restoredItem.syncItemFields then pcall(function() restoredItem:syncItemFields() end) end
         if sendItemStats then pcall(sendItemStats, restoredItem) end
         if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
     end
-    if report.terminalChanged == true then
+    if report.terminalChanged == true or forceSync == true then
+        if item and item.syncItemFields then pcall(function() item:syncItemFields() end) end
         if item and item.transmitModData then pcall(item.transmitModData, item) end
         if item and sendItemStats then pcall(sendItemStats, item) end
     end
+end
+
+function GodSystemServer.buildTerminalSyncPayload(item, player)
+    if not item or not item.getID or not item.getInventory then return nil end
+    if not isAutoRecyclerContainer(item) then return nil end
+
+    local okId, itemId = pcall(function() return item:getID() end)
+    local okInventory, inventory = pcall(function() return item:getInventory() end)
+    if not okId or itemId == nil or not okInventory or not inventory then return nil end
+
+    local function readNumber(target, method)
+        if not target or not target[method] then return nil end
+        local ok, value = pcall(function() return target[method](target) end)
+        value = ok and tonumber(value) or nil
+        if value == nil or value ~= value or value == math.huge or value == -math.huge then return nil end
+        return value
+    end
+
+    local outerCapacity = readNumber(item, "getCapacity")
+    local innerCapacity = readNumber(inventory, "getCapacity")
+    local outerReduction = readNumber(item, "getWeightReduction")
+    local innerReduction = readNumber(inventory, "getWeightReduction")
+    if outerCapacity == nil or innerCapacity == nil or outerReduction == nil or innerReduction == nil then return nil end
+
+    local terminalData = item.getModData and item:getModData() or nil
+    local reliefLevelKey = GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"
+    local reliefOffsetKey = GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"
+    local reliefLevel = math.max(0, math.floor(tonumber(terminalData and terminalData[reliefLevelKey]) or 0))
+    local reliefOffset = 0
+    local reliefSnapshot = GodSystemTerminalRelief.snapshot(item, player)
+    local reliefState = reliefSnapshot and reliefSnapshot.items and reliefSnapshot.items[1] or nil
+    if reliefState then
+        reliefLevel = math.max(0, math.floor(tonumber(reliefState.modData and reliefState.modData[reliefLevelKey]) or reliefLevel))
+        reliefOffset = math.max(0, tonumber(reliefState.modData and reliefState.modData[reliefOffsetKey])
+            or -(tonumber(reliefState.actualWeight) or 0))
+    end
+
+    return {
+        kind = "terminalSync",
+        itemId = itemId,
+        outerCapacity = outerCapacity,
+        innerCapacity = innerCapacity,
+        outerReduction = outerReduction,
+        innerReduction = innerReduction,
+        reliefLevel = reliefLevel,
+        reliefOffset = reliefOffset,
+    }
 end
 
 function GodSystemServer.syncEscapedReliefRemovals(entries)
@@ -2194,6 +2257,7 @@ function GodSystemServer.giveConfiguredTerminal(player, data)
         if inventory.Remove then pcall(inventory.Remove, inventory, item) end
         return false, nil
     end
+    GodSystemServer.syncTerminalApplyReport(item, report, true)
     markInventoryDirty(player, inventory)
     print("[GodSystem][TerminalWear] grant item=" .. tostring(item.getID and item:getID() or "?") .. " slot=GodSystem:SystemSpaceTerminal")
     return true, item, report
@@ -2456,7 +2520,7 @@ local function claimTaskForPlayer(player, data, task, claimArgs)
     return true, "TaskClaimed"
 end
 
-local function sendState(player)
+local function sendState(player, terminalSync)
     applyAdminConfigStore()
     local data = playerData(player)
     generateDailyTasks(data, false)
@@ -2479,6 +2543,7 @@ local function sendState(player)
         version = GodSystemConfig.Version,
         admin = isAdminPlayer(player),
         adminConfig = GodSystemAdminConfig.buildSnapshot(),
+        terminalSync = terminalSync,
     })
 end
 
@@ -2666,8 +2731,13 @@ function Commands.hello(_, _, player)
 end
 
 function Commands.syncClientData(_, _, player, args)
-    findAutoRecycler(playerData(player), player)
-    sendState(player)
+    local item = findAutoRecycler(playerData(player), player)
+    local terminalSync = nil
+    if args and args.terminalSync == true and item then
+        GodSystemServer.syncTerminalApplyReport(item, {}, true)
+        terminalSync = GodSystemServer.buildTerminalSyncPayload(item, player)
+    end
+    sendState(player, terminalSync)
 end
 
 function Commands.refresh(_, _, player, args)
@@ -3396,7 +3466,9 @@ function Commands.claimWaist(_, _, player)
         GodSystemServer.terminalCache[userKey(player)] = { player = player, item = added }
         local code = cost > 0 and "ClaimWaistPaid" or "ClaimWaist"
         appendHistory(data, historyEntry("system", code, { cost }))
-        finishCode(player, true, code, { cost })
+        finishCode(player, true, code, { cost }, {
+            terminalSync = GodSystemServer.buildTerminalSyncPayload(added, player),
+        })
     end)
     unguard(player)
     if not ok then errorMessage(player, tostring(err)) end
@@ -3434,7 +3506,9 @@ function Commands.upgradeWaist(_, _, player)
         data.autoRecyclerClaimed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
         appendHistory(data, historyEntry("system", "UpgradeWaist", { level + 1, cost }))
-        finishCode(player, true, "UpgradeWaist", { level + 1, cost })
+        finishCode(player, true, "UpgradeWaist", { level + 1, cost }, {
+            terminalSync = GodSystemServer.buildTerminalSyncPayload(item, player),
+        })
     end)
     unguard(player)
     if not ok then errorMessage(player, tostring(err)) end
@@ -3910,6 +3984,7 @@ function Commands.upgradeSystem(_, _, player, args)
                 upgradeType = terminalType,
                 level = previousLevel + 1,
                 skipped = report and report.skipped or 0,
+                terminalSync = GodSystemServer.buildTerminalSyncPayload(item, player),
             })
         end
         local current, maxValue, nextValue, cost
