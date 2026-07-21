@@ -14,6 +14,7 @@ $agents = Read-Utf8 'AGENTS.md'
 $github = Read-Utf8 'docs\GITHUB_COLLABORATION_CN.md'
 $skill = Read-Utf8 'tools\codex\skills\pz-mod-dev\SKILL.md'
 $official = Read-Utf8 'docs\PZ_B42_OFFICIAL_DEVELOPMENT_CN.md'
+$community = Read-Utf8 'docs\PZ_COMMUNITY_DEVELOPMENT_RESOURCES_CN.md'
 
 $active = $agents + "`n" + $github + "`n" + $skill
 if ($active -match '(?i)superpowers:|REQUIRED SUB-SKILL|Superpowers Coordination') {
@@ -34,6 +35,21 @@ foreach ($required in @(
 )) {
     if ($official -notmatch [regex]::Escape($required)) {
         throw "Official B42 reference is missing: $required"
+    }
+}
+
+foreach ($required in @(
+    'Konijima/PZ-Community-API',
+    '41.56-IWBUMS',
+    'SpawnerAPIServer.lua',
+    'Archive.Project-Zomboid-Modding',
+    'Page version',
+    'Mod optimization | 42.1.1',
+    'SpawnItem',
+    'getOrCreateGridSquare'
+)) {
+    if ($community -notmatch [regex]::Escape($required)) {
+        throw "Community development review is missing: $required"
     }
 }
 

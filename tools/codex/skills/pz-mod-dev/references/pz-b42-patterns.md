@@ -26,6 +26,16 @@ Read the repository's [official B42 development reference](../../../../../docs/P
 - For non-Timed-Action commands, `sendClientCommand(player, module, command, args)` reaches `OnClientCommand(module, command, player, args)`. The handler must re-resolve real objects and validate all authoritative state.
 - The official guide itself says changed Lua APIs should be checked against decompiled Java and warns that unstable patches continue changing APIs. Java existence still does not prove a Kahlua-callable overload; verify a same-version vanilla call or a minimal live test.
 
+## PZwiki And Community Tooling
+
+Read the repository's [community development resource review](../../../../../docs/PZ_COMMUNITY_DEVELOPMENT_RESOURCES_CN.md) before adopting a community API.
+
+- PZwiki page titles are intentionally generic, but page source uses `Page version` markers. Community maintenance is asynchronous; check the page marker and warnings instead of assuming a generic title means B42.19 coverage.
+- `PZ Community API` targets 41.56-IWBUMS and its latest code is from 2021. Its MIT-licensed module organization, EmmyLua annotations, light lifecycle, scan utilities, and delayed-square queue are useful design references, but the code is not a B42.19 dependency.
+- `SpawnerAPI` is a submodule of that repository, not a separate project. Its server module is empty and spawning is client-side, so do not use it for B42 multiplayer authority. Its delayed branch also looks up lowercase `spawnItem`-style keys while the exported functions are uppercase `SpawnItem`-style keys; Lua is case-sensitive, so this code is not a working queue reference. Rebuild any similar queue with serializable records, server validation, current synchronization, bounded persistence, and operation IDs.
+- Treat its scan helpers as structural examples only. The old `IsoUtils.GetIsoRange()` hardcodes `z=0`, calls `getOrCreateGridSquare()`, and contains a nil dereference path in `RecursiveGetSquare()`. A B42 runtime scan must preserve the caller's floor, avoid creating unloaded squares, bound work, and validate every returned square.
+- `Archive.Project-Zomboid-Modding` is an active archive, not a runtime API. It has no repository-wide license; verify each file's author, source, version, and permission. Use its TIS guide copies as mirrors of the original forum attachments, not as proof that unrelated archived assets are official or redistributable.
+
 ## Cross-Source Research Rules
 
 - Server-authoritative economy means the server resolves the listing, price, stock, balance, item ownership, and final mutation. A server handler alone is insufficient when it still trusts a client price or item snapshot. Compare [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md), [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md), and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).

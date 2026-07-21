@@ -10,9 +10,11 @@
 - [The Indie Stone: Build 42.19.0 UNSTABLE Released](https://theindiestone.com/forums/topic/95733-build-42190-unstable-released/)
   - 这是 42.19 官方版本说明，主要是版本改动和修复记录，没有提供一份新的完整 MOD API 手册。
 - [PZwiki Modding](https://pzwiki.net/wiki/Modding)、[Lua API](https://pzwiki.net/wiki/Lua_%28API%29)、[Lua event](https://pzwiki.net/wiki/Lua_event)
-  - PZwiki 可作为入口和索引，但具体方法签名仍需与本机 B42.19 原版代码交叉验证。
+  - PZwiki 是社区持续维护的官方 Wiki，页面标题通常不写版本号，但正文使用 `Page version` 标记内容最后核对的游戏版本。不同页面更新不同步，必须读取页内版本提示；具体方法签名仍需与本机 B42.19 原版代码交叉验证。
 - [B42 迁移资料镜像](https://github.com/PZ-Wiki-Modding/Archive.Project-Zomboid-Modding/tree/main/TIS%20guides/B42%20unstable%20MP)
   - 该 GitHub 仓库是社区存档镜像，便于附件无法下载时读取；资料原始来源仍是 The Indie Stone 官方论坛。
+
+PZwiki 页面版本机制、PZ Community API、SpawnerAPI 和资料镜像的详细核验见 [社区开发资源核验](PZ_COMMUNITY_DEVELOPMENT_RESOURCES_CN.md)。
 
 ## 42.13 迁移指南确认的规则
 
