@@ -20,6 +20,7 @@ GodSystemUI.floating = nil
 GodSystemUI.window = nil
 GodSystemUI.taskTracker = nil
 GodSystemUI.shortcutWindow = nil
+GodSystemUI.shopHiddenWindow = nil
 
 local function gsSetLabel(label, text)
     if label then
@@ -1044,6 +1045,301 @@ function GodSystemAdminTextDialog:onCancel()
     end
 end
 
+GodSystemShopHiddenWindow = ISCollapsableWindow:derive("GodSystemShopHiddenWindow")
+
+function GodSystemShopHiddenWindow:new(x, y, width, height, owner)
+    local o = ISCollapsableWindow.new(self, x, y, width, height)
+    o.title = GodSystem.text("ShopHidden_Title", "Hidden shop items")
+    o.owner = owner
+    o.categoryKey = "all"
+    o.statusFilter = "all"
+    o.searchText = ""
+    o.selectedVariantKey = nil
+    o.waitingForServer = false
+    o.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or 0
+    o.resizable = false
+    return o
+end
+
+function GodSystemShopHiddenWindow:createChildren()
+    ISCollapsableWindow.createChildren(self)
+    local margin = 12
+    local top = 30
+    local filterH = 30
+    local buttonH = 34
+
+    self.categoryButton = ISButton:new(margin, top, 190, filterH, "", self, self.onCategoryButton)
+    self.categoryButton:initialise()
+    gsStyleActionButton(self.categoryButton, false)
+    self:addChild(self.categoryButton)
+
+    self.statusButton = ISButton:new(210, top, 170, filterH, "", self, self.onStatusButton)
+    self.statusButton:initialise()
+    gsStyleActionButton(self.statusButton, false)
+    self:addChild(self.statusButton)
+
+    self.searchBox = ISTextEntryBox:new("", 388, top, self.width - 400, filterH)
+    self.searchBox:initialise()
+    self.searchBox:instantiate()
+    self.searchBox.font = UIFont.Small
+    self.searchBox.target = self
+    self.searchBox.onTextChange = function(entry) self:onSearchChange(entry) end
+    self:addChild(self.searchBox)
+
+    self.list = ISScrollingListBox:new(margin, top + filterH + 10, self.width - (margin * 2), self.height - top - filterH - buttonH - 38)
+    self.list:initialise()
+    self.list:instantiate()
+    self.list.itemheight = 32
+    self.list.doDrawItem = function(list, y, row, alt) return self:drawItem(list, y, row, alt) end
+    self.list:setOnMouseDownFunction(self, self.onListMouseDown)
+    gsInstallSafeScrollingListPrerender(self.list)
+    self:addChild(self.list)
+
+    local actionY = self.height - buttonH - 12
+    self.hideButton = ISButton:new(margin, actionY, 150, buttonH, GodSystem.text("ShopHidden_Add", "Hide"), self, self.onHide)
+    self.hideButton:initialise()
+    gsStyleActionButton(self.hideButton, "primary")
+    self:addChild(self.hideButton)
+
+    self.showButton = ISButton:new(172, actionY, 150, buttonH, GodSystem.text("ShopHidden_Remove", "Show"), self, self.onShow)
+    self.showButton:initialise()
+    gsStyleActionButton(self.showButton, false)
+    self:addChild(self.showButton)
+
+    self.deleteButton = ISButton:new(332, actionY, 150, buttonH, GodSystem.text("ShopHidden_Delete", "Delete listing"), self, self.onDelete)
+    self.deleteButton:initialise()
+    gsStyleActionButton(self.deleteButton, false)
+    self:addChild(self.deleteButton)
+
+    self.closeButton = ISButton:new(self.width - 132, actionY, 120, buttonH, GodSystem.text("ShopHidden_Close", "Close"), self, self.close)
+    self.closeButton:initialise()
+    gsStyleActionButton(self.closeButton, false)
+    self:addChild(self.closeButton)
+
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:prerender()
+    ISCollapsableWindow.prerender(self)
+    gsDrawRect(self, 0, 16, self.width, self.height - 16, gsThemeColor("shell"))
+    gsDrawRectBorder(self, 1, 17, self.width - 2, self.height - 18, gsThemeColor("borderStrong"))
+    self:updateButtons()
+end
+
+function GodSystemShopHiddenWindow:drawItem(list, y, row, alt)
+    local data = row and row.item or nil
+    local color = data and data.hidden == true and gsThemeColor("dimText") or gsThemeColor("text")
+    local background = alt and gsThemeColor("panel") or gsThemeColor("panelDeep")
+    gsDrawRect(list, 0, y, list.width, list.itemheight - 1, background)
+    if list.selected == row.index then
+        gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("rowSelect"))
+    end
+    gsDrawText(list, tostring(row and row.text or ""), 8, y + 8, color, UIFont.Small)
+    return y + list.itemheight
+end
+
+function GodSystemShopHiddenWindow:getSelected()
+    local index = self.list and math.floor(tonumber(self.list.selected) or 0) or 0
+    local row = index > 0 and self.list.items[index] or nil
+    return row and row.item or nil
+end
+
+function GodSystemShopHiddenWindow:onListMouseDown(row)
+    local data = row and (row.item or row) or self:getSelected()
+    if data and data.variantKey then self.selectedVariantKey = data.variantKey end
+    self:updateButtons()
+end
+
+function GodSystemShopHiddenWindow:updateButtons()
+    local row = self:getSelected()
+    local blocked = self.waitingForServer == true
+    self.hideButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden ~= true
+    self.showButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden == true
+    self.deleteButton.enable = not blocked and row ~= nil and row.empty ~= true
+end
+
+function GodSystemShopHiddenWindow:statusLabel()
+    if self.statusFilter == "visible" then return GodSystem.text("ShopHidden_FilterVisible", "Visible") end
+    if self.statusFilter == "hidden" then return GodSystem.text("ShopHidden_FilterHidden", "Hidden") end
+    return GodSystem.text("ShopHidden_FilterAll", "All")
+end
+
+function GodSystemShopHiddenWindow:categoryLabel()
+    if self.categoryKey == "all" then return GodSystem.text("ShopHidden_FilterAll", "All") end
+    for i = 1, #(self.categories or {}) do
+        if self.categories[i].key == self.categoryKey then return self.categories[i].label end
+    end
+    return self.categoryKey
+end
+
+function GodSystemShopHiddenWindow:matches(row, category)
+    if self.categoryKey ~= "all" and category.key ~= self.categoryKey then return false end
+    if self.statusFilter == "visible" and row.hidden == true then return false end
+    if self.statusFilter == "hidden" and row.hidden ~= true then return false end
+    local query = string.lower(gsTrim(self.searchText or ""))
+    if query == "" then return true end
+    local haystack = table.concat({
+        tostring(row.label or ""),
+        tostring(row.fullType or ""),
+        tostring(category.key or ""),
+        tostring(category.label or ""),
+        tostring(row.worldSprite or ""),
+    }, " ")
+    return string.find(string.lower(haystack), query, 1, true) ~= nil
+end
+
+function GodSystemShopHiddenWindow:populateItems()
+    if not self.list then return end
+    local oldScroll = self.list.getYScroll and self.list:getYScroll() or 0
+    local selectedKey = self.selectedVariantKey
+    self.list:clear()
+    self.list.selected = 0
+    local rows = GodSystem.getUnlockedShopItemsList(true)
+    local categories, categoryMap = {}, {}
+    for i = 1, #rows do
+        local category = GodSystem.getShopPrimaryCategory(rows[i])
+        if not categoryMap[category.key] then
+            categoryMap[category.key] = true
+            categories[#categories + 1] = category
+        end
+    end
+    table.sort(categories, function(a, b) return tostring(a.label) < tostring(b.label) end)
+    self.categories = categories
+    if self.categoryKey ~= "all" and not categoryMap[self.categoryKey] then self.categoryKey = "all" end
+
+    local visibleCount = 0
+    for i = 1, #rows do
+        local row = rows[i]
+        local category = GodSystem.getShopPrimaryCategory(row)
+        if self:matches(row, category) then
+            local status = row.hidden == true and GodSystem.text("ShopHidden_StatusHidden", "Hidden") or GodSystem.text("ShopHidden_StatusVisible", "Visible")
+            local sprite = row.worldSprite and (" | " .. tostring(row.worldSprite)) or ""
+            local added = self.list:addItem("[" .. status .. "] " .. tostring(row.label or row.fullType) .. " | " .. tostring(row.fullType or "") .. sprite, {
+                variantKey = row.variantKey,
+                fullType = row.fullType,
+                worldSprite = row.worldSprite,
+                hidden = row.hidden == true,
+                label = row.label,
+                categoryKey = category.key,
+            })
+            visibleCount = visibleCount + 1
+            if selectedKey and row.variantKey == selectedKey then self.list.selected = visibleCount end
+        end
+    end
+    if visibleCount == 0 then
+        self.list:addItem(GodSystem.text("ShopHidden_Empty", "No player-listed items match the filters"), { empty = true })
+        self.list.selected = 0
+        self.selectedVariantKey = nil
+    end
+    if self.list.setYScroll then self.list:setYScroll(oldScroll) end
+    gsSetButtonTitle(self.categoryButton, GodSystem.text("ShopHidden_Category", "Category") .. ": " .. self:categoryLabel())
+    gsSetButtonTitle(self.statusButton, GodSystem.text("ShopHidden_Status", "Status") .. ": " .. self:statusLabel())
+    self:updateButtons()
+end
+
+function GodSystemShopHiddenWindow:setCategory(key)
+    self.categoryKey = tostring(key or "all")
+    self.selectedVariantKey = nil
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:onCategoryButton()
+    local player = getPlayer()
+    local context = ISContextMenu.get(player and player:getPlayerNum() or 0, getMouseX(), getMouseY())
+    context:addOption(GodSystem.text("ShopHidden_FilterAll", "All"), self, self.setCategory, "all")
+    for i = 1, #(self.categories or {}) do
+        context:addOption(self.categories[i].label, self, self.setCategory, self.categories[i].key)
+    end
+end
+
+function GodSystemShopHiddenWindow:setStatus(status)
+    self.statusFilter = tostring(status or "all")
+    self.selectedVariantKey = nil
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:onStatusButton()
+    local player = getPlayer()
+    local context = ISContextMenu.get(player and player:getPlayerNum() or 0, getMouseX(), getMouseY())
+    context:addOption(GodSystem.text("ShopHidden_FilterAll", "All"), self, self.setStatus, "all")
+    context:addOption(GodSystem.text("ShopHidden_FilterVisible", "Visible"), self, self.setStatus, "visible")
+    context:addOption(GodSystem.text("ShopHidden_FilterHidden", "Hidden"), self, self.setStatus, "hidden")
+end
+
+function GodSystemShopHiddenWindow:onSearchChange(entry)
+    self.searchText = entry and entry.getInternalText and entry:getInternalText() or ""
+    self.selectedVariantKey = nil
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:setSelectedHidden(hidden)
+    local row = self:getSelected()
+    if not row or not row.variantKey or row.empty then return end
+    self.selectedVariantKey = row.variantKey
+    local sent = GodSystem.setShopItemHidden(row.variantKey, hidden == true)
+    self.waitingForServer = gsIsMultiplayer() and sent ~= false
+    if self.owner and self.owner.finishMultiplayerCommand then self.owner:finishMultiplayerCommand(sent) end
+    if not self.waitingForServer then
+        if self.owner and self.owner.populateList then self.owner:populateList() end
+        self:populateItems()
+    end
+end
+
+function GodSystemShopHiddenWindow:onHide()
+    self:setSelectedHidden(true)
+end
+
+function GodSystemShopHiddenWindow:onShow()
+    self:setSelectedHidden(false)
+end
+
+function GodSystemShopHiddenWindow:onDelete()
+    local row = self:getSelected()
+    if not row or not row.variantKey or row.empty then return end
+    local message = gsFormatTemplate(GodSystem.text("Confirm_ShopItemDelete", "Delete the listing for {1}? No currency will be refunded; relisting will charge the normal fee."), {
+        tostring(row.label or row.fullType or row.variantKey),
+    })
+    local player = getPlayer and getPlayer() or nil
+    local playerNum = player and player:getPlayerNum() or 0
+    if ISModalDialog then
+        local x = math.max(80, (getCore():getScreenWidth() / 2) - 250)
+        local y = math.max(80, (getCore():getScreenHeight() / 2) - 130)
+        local modal = ISModalDialog:new(x, y, 500, 260, message, true, self, self.onDeleteConfirm, playerNum, {
+            variantKey = row.variantKey,
+        })
+        modal:initialise()
+        modal:addToUIManager()
+    else
+        GodSystem.notify(GodSystem.text("Notify_TraitConfirmMissing", "Confirmation dialog unavailable"))
+    end
+end
+
+function GodSystemShopHiddenWindow:onDeleteConfirm(button, payload)
+    if not button or button.internal ~= "YES" then return end
+    local variantKey = payload and payload.variantKey or nil
+    if not variantKey then return end
+    self.selectedVariantKey = nil
+    local sent = GodSystem.deleteShopItem(variantKey)
+    self.waitingForServer = gsIsMultiplayer() and sent ~= false
+    if self.owner and self.owner.finishMultiplayerCommand then self.owner:finishMultiplayerCommand(sent) end
+    if not self.waitingForServer then
+        if self.owner and self.owner.populateList then self.owner:populateList() end
+        self:populateItems()
+    end
+end
+
+function GodSystemShopHiddenWindow:onServerStateChanged()
+    self.waitingForServer = false
+    self.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or self.lastStateSerial
+    self:populateItems()
+end
+
+function GodSystemShopHiddenWindow:close()
+    self:setVisible(false)
+    if self.removeFromUIManager then self:removeFromUIManager() end
+    if GodSystemUI.shopHiddenWindow == self then GodSystemUI.shopHiddenWindow = nil end
+end
+
 GodSystemWindow = ISCollapsableWindow:derive("GodSystemWindow")
 
 local GS_NON_SELECTABLE_KINDS = {
@@ -1752,6 +2048,18 @@ function GodSystemWindow:createChildren()
     self.fifthButton:setVisible(false)
     self:addChild(self.fifthButton)
 
+    self.sixthButton = ISButton:new(self.actionX + self:S(776), self.actionY + self:S(8), self:S(126), self.actionButtonH or self:S(38), "", self, self.onSixthAction)
+    self.sixthButton:initialise()
+    gsStyleActionButton(self.sixthButton, false)
+    self.sixthButton:setVisible(false)
+    self:addChild(self.sixthButton)
+
+    self.seventhButton = ISButton:new(self.actionX + self:S(916), self.actionY + self:S(8), self:S(126), self.actionButtonH or self:S(38), "", self, self.onSeventhAction)
+    self.seventhButton:initialise()
+    gsStyleActionButton(self.seventhButton, false)
+    self.seventhButton:setVisible(false)
+    self:addChild(self.seventhButton)
+
     self.categoryButton = ISButton:new(self.mainX, self.actionY + self:S(12), self:S(158), self:S(30), GodSystem.text("ShopCategory_ButtonAll", "Category: All"), self, self.onCategoryButton)
     self.categoryButton:initialise()
     gsStyleActionButton(self.categoryButton, false)
@@ -1819,7 +2127,7 @@ function GodSystemWindow:drawTopStatusBar(activeCount)
     local data = GodSystem.getData()
     local stats = data.stats or {}
     local bankSummary = GodSystem.getBankSummary and GodSystem.getBankSummary() or {}
-    local currency = GodSystem.getCurrencyTotal and GodSystem.getCurrencyTotal() or 0
+    local currency = GodSystem.getCurrencyDisplayTotal and GodSystem.getCurrencyDisplayTotal() or (GodSystem.getCurrencyTotal and GodSystem.getCurrencyTotal() or 0)
     local completed = stats.completedTasks or 0
     local failed = stats.failedTasks or 0
 
@@ -1891,6 +2199,9 @@ function GodSystemWindow:onModeButton(button)
     self.mode = button.internal
     if self.mode == "info" then
         self:recordInfoSecretClick()
+    end
+    if self.mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
+        GodSystemNetwork.requestTerminalState()
     end
     self:updateModeButtonStyles()
     self:populateList()
@@ -2246,7 +2557,10 @@ function GodSystemWindow:getPayloadId(payload)
         return "task:" .. tostring(payload.data.taskId or payload.data.sourceId or "")
     end
     if payload.kind == "shop" and payload.data then
-        return "shop:" .. tostring(payload.data.id or payload.data.fullType or GodSystem.getShopPrimaryFullType(payload.data) or "")
+        if payload.data.unlocked == true then
+            return "shop:unlocked:" .. tostring(payload.data.variantKey or payload.data.id or payload.data.fullType or "")
+        end
+        return "shop:configured:" .. tostring(payload.data.id or payload.data.fullType or GodSystem.getShopPrimaryFullType(payload.data) or "")
     end
     if payload.kind == "recycle" and payload.data then
         return "recycle:" .. tostring(payload.data.fullType or "")
@@ -2382,6 +2696,11 @@ function GodSystemWindow:finishMultiplayerCommand(sent)
         return false
     end
     self.waitingForServerState = true
+    local ids = { "primary", "secondary", "third", "fourth", "fifth", "sixth", "seventh" }
+    for i = 1, #ids do
+        local control = self:getActionControl(ids[i])
+        if control then control.enable = false end
+    end
     if GodSystemNetwork and GodSystemNetwork.requestState then
         GodSystemNetwork.requestState(false)
     end
@@ -2408,6 +2727,10 @@ function GodSystemWindow:getActionControl(id)
         return self.fourthButton
     elseif id == "fifth" then
         return self.fifthButton
+    elseif id == "sixth" then
+        return self.sixthButton
+    elseif id == "seventh" then
+        return self.seventhButton
     elseif id == "category" then
         return self.categoryButton
     elseif id == "searchLabel" then
@@ -2419,7 +2742,7 @@ function GodSystemWindow:getActionControl(id)
 end
 
 function GodSystemWindow:resetActionButtonEnabledState()
-    local ids = { "primary", "secondary", "third", "fourth", "fifth" }
+    local ids = { "primary", "secondary", "third", "fourth", "fifth", "sixth", "seventh" }
     for i = 1, #ids do
         local control = self:getActionControl(ids[i])
         if control then control.enable = true end
@@ -2427,7 +2750,7 @@ function GodSystemWindow:resetActionButtonEnabledState()
 end
 
 function GodSystemWindow:hideActionControls()
-    local ids = { "primary", "secondary", "third", "fourth", "fifth", "category", "searchLabel", "searchBox" }
+    local ids = { "primary", "secondary", "third", "fourth", "fifth", "sixth", "seventh", "category", "searchLabel", "searchBox" }
     for i = 1, #ids do
         local control = self:getActionControl(ids[i])
         if control then
@@ -2502,6 +2825,12 @@ function GodSystemWindow:setStandardActionBar()
     if self.fifthButton and self.fifthButton:getIsVisible() then
         table.insert(actions, { id = "fifth", width = 122 })
     end
+    if self.sixthButton and self.sixthButton:getIsVisible() then
+        table.insert(actions, { id = "sixth", width = 122 })
+    end
+    if self.seventhButton and self.seventhButton:getIsVisible() then
+        table.insert(actions, { id = "seventh", width = 122 })
+    end
     self:setActionBar(actions)
 end
 
@@ -2544,6 +2873,12 @@ function GodSystemWindow:applyBaseLayout()
     if self.fifthButton then
         self.fifthButton:setVisible(false)
     end
+    if self.sixthButton then
+        self.sixthButton:setVisible(false)
+    end
+    if self.seventhButton then
+        self.seventhButton:setVisible(false)
+    end
     gsSetBounds(self.list, self.mainX, self.mainY, self.mainW, self.mainH)
     self.list.itemheight = self:S((gsTheme().window and gsTheme().window.rowHeight) or 44)
     self:setStandardActionBar()
@@ -2559,6 +2894,7 @@ function GodSystemWindow:applyShopActionLayout()
         { id = "third", width = 88, minWidth = 72, visible = thirdVisible == true },
         { id = "fourth", width = 78, minWidth = 62 },
         { id = "fifth", width = 78, minWidth = 62 },
+        { id = "sixth", width = 102, minWidth = 82 },
     })
 end
 
@@ -2902,12 +3238,14 @@ function GodSystemWindow:populateShop()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_Buy", "Buy"))
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
     self.secondaryButton:setVisible(not gsIsMultiplayer())
-    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_RemoveUnlocked", "Remove unlocked"))
+    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_HideUnlocked", "Hide listing"))
     self.thirdButton:setVisible(false)
     gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_ShopPrevPage", "Prev"))
     self.fourthButton:setVisible(true)
     gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_ShopNextPage", "Next"))
     self.fifthButton:setVisible(true)
+    gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_ShopHiddenManager", "Hidden manager"))
+    self.sixthButton:setVisible(true)
     local shopItems = {}
     local categoryMap = {}
     local categories = {}
@@ -3084,6 +3422,8 @@ function GodSystemWindow:populateWaistSpace()
         self.thirdButton:setVisible(false)
         self.fourthButton:setVisible(false)
         self.fifthButton:setVisible(false)
+        self.sixthButton:setVisible(false)
+        self.seventhButton:setVisible(false)
         self:addListItem(GodSystem.text("Waist_NotFound", "System space terminal not found"), { kind = "empty", detail = GodSystem.text("Hint_WaistSpaceMissing", "Claim or recover the system space terminal first.") })
         return
     end
@@ -3096,40 +3436,61 @@ function GodSystemWindow:populateWaistSpace()
         gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_SellSelected", "Sell selected"))
         gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_SellAllWaist", "Sell all"))
     end
-    local nextCost = info.nextCost
-    if nextCost then
-        gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_UpgradeWaistBag", "Upgrade terminal") .. " -" .. tostring(nextCost) .. GodSystem.text("Unit_CoinShort", "c"))
-    else
-        gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_WaistMaxLevel", "Max level"))
+    local function terminalUpgradeTitle(label, cost)
+        if cost then return label .. " -" .. tostring(cost) .. GodSystem.text("Unit_CoinShort", "c") end
+        return label .. " " .. GodSystem.text("Btn_WaistMaxLevel", "Max level")
     end
+    gsSetButtonTitle(self.thirdButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCapacity", "Upgrade capacity"), info.capacityNextCost))
+    gsSetButtonTitle(self.fourthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalReduction", "Upgrade reduction"), info.reductionNextCost))
+    gsSetButtonTitle(self.fifthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalRelief", "Upgrade relief"), info.reliefNextCost))
     self.fourthButton:setVisible(true)
     self.fifthButton:setVisible(true)
+    self.sixthButton:setVisible(true)
+    self.seventhButton:setVisible(true)
     if waistUnlockMode then
-        gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_WaistModeUnlock", "Mode: sell+list"))
+        gsSetButtonTitle(self.seventhButton, GodSystem.text("Btn_WaistModeUnlock", "Mode: sell+list"))
     else
-        gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_WaistModeOnly", "Mode: sell only"))
+        gsSetButtonTitle(self.seventhButton, GodSystem.text("Btn_WaistModeOnly", "Mode: sell only"))
     end
     if not info.autoRecycleUnlocked then
-        gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_WaistAutoRecycleUnlock", "Unlock auto -") .. tostring(info.autoRecycleUnlockCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
+        gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleUnlock", "Unlock auto -") .. tostring(info.autoRecycleUnlockCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
     elseif info.autoRecycleEnabled then
-        gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_WaistAutoRecycleDisable", "Auto off"))
+        gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleDisable", "Auto off"))
     else
-        gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_WaistAutoRecycleEnable", "Auto on"))
+        gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_WaistAutoRecycleEnable", "Auto on"))
     end
 
-    local status = string.format("%s Lv.%d/%d | %s %d | %s %d%% | %s %d/%d",
-        GodSystem.text("Waist_Status", "System space terminal"),
-        info.level or 1,
-        info.maxLevel or 1,
-        GodSystem.text("Waist_Capacity", "Capacity"),
-        info.capacity or 0,
-        GodSystem.text("Waist_Reduction", "Reduction"),
-        info.weightReduction or 0,
-        GodSystem.text("Waist_Items", "Items"),
-        info.itemCount or 0,
-        info.capacity or 0
-    )
-    self:addListItem(status, { kind = "info", data = status, detail = "" })
+    local actualReductionForExample = tonumber(info.actualWeightReduction) or tonumber(info.weightReduction) or 0
+    local burdenExample = 10 * (1 - actualReductionForExample / 100)
+    local actualCapacityText = info.actualCapacity ~= nil and tostring(math.floor(tonumber(info.actualCapacity) or 0)) or "?"
+    local actualReductionText = info.actualWeightReduction ~= nil and (tostring(math.floor(tonumber(info.actualWeightReduction) or 0)) .. "%") or "?"
+    local actualReliefText = info.actualRelief ~= nil and tostring(math.floor((tonumber(info.actualRelief) or 0) + 0.5)) or "?"
+    local visibleContentsWeight = tonumber(info.visibleContentsWeight) or 0
+    local effectiveCapacity = math.max(0, math.floor(tonumber(info.effectiveCapacity) or tonumber(info.capacity) or 0))
+    local capacityStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %.2f/%d",
+        GodSystem.text("Waist_Capacity", "Capacity"), info.capacityLevel or 1, info.capacityMaxLevel or 8,
+        GodSystem.text("Waist_Target", "Target"), info.capacity or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualCapacityText,
+        GodSystem.text("Waist_UsedCapacity", "Used"), visibleContentsWeight, effectiveCapacity)
+    local reductionStatus = string.format("%s | Lv.%d/%d | %s %d%% | %s %s",
+        GodSystem.text("Waist_Reduction", "Reduction"), info.reductionLevel or 1, info.reductionMaxLevel or 8,
+        GodSystem.text("Waist_Target", "Target"), info.weightReduction or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualReductionText)
+    local reliefStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %d",
+        GodSystem.text("Waist_Relief", "Space relief"), info.reliefLevel or 0, info.reliefMaxLevel or 0,
+        GodSystem.text("Waist_Target", "Target"), info.reliefOffset or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualReliefText,
+        GodSystem.text("Waist_EffectiveCapacity", "Effective space"), effectiveCapacity)
+    local capacityRule = GodSystem.text("Waist_CapacityRule", "Native capacity remains capped at 49; space relief offsets terminal contents weight.")
+    local reliefRule = GodSystem.text("Waist_ReliefRule", "Relief uses one hidden protected internal item. Cost, relief per level, and maximum relief are configurable in sandbox and system administration settings.")
+    local exampleStatus = string.format("%s | 10 -> %.2f",
+        GodSystem.text("Waist_ExampleReduction", "Reduction example: original -> burden"), burdenExample)
+    self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
+    self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
+    self:addListItem(reliefStatus, { kind = "info", data = reliefStatus, detail = "" })
+    self:addListItem(capacityRule, { kind = "info", data = capacityRule, detail = "" })
+    self:addListItem(reliefRule, { kind = "info", data = reliefRule, detail = "" })
+    self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
     local autoState = GodSystem.text("Waist_AutoRecycleLocked", "Locked")
     if info.autoRecycleUnlocked then
@@ -3464,12 +3825,24 @@ function GodSystemWindow:populateUpgrades()
     self.secondaryButton:setVisible(not gsIsMultiplayer())
     self.thirdButton:setVisible(false)
 
-    local upgrades = { "activeTasks", "dailyTasks" }
+    local upgrades = { "activeTasks", "dailyTasks", "carryCapacity" }
     for i = 1, #upgrades do
         local info = GodSystem.getSystemUpgradeInfo(upgrades[i])
         if info then
-            local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_Maxed", "Maxed")
-            local detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
+            local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c"))
+                or (info.upgradeType == "carryCapacity" and GodSystem.text("Upgrade_CostOverflow", "Unavailable") or GodSystem.text("Upgrade_Maxed", "Maxed"))
+            local detail = nil
+            if info.upgradeType == "carryCapacity" then
+                local status = info.carryStatus or {}
+                local actualBonus = tonumber(status.actualBonus) or 0
+                local actualBonusText = actualBonus >= 0 and ("+" .. tostring(actualBonus)) or tostring(actualBonus)
+                detail = GodSystem.text("Upgrade_CarryBase", "Current base") .. "(" .. tostring(status.base or "?") .. ")"
+                    .. " | " .. GodSystem.text("Upgrade_CarryBonus", "Actual bonus") .. "(" .. actualBonusText .. ")"
+                    .. " | " .. GodSystem.text("Upgrade_CarryTotal", "Final carry") .. "(" .. tostring(status.total or "?") .. ")"
+                    .. " | Lv." .. tostring(info.current) .. " | " .. costText
+            else
+                detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
+            end
             self:addListItem(info.label, { kind = "upgrade", data = info, detail = detail })
         end
     end
@@ -3533,7 +3906,8 @@ end
 
 function GodSystemWindow:applyUpgradeActionBar(payload)
     self.primaryButton:setVisible(true)
-    self.secondaryButton:setVisible(not gsIsMultiplayer())
+    local carrySelected = payload and payload.kind == "upgrade" and payload.data and payload.data.upgradeType == "carryCapacity"
+    self.secondaryButton:setVisible(carrySelected or not gsIsMultiplayer())
     self.thirdButton:setVisible(false)
     self.fourthButton:setVisible(false)
     self.fifthButton:setVisible(false)
@@ -3544,7 +3918,7 @@ function GodSystemWindow:applyUpgradeActionBar(payload)
         self.secondaryButton:setVisible(false)
     else
         gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_UpgradeSystem", "Upgrade"))
-        gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
+        gsSetButtonTitle(self.secondaryButton, carrySelected and GodSystem.text("Btn_RefreshCarryCapacity", "Refresh bonus") or GodSystem.text("Btn_RefreshDisplay", "Refresh"))
     end
     self:setStandardActionBar()
 end
@@ -4971,7 +5345,11 @@ function GodSystemWindow:onListOnlyAutoShopConfirm(button, payload)
         return
     end
     self:prepareActionSelection(row)
-    local sent = GodSystem.listOnlyAutoShopItem(row.data.fullType)
+    if not row.data.listItemId then
+        GodSystem.notify(GodSystem.text("Notify_ListItemChanged", "The selected item changed; reopen the recycle page"))
+        return
+    end
+    local sent = GodSystem.listOnlyAutoShopItem(row.data.fullType, row.data.listItemId)
     self:finishMultiplayerCommand(sent)
 end
 
@@ -4983,6 +5361,19 @@ function GodSystemWindow:buyShopPayload(payload, count)
     self:prepareActionSelection(payload)
     local sent = GodSystem.buyShopItem(payload.data, count or 1)
     self:finishMultiplayerCommand(sent)
+    return true
+end
+
+function GodSystemWindow:hideShopPayload(payload)
+    if not payload or payload.kind ~= "shop" or not payload.data or payload.data.unlocked ~= true then
+        GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select a player-listed shop item"))
+        return false
+    end
+    local variantKey = payload.data.variantKey or payload.data.fullType
+    if not variantKey then return false end
+    local sent = GodSystem.setShopItemHidden(variantKey, true)
+    self:finishMultiplayerCommand(sent)
+    if not gsIsMultiplayer() then self:populateList() end
     return true
 end
 
@@ -5005,6 +5396,9 @@ function GodSystemWindow:onListRightMouseUp(x, y)
         context:addOption(GodSystem.text("Menu_BuyOne", "Buy 1"), self, self.buyShopPayload, payload, 1)
         context:addOption(GodSystem.text("Menu_BuyTen", "Buy 10"), self, self.buyShopPayload, payload, 10)
         context:addOption(GodSystem.text("Menu_BuyFifty", "Buy 50"), self, self.buyShopPayload, payload, 50)
+        if payload.data.unlocked == true then
+            context:addOption(GodSystem.text("Menu_HideShopItem", "Hide this item"), self, self.hideShopPayload, payload)
+        end
         return true
     end
 
@@ -5104,6 +5498,12 @@ function GodSystemWindow:onSecondaryAction()
         end
         self:populateList()
     elseif self.mode == "upgrades" then
+        local payload = self:getSelectedPayload()
+        if payload and payload.kind == "upgrade" and payload.data and payload.data.upgradeType == "carryCapacity" then
+            local sent = GodSystem.refreshCarryCapacity()
+            self:finishMultiplayerCommand(sent)
+            return
+        end
         if self:requestServerRefresh() then
             return
         end
@@ -5193,12 +5593,13 @@ function GodSystemWindow:onThirdAction()
             GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
             return
         end
-        local fullType = payload.data.fullType
-        if not fullType and payload.data.items and payload.data.items[1] then
-            fullType = payload.data.items[1].fullType
+        local variantKey = payload.data.variantKey or payload.data.fullType
+        if not variantKey and payload.data.items and payload.data.items[1] then
+            variantKey = GodSystemShopVariants.getKey(payload.data.items[1].fullType, payload.data.items[1].worldSprite)
         end
-        local sent = GodSystem.removeUnlockedShopItem(fullType)
+        local sent = GodSystem.setShopItemHidden(variantKey, true)
         self:finishMultiplayerCommand(sent)
+        if not gsIsMultiplayer() then self:populateList() end
         return
     end
     if self.mode == "tasks" then
@@ -5242,7 +5643,7 @@ function GodSystemWindow:onFourthAction()
         return
     end
     if self.mode == "waist" then
-        local sent = GodSystem.toggleWaistAutoRecycle()
+        local sent = GodSystem.upgradeTerminal("reduction")
         self:finishMultiplayerCommand(sent)
         return
     end
@@ -5257,6 +5658,11 @@ function GodSystemWindow:onFourthAction()
 end
 
 function GodSystemWindow:onFifthAction()
+    if self.mode == "waist" then
+        local sent = GodSystem.upgradeTerminal("relief")
+        self:finishMultiplayerCommand(sent)
+        return
+    end
     if self.mode == "bank" then
         local sent = GodSystem.consolidateCurrency()
         self:finishMultiplayerCommand(sent)
@@ -5266,6 +5672,23 @@ function GodSystemWindow:onFifthAction()
         self:changeShopPage(1)
         return
     end
+    self:populateList()
+end
+
+function GodSystemWindow:onSixthAction()
+    if self.mode == "shop" then
+        GodSystemUI.openShopHiddenManager(self)
+        return
+    end
+    if self.mode == "waist" then
+        local sent = GodSystem.toggleWaistAutoRecycle()
+        self:finishMultiplayerCommand(sent)
+        return
+    end
+    self:populateList()
+end
+
+function GodSystemWindow:onSeventhAction()
     if self.mode == "waist" then
         local sent = GodSystem.toggleWaistRecycleUnlockMode()
         self:finishMultiplayerCommand(sent)
@@ -5275,6 +5698,7 @@ function GodSystemWindow:onFifthAction()
 end
 
 function GodSystemWindow:close()
+    if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
     local data = GodSystem.getData()
     data.ui.windowX = math.floor(self.x or 0)
     data.ui.windowY = math.floor(self.y or 0)
@@ -5282,6 +5706,30 @@ function GodSystemWindow:close()
     GodSystem.save()
     ISCollapsableWindow.close(self)
     GodSystemUI.window = nil
+end
+
+function GodSystemUI.openShopHiddenManager(owner)
+    if GodSystemUI.shopHiddenWindow then
+        GodSystemUI.shopHiddenWindow:setVisible(true)
+        GodSystemUI.shopHiddenWindow:bringToTop()
+        GodSystemUI.shopHiddenWindow:populateItems()
+        return GodSystemUI.shopHiddenWindow
+    end
+    local width, height = 760, 520
+    local screenW = getCore():getScreenWidth()
+    local screenH = getCore():getScreenHeight()
+    local x = math.max(0, math.floor((screenW - width) / 2))
+    local y = math.max(0, math.floor((screenH - height) / 2))
+    local window = GodSystemShopHiddenWindow:new(x, y, width, height, owner or GodSystemUI.window)
+    window:initialise()
+    window:addToUIManager()
+    window:setVisible(true)
+    GodSystemUI.shopHiddenWindow = window
+    return window
+end
+
+function GodSystemUI.closeShopHiddenWindow()
+    if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
 end
 
 function GodSystemUI.toggleWindow()
@@ -5332,6 +5780,9 @@ function GodSystemUI.openMode(mode)
     end
     window:captureSelection()
     window.mode = mode
+    if mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
+        GodSystemNetwork.requestTerminalState()
+    end
     window:updateModeButtonStyles()
     window:populateList()
     window:requestDeferredPopulate(1)
@@ -5424,4 +5875,10 @@ end
 
 if Events.OnGameStart then
     Events.OnGameStart.Add(GodSystemUI.onGameStart)
+end
+if Events.OnDisconnect then
+    Events.OnDisconnect.Add(GodSystemUI.closeShopHiddenWindow)
+end
+if Events.OnMainMenuEnter then
+    Events.OnMainMenuEnter.Add(GodSystemUI.closeShopHiddenWindow)
 end

@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.53",
+    [int]$ExpectedAdminSettings = 68,
     [switch]$SkipLegacyTerminalChecks
 )
 
@@ -71,12 +72,12 @@ Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') "B42 mod.i
 Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 $settingCount = ([regex]::Matches($admin, '(?m)^\s*\{\s*key\s*=\s*"')).Count
-if ($settingCount -ne 68) { throw "Expected 68 admin settings, found $settingCount" }
+if ($settingCount -ne $ExpectedAdminSettings) { throw "Expected $ExpectedAdminSettings admin settings, found $settingCount" }
 foreach ($key in @('EnableAttributes', 'AttributeXPPerCoin')) {
     Require-Text $admin ('key\s*=\s*"' + $key + '"') "Missing admin setting: $key"
     Require-Text $sandbox ('option\s+GodSystem\.' + $key + '\b') "Missing sandbox option: $key"
 }
-Require-Text $generator 'Expected 68 admin settings' 'Localization generator must validate 68 settings'
+Require-Text $generator ("Expected " + $ExpectedAdminSettings + " admin settings") "Localization generator must validate $ExpectedAdminSettings settings"
 
 Require-Text $config 'AutoRecyclerFullType\s*=\s*"GodSystem\.SystemSpaceTerminal"' 'Primary system container must be SystemSpaceTerminal'
 Require-Text $config '\["GodSystem\.SystemSpaceTerminal"\]\s*=\s*true' 'SystemSpaceTerminal alias missing'
@@ -92,8 +93,10 @@ if (-not $SkipLegacyTerminalChecks) {
     Require-Text $server 'migrateSystemSpaceTerminal' 'MP terminal migration entry missing'
 }
 else {
-    Require-Text $items 'CanBeEquipped\s*=\s*base:necklace' 'Current system terminal must use the vanilla necklace slot'
-    if (Test-Path -LiteralPath (Join-Path $Media 'registries.lua')) { throw 'Legacy terminal registry must be absent when legacy checks are skipped' }
+    Require-Text $items 'BodyLocation\s*=\s*GodSystem:SystemSpaceTerminal' 'Current system terminal BodyLocation must use the independent slot'
+    Require-Text $items 'CanBeEquipped\s*=\s*GodSystem:SystemSpaceTerminal' 'Current system terminal must use the independent slot'
+    Require-Text (Read-Utf8 (Join-Path $Media 'registries.lua')) 'ItemBodyLocation\.register\("GodSystem:SystemSpaceTerminal"\)' 'Current terminal registry entry missing'
+    Require-Text (Read-Utf8 (Join-Path $Lua 'shared\GodSystem_BodyLocations.lua')) 'getOrCreateLocation' 'Current terminal slot must join the Human body-location group'
 }
 Require-Text $core 'function\s+GodSystem\.removeCurrency[\s\S]*GodSystem\.removeCurrencyItem\(' 'SP currency removal must verify each exact item removal'
 Require-Text $server 'local function removeCurrency[\s\S]*if\s+not\s+removeItemFromContainer\(' 'MP currency removal must verify each exact item removal'

@@ -69,14 +69,26 @@ module GodSystem
         Weight = 0.1,
         Capacity = 10,
         WeightReduction = 50,
-        BodyLocation = base:necklace,
-        CanBeEquipped = base:necklace,
-        ClothingItem = SystemSpaceTerminal,
+        BodyLocation = GodSystem:SystemSpaceTerminal,
+        CanBeEquipped = GodSystem:SystemSpaceTerminal,
+        ClothingItem = AthleticCup,
         CloseSound = CloseFannyPack,
         EquipSound = EquipFannyPack,
         OpenSound = OpenFannyPack,
         PutInSound = StoreItemInFannyPack,
         Tooltip = Tooltip_GodSystem_SystemSpaceTerminal,
+    }
+
+    item SystemTerminalRelief
+    {
+        DisplayName = System Terminal Relief,
+        DisplayCategory = Hidden,
+        ItemType = base:food,
+        Icon = Money,
+        Weight = 1,
+        HungerChange = -1,
+        CantEat = true,
+        Hidden = true,
     }
 
 }

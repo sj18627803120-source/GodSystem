@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.56"
+GodSystemConfig.Version = "1.16.63"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -42,6 +42,9 @@ GodSystemConfig.ActiveTaskUpgradeCosts = {
     [9] = 560,
     [10] = 750,
 }
+GodSystemConfig.CarryCapacityPerLevel = 2
+GodSystemConfig.CarryCapacityBaseCost = 2000
+GodSystemConfig.CarryCapacityCostMultiplier = 1.5
 GodSystemConfig.RefreshTaskCost = 30
 GodSystemConfig.DefaultTaskLimitHours = 24
 GodSystemConfig.MedicalCheckInfectionCost = 50
@@ -105,6 +108,17 @@ GodSystemConfig.AutoRecyclerFullTypes = {
 }
 GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
 GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
+GodSystemConfig.AutoRecyclerCapacityLevelKey = "GodSystemTerminalCapacityLevel"
+GodSystemConfig.AutoRecyclerReductionLevelKey = "GodSystemTerminalReductionLevel"
+GodSystemConfig.TerminalReliefFullType = "GodSystem.SystemTerminalRelief"
+GodSystemConfig.TerminalReliefLevelKey = "GodSystemTerminalReliefLevel"
+GodSystemConfig.TerminalReliefItemMarkerKey = "GodSystemTerminalRelief"
+GodSystemConfig.TerminalReliefOwnerKey = "GodSystemTerminalReliefOwner"
+GodSystemConfig.TerminalReliefOffsetKey = "GodSystemTerminalReliefOffset"
+GodSystemConfig.TerminalReliefVersionKey = "GodSystemTerminalReliefVersion"
+GodSystemConfig.TerminalReliefUpgradeCost = 2000
+GodSystemConfig.TerminalReliefPerLevel = 5
+GodSystemConfig.TerminalReliefMaxOffset = 2000
 GodSystemConfig.AutoRecyclerCapacity = 10
 GodSystemConfig.AutoRecyclerWeightReduction = 50
 GodSystemConfig.AutoRecyclerIntervalHours = 0
@@ -120,10 +134,31 @@ GodSystemConfig.AutoRecyclerLevels = {
     { level = 7, capacity = 42, weightReduction = 90, upgradeCost = 800 },
     { level = 8, capacity = 49, weightReduction = 99, upgradeCost = 1100 },
 }
+GodSystemConfig.TerminalCapacityLevels = {
+    { level = 1, value = 10, upgradeCost = 0 },
+    { level = 2, value = 15, upgradeCost = 60 },
+    { level = 3, value = 20, upgradeCost = 120 },
+    { level = 4, value = 25, upgradeCost = 220 },
+    { level = 5, value = 30, upgradeCost = 350 },
+    { level = 6, value = 35, upgradeCost = 550 },
+    { level = 7, value = 42, upgradeCost = 800 },
+    { level = 8, value = 49, upgradeCost = 1100 },
+}
+GodSystemConfig.TerminalCapacityMaxLevel = #GodSystemConfig.TerminalCapacityLevels
+GodSystemConfig.TerminalReductionLevels = {
+    { level = 1, value = 50, upgradeCost = 0 },
+    { level = 2, value = 55, upgradeCost = 100 },
+    { level = 3, value = 60, upgradeCost = 200 },
+    { level = 4, value = 65, upgradeCost = 400 },
+    { level = 5, value = 70, upgradeCost = 700 },
+    { level = 6, value = 80, upgradeCost = 1100 },
+    { level = 7, value = 90, upgradeCost = 1700 },
+    { level = 8, value = 99, upgradeCost = 2500 },
+}
 GodSystemConfig.AutoRecyclerRecoverCosts = {
     { maxLevel = 3, cost = 10 },
     { maxLevel = 6, cost = 35 },
-    { maxLevel = 8, cost = 80 },
+    { maxLevel = GodSystemConfig.TerminalCapacityMaxLevel, cost = 80 },
 }
 GodSystemConfig.AutoUnlockShopFromRecycle = true
 GodSystemConfig.AutoShopAllowAnyModule = true
@@ -169,6 +204,7 @@ GodSystemConfig.LotteryBlacklist = {
     ["GodSystem.SystemRepairKit"] = true,
     ["GodSystem.DurabilityCore"] = true,
     ["GodSystem.SystemVehicleRepairModule"] = true,
+    ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
 }
 GodSystemConfig.ModCategoryBuyPrices = {
@@ -349,6 +385,7 @@ GodSystemConfig.AutoShopBlacklist = {
     ["GodSystem.DurabilityCore"] = true,
     ["GodSystem.SystemVehicleRepairModule"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
+    ["GodSystem.SystemTerminalRelief"] = true,
 }
 
 GodSystemConfig.FloatingButton = {
@@ -365,6 +402,7 @@ GodSystemConfig.RecycleBlacklist = {
     ["GodSystem.SystemCoin10"] = true,
     ["GodSystem.SystemCoin100"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
+    ["GodSystem.SystemTerminalRelief"] = true,
 }
 
 GodSystemConfig.ShopItems = {
@@ -936,7 +974,7 @@ GodSystemConfig.TaskTemplates = {
     },
     {
         id = "move_1500",
-        title = "区域踏查",
+        title = "区域调查",
         kind = "moveDistance",
         target = 1500,
         limitHours = 36,

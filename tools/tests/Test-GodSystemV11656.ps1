@@ -1,5 +1,6 @@
 param(
-    [string]$Root = ""
+    [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.56"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,10 +35,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.56"' 'Config version must be 1.16.56'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.56\r?$' 'Root mod.info version must be 1.16.56'
-Require-Text $b42Info '(?m)^modversion=1\.16\.56\r?$' 'B42 mod.info version must be 1.16.56'
-Require-Text $workshop '(?m)^description=v1\.16\.56\r?$' 'Workshop metadata must mention v1.16.56'
+$versionPattern = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') ("Config version must be " + $ExpectedVersion)
+Require-Text $rootInfo ('(?m)^modversion=' + $versionPattern + '\r?$') ("Root mod.info version must be " + $ExpectedVersion)
+Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') ("B42 mod.info version must be " + $ExpectedVersion)
+Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') ("Workshop metadata must mention " + $ExpectedVersion)
 
 Require-Text $companion 'require\s+"GodSystem_CompanionVisual"' 'Companion visual module is not required'
 Require-Text $visual 'Visual\.CanvasWidth\s*=\s*32' 'Pixel canvas width must be 32'

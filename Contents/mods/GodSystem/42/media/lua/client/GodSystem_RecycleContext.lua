@@ -66,8 +66,9 @@ local function uniqueTypeCount(items)
     local count = 0
     for i = 1, #items do
         local fullType = items[i]:getFullType()
-        if not seen[fullType] then
-            seen[fullType] = true
+        local variantKey = GodSystemShopVariants.getKey(fullType, items[i])
+        if not seen[variantKey] then
+            seen[variantKey] = true
             count = count + 1
         end
     end
@@ -80,8 +81,9 @@ local function listOnlyCost(items)
     for i = 1, #items do
         local item = items[i]
         local fullType = item:getFullType()
-        if not seen[fullType] then
-            seen[fullType] = true
+        local variantKey = GodSystemShopVariants.getKey(fullType, item)
+        if not seen[variantKey] then
+            seen[variantKey] = true
             local sellValue = GodSystem.getItemSellPrice(fullType, item)
             local cost = GodSystem.getAutoShopListOnlyCost(fullType, sellValue)
             total = total + cost
@@ -90,31 +92,55 @@ local function listOnlyCost(items)
     return total
 end
 
-local function disabledReason(items, mode)
+local function classifyItems(items, mode)
+    local result = { eligible = {}, skipped = 0, firstReason = nil }
     if not GodSystem or GodSystem.isFeatureEnabled("EnableRecycle") == false then
-        return "ContextReason_RecycleDisabled"
+        result.skipped = #items
+        result.firstReason = "ContextReason_RecycleDisabled"
+        return result
     end
     for i = 1, #items do
-        local allowed, reason = GodSystem.canContextRecycleItem(items[i])
+        local item = items[i]
+        local allowed, reason = GodSystem.canContextRecycleItem(item)
+        local reasonKey = nil
         if not allowed then
-            return reason == "protected" and "ContextReason_Protected" or "ContextReason_Invalid"
-        end
-        if mode ~= "recycle" then
-            local listable, listReason = GodSystem.canContextListItem(items[i])
+            reasonKey = reason == "protected" and "ContextReason_Protected" or "ContextReason_Invalid"
+        elseif mode ~= "recycle" then
+            local listable, listReason = GodSystem.canContextListItem(item)
             if not listable then
-                if listReason == "alreadyListed" then return "ContextReason_AlreadyListed" end
-                return "ContextReason_NotListable"
+                if listReason == "alreadyListed" then
+                    reasonKey = "ContextReason_AlreadyListed"
+                elseif listReason == "hiddenListed" then
+                    reasonKey = "ContextReason_HiddenListed"
+                elseif listReason == "configuredListed" then
+                    reasonKey = "ContextReason_ConfiguredListed"
+                else
+                    reasonKey = "ContextReason_NotListable"
+                end
             end
         end
+        if reasonKey then
+            result.skipped = result.skipped + 1
+            result.firstReason = result.firstReason or reasonKey
+        else
+            result.eligible[#result.eligible + 1] = item
+        end
     end
-    return nil
+    return result
 end
 
-local function setDisabled(option, key)
-    if not option or not key then return end
-    option.notAvailable = true
+local function setOptionSummary(option, classification)
+    if not option or not classification then return end
     option.toolTip = ISInventoryPaneContextMenu.addToolTip()
-    option.toolTip.description = text(key, key)
+    if #classification.eligible <= 0 then
+        option.notAvailable = true
+        option.toolTip.description = text(classification.firstReason or "ContextReason_Invalid", "No eligible items")
+        return
+    end
+    option.toolTip.description = formatText(text("Context_EligibleSummary", "Eligible: {1}; skipped: {2}"), {
+        #classification.eligible,
+        classification.skipped,
+    })
 end
 
 local function containsId(container, expectedId)
@@ -159,7 +185,8 @@ function Context.execute(payload)
         payload.mode,
         itemIds,
         payload.allowDestroyContents == true,
-        payload.containerContentSignatures
+        payload.containerContentSignatures,
+        payload.skippedCount or 0
     )
 end
 
@@ -238,16 +265,24 @@ end
 function Context.fillInventoryMenu(playerNum, context, values)
     local items = collectItems(values)
     if #items <= 0 then return end
-    local payload = { playerNum = playerNum, items = items }
+    local function addModeOption(labelKey, fallback, mode)
+        local classification = classifyItems(items, mode)
+        local label = text(labelKey, fallback)
+        if classification.skipped > 0 and #classification.eligible > 0 then
+            label = label .. " (" .. tostring(#classification.eligible) .. "/" .. tostring(#items) .. ")"
+        end
+        local payload = {
+            playerNum = playerNum,
+            items = classification.eligible,
+            skippedCount = classification.skipped,
+        }
+        local option = context:addOption(label, payload, Context.begin, mode)
+        setOptionSummary(option, classification)
+    end
 
-    local recycle = context:addOption(text("Menu_ContextRecycle", "Recycle"), payload, Context.begin, "recycle")
-    setDisabled(recycle, disabledReason(items, "recycle"))
-
-    local recycleAndList = context:addOption(text("Menu_ContextRecycleAndList", "Recycle and list"), payload, Context.begin, "recycleAndList")
-    setDisabled(recycleAndList, disabledReason(items, "recycleAndList"))
-
-    local listOnly = context:addOption(text("Menu_ContextListOnly", "List only"), payload, Context.begin, "listOnly")
-    setDisabled(listOnly, disabledReason(items, "listOnly"))
+    addModeOption("Menu_ContextRecycle", "Recycle", "recycle")
+    addModeOption("Menu_ContextRecycleAndList", "Recycle and list", "recycleAndList")
+    addModeOption("Menu_ContextListOnly", "List only", "listOnly")
 end
 
 Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)

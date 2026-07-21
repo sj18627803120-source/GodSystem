@@ -12,6 +12,41 @@ Use this order when designing or debugging:
 
 Version match matters. Official source wins only when it matches or clearly applies to the target version.
 
+When working in GodSystem, start with the repository's [reference MOD research index](../../../../../docs/reference-mod-research/README.md) and [version catalog](../../../../../docs/reference-mod-research/catalog.md). Reports deliberately separate `代码确认`, `作者声明`, `合理推断`, and `待实机验证`; do not collapse those labels when promoting a rule.
+
+## Official B42 Migration Evidence
+
+Read the repository's [official B42 development reference](../../../../../docs/PZ_B42_OFFICIAL_DEVELOPMENT_CN.md) before relying on community summaries.
+
+- The Indie Stone's published migration guide targets 42.13, which introduced the registry and multiplayer Inventory Item architecture still used by 42.19. It is strong architectural evidence, but not a substitute for current 42.19 method signatures.
+- `media/registries.lua` must have that exact path and name and loads before scripts and ordinary Lua. Register custom `ItemType`, `ItemTag`, `ItemBodyLocation`, trait/profession IDs, and other listed identifiers before script use.
+- B42 item scripts use `ItemType`, not the old `Type`; item display names come from translation keys rather than a script `DisplayName` field.
+- In MP, create, remove, and mutate inventory items on the server. Synchronize with the matching add/remove/field/stat/ModData function. A client-created item is not authoritative and may disappear after relog.
+- Network Timed Actions keep visual work in client `perform()` and item/object mutation in server/SP `complete()`. Constructor argument names must match serializable object fields, and `getDuration()` must recompute duration on the authority side.
+- For non-Timed-Action commands, `sendClientCommand(player, module, command, args)` reaches `OnClientCommand(module, command, player, args)`. The handler must re-resolve real objects and validate all authoritative state.
+- The official guide itself says changed Lua APIs should be checked against decompiled Java and warns that unstable patches continue changing APIs. Java existence still does not prove a Kahlua-callable overload; verify a same-version vanilla call or a minimal live test.
+
+## PZwiki And Community Tooling
+
+Read the repository's [community development resource review](../../../../../docs/PZ_COMMUNITY_DEVELOPMENT_RESOURCES_CN.md) before adopting a community API.
+
+- PZwiki page titles are intentionally generic, but page source uses `Page version` markers. Community maintenance is asynchronous; check the page marker and warnings instead of assuming a generic title means B42.19 coverage.
+- `PZ Community API` targets 41.56-IWBUMS and its latest code is from 2021. Its MIT-licensed module organization, EmmyLua annotations, light lifecycle, scan utilities, and delayed-square queue are useful design references, but the code is not a B42.19 dependency.
+- `SpawnerAPI` is a submodule of that repository, not a separate project. Its server module is empty and spawning is client-side, so do not use it for B42 multiplayer authority. Its delayed branch also looks up lowercase `spawnItem`-style keys while the exported functions are uppercase `SpawnItem`-style keys; Lua is case-sensitive, so this code is not a working queue reference. Rebuild any similar queue with serializable records, server validation, current synchronization, bounded persistence, and operation IDs.
+- Treat its scan helpers as structural examples only. The old `IsoUtils.GetIsoRange()` hardcodes `z=0`, calls `getOrCreateGridSquare()`, and contains a nil dereference path in `RecursiveGetSquare()`. A B42 runtime scan must preserve the caller's floor, avoid creating unloaded squares, bound work, and validate every returned square.
+- `Archive.Project-Zomboid-Modding` is an active archive, not a runtime API. It has no repository-wide license; verify each file's author, source, version, and permission. Use its TIS guide copies as mirrors of the original forum attachments, not as proof that unrelated archived assets are official or redistributable.
+
+## Cross-Source Research Rules
+
+- Server-authoritative economy means the server resolves the listing, price, stock, balance, item ownership, and final mutation. A server handler alone is insufficient when it still trusts a client price or item snapshot. Compare [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md), [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md), and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).
+- Paid delivery should reserve scarce state, record the exact payment split, perform delivery, verify the result where possible, and restore stock/payment on failure. Offline queues need both a player-created event and a client hello/retry path. See [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md).
+- Inventory mutation must resolve real item IDs on the authority side and explicitly synchronize add/remove operations. Client snapshots are display/request data, not ownership proof. See [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md) and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).
+- Apparent storage beyond the B42 container limit can be multiple standard-capacity containers, not one oversized `ItemContainer`. Recursive weight compression must store an instance base weight, restore on controlled transfer, and avoid global script mutation. See [Cultivation Storage Artifacts](../../../../../docs/reference-mod-research/mods/CultivationStorageArtifacts.md).
+- Never use `ScriptItem:DoParam()` or `scriptItem:setActualWeight()` for player-specific/per-instance state. Script items are shared prototypes; modifying one fullType can affect other instances and future spawns. Global fallback/classification MODs use this intentionally for global behavior, as shown by [that DAMN Library](../../../../../docs/reference-mod-research/mods/damnlib.md) and [Extended Categories](../../../../../docs/reference-mod-research/mods/CAExtendedCategories.md).
+- Adding a runtime trait marker does not replay creation-time items, injuries, recipes, XP boosts, or custom initialization. Enumerate standard definitions, revalidate cost/conflicts on the server, and use explicit adapters for supported side effects. See [More Traits](../../../../../docs/reference-mod-research/mods/MoreTraits.md) and [Traits Purchase System](../../../../../docs/reference-mod-research/mods/TraitsPurchaseSystem.md).
+- Keep constant-time state updates separate from target scans. Throttle full zombie-list scans, batch large square scans across ticks, and unregister temporary UI events after success. See [Psionic Awakening](../../../../../docs/reference-mod-research/mods/PsionicAwakening.md) and [Extended Categories](../../../../../docs/reference-mod-research/mods/CAExtendedCategories.md).
+- Debug/admin commands prove an engine call exists, not that it is safe for a paid player workflow. Wrap the vanilla call with real item, distance, permission, payment, failure, and synchronization checks. See [DebugMenu](../../../../../docs/reference-mod-research/mods/DebugMenu.md).
+
 ## Lessons From GodSystem
 
 - A mod can work as one SP/MP entry when client and server files are guarded correctly.
@@ -82,12 +117,14 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 - The vanilla command is admin/cheat oriented. A paid repair consumable should keep its own server-authoritative business checks and call `vehicle:repair()` only after those checks; never trust a client-side repair result.
 - If SP direct client repair is ineffective, load a guarded SP server bridge and reuse the same consumable command. Consume before repair, refund on verified failure, and return the same structured result shape used by MP.
 - After `vehicle:repair()`, refresh part/bullet statistics and transmit part condition, item, and ModData when available. Re-read the damage summary before success; a successful Java call is not by itself proof that a custom vehicle accepted the repair.
+- A MOD vehicle may log an uncreatable missing item such as `Couldn't find item nil2` and retain that part even though other damage was repaired. For a paid consumable, compare pre/post damage counts: any measurable decrease is a successful repair and consumes the item; refund only when the call errors or produces no change.
 - Treat `vehicle:repair()` as `BaseVehicle` compatibility. Do not promise support for MOD vehicles that replace the standard part or repair system.
 
 ## B42.19 Wearable Containers
 
-- A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`; a missing script `BodyLocation` yields a null runtime location even when the registry and `CanBeEquipped` exist.
-- Static agreement across those declarations does not replace a live wear test. If the target patch still rejects the custom location, switch the unpublished item to a verified vanilla slot and remove the custom registry rather than preserving compatibility for a build that was never released.
+- A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. The registry ID alone does not create the location in the Human body-location group.
+- Static agreement across those declarations does not replace SP and MP live wear tests. Keep MP clients read-only for discovered container instances, and let the server synchronize only verified changes so inventory packets do not compete with `ISWearClothing`/`ISUnequipAction`.
+- If dropping/reacquiring or reconnecting fixes a dynamic capacity display, the server state is probably correct but the current client Java item instance is stale. Return authoritative capacity/reduction/helper state keyed by exact item ID after each mutation, call the native item-field sync path, and apply that payload only after active wear/transfer actions finish. Page-open sync is a bounded fallback, not a render-loop refresh.
 
 ## Sandbox Defaults
 
@@ -95,6 +132,16 @@ Use this when compatibility and low pressure matter more than anti-cheat:
 - Sandbox values are initialization defaults unless the product explicitly defines them as live authority. Import only when the persistent settings field is `nil`; do not treat an existing empty table as a new world.
 - Keep structured item overrides out of scalar sandbox options. Preserve them in the existing admin storage and synchronization path.
 - Generate CN/CH sandbox localization from the same UTF-8 source and test that admin keys, sandbox keys, and translation keys form matching sets.
+
+## B42.19 Negative-Weight Terminal Relief
+
+- `InventoryItem.setActualWeight()` clamps ordinary negative weights, so it cannot directly create reliable relief. A Food instance can produce native negative actual weight when its script baseline has `Weight=1`, `HungerChange=-1`, and the instance `hungChange` is changed to a positive value.
+- For a desired offset `R`, set only the internal Food instance to `hungChange=R/100`, then verify `getActualWeight()` is approximately `-R`. Never mutate the shared `ScriptItem` definition.
+- `ItemContainer.getContentsWeight()` includes the negative result, so Java capacity checks continue to decide whether items fit. This is more reliable than Lua-wrapping exposed capacity helpers, because Java internal calls may bypass Lua method replacement.
+- Keep one hidden, non-edible, favorite and unwanted internal item at the top level of the owned terminal. Exclude its full type from recycle, auto-listing, lottery and player-facing counts.
+- B42.19 favorite and unwanted methods do not share signatures. `isFavorite()` is parameterless, while unwanted state is player-scoped: use `isUnwanted(player)` and `setUnwanted(player, value)`. Pass the local SP player or authoritative MP player through the shared terminal-apply API instead of guessing an overload.
+- Audit only on explicit lifecycle and transaction boundaries. Do not add per-frame, minute, or periodic inventory scans. In MP, create/remove/change the internal item only on the server and use `sendAddItemToContainer`, `sendRemoveItemFromContainer`, `sendItemStats`, and ModData transmission for synchronization.
+- Snapshot the internal item before a paid upgrade. Apply and verify first, charge second, and restore plus synchronize the snapshot if payment or later validation fails.
 
 Recommended trust split:
 

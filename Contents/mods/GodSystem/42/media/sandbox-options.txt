@@ -180,6 +180,36 @@ option GodSystem.AttributeXPPerCoin
     translation = GodSystem_AttributeXPPerCoin,
 }
 
+option GodSystem.TerminalReliefUpgradeCost
+{
+    type = integer,
+    min = 0,
+    max = 100000000,
+    default = 2000,
+    page = GodSystem_Base,
+    translation = GodSystem_TerminalReliefUpgradeCost,
+}
+
+option GodSystem.TerminalReliefPerLevel
+{
+    type = integer,
+    min = 1,
+    max = 5000,
+    default = 5,
+    page = GodSystem_Base,
+    translation = GodSystem_TerminalReliefPerLevel,
+}
+
+option GodSystem.TerminalReliefMaxOffset
+{
+    type = integer,
+    min = 0,
+    max = 5000,
+    default = 2000,
+    page = GodSystem_Base,
+    translation = GodSystem_TerminalReliefMaxOffset,
+}
+
 option GodSystem.ShopBuyPriceMultiplier
 {
     type = double,

@@ -8,7 +8,7 @@ description: Project Zomboid mod development workflow for Build 42/B42.19 and si
 ## Core Workflow
 
 1. Confirm the target game version, mod directory, and whether the user wants live-test edits or stable backup edits.
-2. Use Superpowers as the default process layer for GodSystem work; do not treat a "small change" label as a reason to skip it. Use `brainstorming` before new features, unclear requirements, UI/MP/economy behavior changes, or scope expansion; use `writing-plans` before multi-file or risky changes; use `subagent-driven-development` when executing a planned complex change with separable workstreams; use `dispatching-parallel-agents` for independent research/review tasks or disjoint write scopes when subagents are authorized; use `systematic-debugging` for any bug, red error, regression, encoding issue, or test failure; use `verification-before-completion` before claiming the handoff is complete.
+2. Use the direct repository workflow: clarify requirements, inspect the existing call path, verify B42.19 APIs against vanilla or official evidence, define the smallest change, implement on a Git branch, and run fresh verification before handoff. For bugs, trace the stack and data flow to the root cause before editing. Do not guess method signatures or silently expand scope.
 3. Read the existing mod before designing changes. Prefer `rg`, `rg --files`, and focused file reads.
 4. Check same-version official docs or vanilla files first when available; then inspect same-version reference mods; then use older docs/mods only as weaker evidence.
 5. Make the smallest change that matches the existing mod style. Do not refactor unrelated systems while fixing one feature.
@@ -20,16 +20,24 @@ description: Project Zomboid mod development workflow for Build 42/B42.19 and si
 
 For detailed patterns learned from GodSystem and reference mods, read `references/pz-b42-patterns.md` when working on multiplayer, packaging, localization, item scripts, or UI stability.
 
-## Superpowers Coordination
+## Reference Research Workflow
 
-Use Superpowers to turn broad requests into bounded work instead of jumping straight into Lua edits:
+When the current repository contains `docs/reference-mod-research/README.md`, read that index before relying on internet summaries or asking for local third-party source trees. The library is designed to be sufficient for a second development machine that has only the Git repository.
 
-- Run `brainstorming` when the user asks for a new feature, UI change, economy change, multiplayer behavior, or any request with unclear acceptance criteria.
-- Run `writing-plans` before touching code for changes that span multiple files, alter MP/SP contracts, touch economy persistence, or require staged validation.
-- Prefer `subagent-driven-development` for an approved plan whose tasks can be separated and reviewed independently.
-- Use `dispatching-parallel-agents` for independent fact-finding: compare reference mods, inspect vanilla B42 files, audit localization coverage, check packaging, or review a risky diff. Keep prompts narrow and self-contained.
-- Use `systematic-debugging` before proposing fixes for red errors, UI disappearing, MP desync, encoding corruption, task progress regressions, or player feedback that might be a real bug.
-- Use `verification-before-completion` at the end of every handoff, including documentation-only work, and report what was actually checked.
+- Select evidence by target version: same-version vanilla/official files first, then `B42.19 同版本证据`, then `旧 B42 参考`, and use `B41 弱参考` only for architecture.
+- Keep four claim types distinct: `代码确认`, `作者声明`, `合理推断`, and `待实机验证`.
+- A source comment or Workshop MP claim does not prove server authority. Trace request, server validation, mutation, synchronization, result, refund, and retry behavior.
+- Never promote an inferred risk into a confirmed defect without a reproduction, log, or explicit code path that guarantees the failure.
+- Do not copy or commit third-party source/assets. Record relative source paths, symbol names, behavior summaries, limits, search terms, and adoption guidance.
+- When a stable cross-source rule is promoted into this skill, retain a link to at least one source report in `references/pz-b42-patterns.md`.
+
+## Direct Engineering Workflow
+
+- For new features, UI, economy, or multiplayer changes, confirm the business rules, scope, failure paths, and acceptance checks before editing.
+- For multi-file or high-risk changes, write a short task checklist with affected files, protocol/save impact, rollback behavior, and verification commands. Do not use a plan as permission to refactor unrelated code.
+- For bugs, preserve the stack trace, reproduce or model the smallest failing path, compare against a working same-version example, and add a focused regression test when practical.
+- For independent research, read-only audits may be separated by file or topic. Never let concurrent workers edit the same Lua file, decide final architecture independently, or replace the main integration and verification pass.
+- Before handoff, run the relevant tests, encoding checks, and Lua 5.1 compilation. State exactly what was verified and what still needs game or MP testing.
 
 Subagent boundaries:
 
@@ -107,11 +115,15 @@ For compatibility-first B42 mods:
 - B42.19's vanilla server vehicle command ultimately calls `vehicle:repair()`. A paid MOD item may call that server-side method after its own validation; do not expose a client-authoritative repair path, and do not claim compatibility with vehicles that replace `BaseVehicle` repair behavior.
 - Keep SP paid repair behind the same command boundary when direct client mutation proves ineffective. A guarded SP server Lua file can handle the existing command locally, consume/refund the real item, call the shared repair helper, and return a structured result without adding a second business path.
 - After full repair, refresh part and bullet statistics and transmit each part's condition, inventory item, and ModData where those methods exist. Verify the real post-repair damage summary before reporting success.
+- Some MOD vehicles retain an invalid missing part after `vehicle:repair()` while other damage is actually fixed. Settle a paid repair by measurable progress: success when the post-repair damaged count is lower, and refund only on an exception or no change. Do not duplicate the consumable because one unrecoverable custom part remains.
 
 ## B42 Wearable Containers
 
-- A custom wearable container needs the same registered namespaced location in all three places: `ItemBodyLocation.register(...)`, script `BodyLocation`, and script `CanBeEquipped`. `CanBeEquipped` alone can leave the worn-item location null and crash both context-menu tooltip checks and the wear timed action.
-- Treat those three declarations as necessary, not sufficient. If the target B42 patch still rejects the custom slot in a live wear test, use a verified vanilla body location such as `base:necklace` and remove the unpublished registry instead of layering migrations around a broken prototype.
+- A custom wearable container needs the same namespaced location in four places: `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. Registering the ID without adding it to the Human group leaves the runtime slot incomplete.
+- Treat those four declarations as necessary, not sufficient. Verify the target B42 patch in SP and MP before calling the slot stable.
+- On MP clients, container discovery and UI reads must not mutate capacity, reduction, name, ModData, or internal helper items. Keep instance mutation authoritative on the server and skip setter/stat/ModData synchronization when the verified value is already correct.
+- Dynamic server-side container fields may persist correctly while an already-held client item instance remains stale. Send a server-authored payload keyed by the real item ID, use native item-field synchronization, and let the client apply only that explicit payload. A one-shot page-open request may repair missed state, but must not run from list population or rendering.
+- Defer background item/state synchronization while a vanilla Timed Action or inventory interaction is active. Use a bounded retry interval rather than checking a deferred interaction every frame.
 - B42.19 rejects `ItemContainer.setCapacity()` values above 50. Keep dynamic container capacity at 49 or below and verify the game log; wrapping the call in `pcall` does not make an over-limit assignment succeed.
 - When a custom container has a unique full type, identify it by that full type instead of retaining name-based recognition and vanilla-container aliases from an unpublished prototype.
 

@@ -6,9 +6,13 @@ require "GodSystem_Localization_Override"
 require "GodSystem_AdminConfig"
 require "GodSystem_CompanionConfig"
 require "GodSystem_Attributes"
+require "GodSystem_CarryCapacity"
+require "GodSystem_TerminalUpgrades"
+require "GodSystem_ShopVariants"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
+GodSystem.configuredShopKeySet = GodSystemShopVariants.getConfiguredKeySet(GodSystemConfig.ShopItems or {})
 GodSystem.updateTicks = 0
 GodSystem.notifyQueue = GodSystem.notifyQueue or {}
 GodSystem.notifyQueueActive = GodSystem.notifyQueueActive == true
@@ -144,7 +148,7 @@ local function gsCopyItems(items)
         return result
     end
     for i = 1, #items do
-        result[i] = { fullType = items[i].fullType, count = items[i].count or 1 }
+        result[i] = { fullType = items[i].fullType, worldSprite = items[i].worldSprite, count = items[i].count or 1 }
     end
     return result
 end
@@ -158,6 +162,7 @@ local function gsMultiplyItems(items, multiplier)
     for i = 1, #items do
         result[i] = {
             fullType = items[i].fullType,
+            worldSprite = items[i].worldSprite,
             count = math.max(1, math.floor(items[i].count or 1)) * multiplier,
         }
     end
@@ -361,6 +366,7 @@ function GodSystem.getData()
     data.tasks = data.tasks or {}
     data.history = data.history or {}
     data.unlockedShopItems = data.unlockedShopItems or {}
+    GodSystemShopVariants.normalizeUnlocked(data, GodSystem.configuredShopKeySet)
     data.stats = data.stats or {}
     data.stats.recycledItems = data.stats.recycledItems or 0
     data.stats.recycledPoints = data.stats.recycledPoints or 0
@@ -388,6 +394,7 @@ function GodSystem.getData()
     data.upgrades.maxActiveTasks = math.min(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTaskLimit or 10)
     data.upgrades.dailyTaskCount = math.max(GodSystemConfig.DailyTaskCount or 5, math.floor(tonumber(data.upgrades.dailyTaskCount) or (GodSystemConfig.DailyTaskCount or 5)))
     data.upgrades.dailyTaskCount = math.min(data.upgrades.dailyTaskCount, GodSystemConfig.MaxDailyTaskLimit or 20)
+    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.normalizeLevel(data.upgrades.carryCapacityLevel)
     data.homeSystem = data.homeSystem or {}
     data.homeSystem.tempSlots = data.homeSystem.tempSlots or {}
     data.homeSystem.returnPoint = data.homeSystem.returnPoint or nil
@@ -412,7 +419,7 @@ function GodSystem.getData()
         data.homeSystem.tempSlots[i].owned = data.homeSystem.tempSlots[i].owned == true
     end
     data.autoRecyclerClaimed = data.autoRecyclerClaimed == true
-    data.autoRecyclerLevel = math.max(1, math.min(math.floor(tonumber(data.autoRecyclerLevel) or 1), #(GodSystemConfig.AutoRecyclerLevels or {})))
+    GodSystemTerminalUpgrades.normalizeData(data)
     data.lastAutoRecyclerHour = data.lastAutoRecyclerHour or math.floor(gsNowHours())
     data.waistAutoRecycleUnlocked = data.waistAutoRecycleUnlocked == true
     data.waistAutoRecycleEnabled = data.waistAutoRecycleEnabled == true
@@ -498,6 +505,9 @@ function GodSystem.saveAdminSettings(settings)
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.settings = settings
     GodSystem.applyAdminConfigSnapshot(data.adminConfig)
+    if GodSystem.refreshAutoRecyclerContainers then
+        GodSystem.refreshAutoRecyclerContainers(true)
+    end
     GodSystem.save()
     return true
 end
@@ -543,11 +553,42 @@ end
 function GodSystem.getCurrencyTotal()
     local total = 0
     local denoms = gsCurrencyDenoms()
+    local values = {}
     for i = 1, #denoms do
-        local denom = denoms[i]
-        local found = gsFindInventoryItems(denom.fullType, true, true)
-        total = total + (#found * (denom.value or 0))
+        values[denoms[i].fullType] = math.max(0, math.floor(tonumber(denoms[i].value) or 0))
     end
+    local player = gsPlayer()
+    local root = player and player.getInventory and player:getInventory() or nil
+    local seenContainers = {}
+    local seenItems = {}
+    local function scan(container, depth)
+        if not container or seenContainers[container] or depth > 32 or not container.getItems then return end
+        seenContainers[container] = true
+        local ok, items = pcall(function() return container:getItems() end)
+        if not ok or not items or not items.size then return end
+        for i = 0, items:size() - 1 do
+            local item = items:get(i)
+            if item and not seenItems[item] then
+                seenItems[item] = true
+                local fullType = item.getFullType and item:getFullType() or nil
+                total = total + (values[fullType] or 0)
+                if item.getInventory then
+                    local childOk, child = pcall(function() return item:getInventory() end)
+                    if childOk and child then scan(child, depth + 1) end
+                end
+            end
+        end
+    end
+    scan(root, 0)
+    return total
+end
+
+function GodSystem.getCurrencyDisplayTotal()
+    local now = gsNowMs()
+    local cache = GodSystem.currencyDisplayCache
+    if cache and now - (cache.at or 0) < 250 then return cache.total or 0 end
+    local total = GodSystem.getCurrencyTotal()
+    GodSystem.currencyDisplayCache = { at = now, total = total }
     return total
 end
 
@@ -893,6 +934,30 @@ function GodSystem.getDailyTaskCount()
     return math.min(limit, math.max(base, math.floor(tonumber(value) or base)))
 end
 
+function GodSystem.getCarryCapacityLevel()
+    local data = GodSystem.getData()
+    data.upgrades = data.upgrades or {}
+    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.normalizeLevel(data.upgrades.carryCapacityLevel)
+    return data.upgrades.carryCapacityLevel
+end
+
+function GodSystem.applyCarryCapacity(player, data)
+    player = player or gsPlayer()
+    data = data or GodSystem.getData()
+    if not player or not data then return false, "noPlayer" end
+    return GodSystemCarryCapacity.apply(player, GodSystemCarryCapacity.getLevel(data))
+end
+
+function GodSystem.refreshCarryCapacity()
+    local ok, reason = GodSystem.applyCarryCapacity(gsPlayer(), GodSystem.getData())
+    if ok then
+        GodSystem.notify(GodSystem.text("Notify_CarryCapacityRefreshed", "Carry capacity bonus refreshed"))
+        return true
+    end
+    GodSystem.notify(GodSystem.text("Notify_CarryCapacityRefreshFailed", "Unable to refresh carry capacity bonus") .. " (" .. tostring(reason or "unknown") .. ")")
+    return false
+end
+
 function GodSystem.getSystemUpgradeInfo(upgradeType)
     local data = GodSystem.getData()
     data.upgrades = data.upgrades or {}
@@ -932,6 +997,45 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             desc = GodSystem.text("Upgrade_DailyTasksDesc", "Increase the number of tasks generated each day by 1. Adds one open task immediately."),
         }
     end
+    if upgradeType == "carryCapacity" then
+        local level = GodSystem.getCarryCapacityLevel()
+        local cost = GodSystemCarryCapacity.getNextCost(level)
+        local status = GodSystemCarryCapacity.getStatus(gsPlayer(), level)
+        return {
+            upgradeType = upgradeType,
+            current = level,
+            nextValue = level + 1,
+            maxValue = nil,
+            cost = cost,
+            label = GodSystem.text("Upgrade_CarryCapacity", "Carry capacity"),
+            desc = GodSystem.text("Upgrade_CarryCapacityDesc", "Permanently increase player carry capacity; the actual bonus is calculated from the current character state."),
+            carryStatus = status,
+        }
+    end
+    if upgradeType == "terminalCapacity" or upgradeType == "terminalReduction" or upgradeType == "terminalRelief" then
+        local terminalType = string.gsub(upgradeType, "^terminal", "")
+        terminalType = string.lower(string.sub(terminalType, 1, 1)) .. string.sub(terminalType, 2)
+        local terminalInfo = GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), terminalType)
+        if not terminalInfo then return nil end
+        local labels = {
+            capacity = GodSystem.text("Upgrade_TerminalCapacity", "Terminal capacity"),
+            reduction = GodSystem.text("Upgrade_TerminalReduction", "Terminal reduction"),
+            relief = GodSystem.text("Upgrade_TerminalRelief", "Space relief"),
+        }
+        return {
+            upgradeType = upgradeType,
+            terminalType = terminalType,
+            current = terminalInfo.level,
+            nextValue = terminalInfo.level + 1,
+            maxValue = terminalInfo.maxLevel,
+            cost = terminalInfo.nextCost,
+            label = labels[terminalType] or upgradeType,
+            desc = terminalType == "relief"
+                and GodSystem.text("Upgrade_TerminalReliefDesc", "Adds protected hidden relief inside the terminal without changing its native capacity.")
+                or GodSystem.text("Upgrade_TerminalIndependentDesc", "This upgrade only changes the selected terminal property."),
+            terminalInfo = terminalInfo,
+        }
+    end
     return nil
 end
 
@@ -939,6 +1043,20 @@ function GodSystem.getSystemUpgradeDetailText(upgradeType)
     local info = GodSystem.getSystemUpgradeInfo(upgradeType)
     if not info then
         return ""
+    end
+    if upgradeType == "carryCapacity" then
+        local status = info.carryStatus or {}
+        local base = status.base ~= nil and tostring(status.base) or "?"
+        local total = status.total ~= nil and tostring(status.total) or "?"
+        local actualBonus = tonumber(status.actualBonus) or 0
+        local actualBonusText = actualBonus >= 0 and ("+" .. tostring(actualBonus)) or tostring(actualBonus)
+        local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_CostOverflow", "Unavailable")
+        return tostring(info.desc or "")
+            .. " | " .. GodSystem.text("Upgrade_CarryBase", "Current base") .. " " .. base
+            .. " | " .. GodSystem.text("Upgrade_CarryBonus", "Actual bonus") .. " " .. actualBonusText
+            .. " | " .. GodSystem.text("Upgrade_CarryTotal", "Final carry") .. " " .. total
+            .. " | " .. GodSystem.text("Upgrade_Level", "Level") .. " " .. tostring(info.current)
+            .. " | " .. GodSystem.text("Upgrade_Cost", "Cost") .. " " .. costText
     end
     local nextText = info.cost and (tostring(info.current) .. " -> " .. tostring(info.nextValue)) or tostring(info.current)
     local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Upgrade_Maxed", "Maxed")
@@ -951,12 +1069,92 @@ function GodSystem.upgradeSystem(upgradeType)
         return false
     end
     if not info.cost then
-        GodSystem.notify(GodSystem.text("Notify_UpgradeMaxed", "Already at max level"))
+        if upgradeType == "carryCapacity" then
+            GodSystem.notify(GodSystem.text("Notify_CarryCapacityCostOverflow", "The next cost exceeds the safe numeric range"))
+        else
+            GodSystem.notify(GodSystem.text("Notify_UpgradeMaxed", "Already at max level"))
+        end
         return false
     end
     if not GodSystem.canAfford(info.cost) then
         GodSystem.notify(GodSystem.text("Notify_CurrencyNotEnough", "Not enough currency"))
         return false
+    end
+
+    if info.terminalType then
+        local entry = GodSystem.getAutoRecyclerContainer(true)
+        if not entry or not entry.item then
+            GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System space terminal not found"))
+            return false
+        end
+        local data = GodSystem.getData()
+        local previousLevel = GodSystemTerminalUpgrades.getLevel(data, info.terminalType)
+        local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(entry.item, gsPlayer())
+        GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel + 1)
+        local applied, report = GodSystemTerminalUpgrades.applyTerminal(entry.item, data, gsPlayer())
+        if not applied then
+            GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel)
+            GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            GodSystemTerminalUpgrades.applyTerminal(entry.item, data, gsPlayer())
+            local failureKey = info.terminalType == "relief" and "Notify_TerminalReliefApplyFailed" or "Notify_TerminalUpgradeApplyFailed"
+            GodSystem.notify(GodSystem.text(failureKey, "Terminal upgrade failed; no currency spent"))
+            return false
+        end
+        if not GodSystem.addPoints(-info.cost) then
+            GodSystemTerminalUpgrades.setLevel(data, info.terminalType, previousLevel)
+            GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+            GodSystemTerminalUpgrades.applyTerminal(entry.item, data, gsPlayer())
+            return false
+        end
+        data.autoRecyclerClaimed = true
+        data.stats = data.stats or {}
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + info.cost
+        gsAppendHistory(data, {
+            kind = "upgrade",
+            text = tostring(info.label) .. " Lv." .. tostring(previousLevel + 1) .. " -" .. tostring(info.cost) .. GodSystem.text("Unit_Coin", " coins"),
+        })
+        GodSystem.save()
+        GodSystem.notify(tostring(info.label) .. " Lv." .. tostring(previousLevel + 1))
+        return true
+    end
+
+    if upgradeType == "carryCapacity" then
+        local player = gsPlayer()
+        local data = GodSystem.getData()
+        local previousLevel = GodSystem.getCarryCapacityLevel()
+        local nextLevel = previousLevel + 1
+        local applied, applyResult = GodSystemCarryCapacity.apply(player, nextLevel)
+        if not applied then
+            GodSystem.notify(GodSystem.text("Notify_CarryCapacityApplyFailed", "Carry capacity upgrade could not be applied") .. " (" .. tostring(applyResult or "unknown") .. ")")
+            return false
+        end
+        if not GodSystem.addPoints(-info.cost) then
+            GodSystemCarryCapacity.apply(player, previousLevel)
+            return false
+        end
+        data.upgrades = data.upgrades or {}
+        data.upgrades.carryCapacityLevel = nextLevel
+        data.stats = data.stats or {}
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + info.cost
+        local measuredIncrease = tonumber(applyResult and applyResult.predictedIncrease) or 0
+        local measuredIncreaseText = measuredIncrease >= 0 and ("+" .. tostring(measuredIncrease)) or tostring(measuredIncrease)
+        local measuredFinal = tonumber(applyResult and applyResult.predictedFinal) or tonumber(applyResult and applyResult.total) or "?"
+        gsAppendHistory(data, {
+            kind = "upgrade",
+            text = gsFormatText(GodSystem.text("History_CarryCapacityUpgrade", "Carry capacity upgrade: Lv.{1}, measured increase {2}, estimated final {3}, cost {4}"), {
+                nextLevel,
+                measuredIncreaseText,
+                measuredFinal,
+                info.cost,
+            }),
+        })
+        GodSystem.save()
+        GodSystem.notify(gsFormatText(GodSystem.text("Notify_CarryCapacityUpgraded", "Carry capacity upgraded to Lv.{1}; measured increase {2}; estimated final {3}"), {
+            nextLevel,
+            measuredIncreaseText,
+            measuredFinal,
+        }))
+        return true
     end
     if not GodSystem.addPoints(-info.cost) then
         return false
@@ -2346,7 +2544,7 @@ function GodSystem.shopItemIsAvailable(shopItem)
         if not GodSystem.itemExists(items[i].fullType) then
             table.insert(missingItems, tostring(items[i].fullType))
         else
-            table.insert(availableItems, { fullType = items[i].fullType, count = items[i].count or 1 })
+            table.insert(availableItems, { fullType = items[i].fullType, worldSprite = items[i].worldSprite, count = items[i].count or 1 })
         end
     end
     if #availableItems == 0 then
@@ -2402,9 +2600,16 @@ function GodSystem.giveItems(items, silentMissing)
     local given = 0
     local missing = {}
     local addedItems = {}
+    local player = gsPlayer()
+    local inventory = player and player.getInventory and player:getInventory() or nil
     for i = 1, #items do
         if GodSystem.itemExists(items[i].fullType) then
-            local ok, added = GodSystem.giveItem(items[i].fullType, items[i].count or 1)
+            local ok, added = nil, nil
+            if items[i].worldSprite then
+                ok, added = GodSystemShopVariants.addItems(inventory, items[i].fullType, items[i].worldSprite, items[i].count or 1)
+            else
+                ok, added = GodSystem.giveItem(items[i].fullType, items[i].count or 1)
+            end
             if ok then
                 for j = 1, #(added or {}) do
                     table.insert(addedItems, added[j])
@@ -3650,7 +3855,7 @@ function GodSystem.getItemModData(item)
 end
 
 function GodSystem.getAutoRecyclerLevels()
-    return GodSystemConfig.AutoRecyclerLevels or {}
+    return GodSystemTerminalUpgrades.getLevels("capacity")
 end
 
 function GodSystem.getAutoRecyclerMaxLevel()
@@ -3659,19 +3864,23 @@ function GodSystem.getAutoRecyclerMaxLevel()
 end
 
 function GodSystem.getAutoRecyclerLevelData(level)
-    local levels = GodSystem.getAutoRecyclerLevels()
-    level = math.max(1, math.min(math.floor(tonumber(level) or 1), math.max(1, #levels)))
-    return levels[level] or levels[1] or {
-        level = 1,
-        capacity = GodSystemConfig.AutoRecyclerCapacity or 10,
-        weightReduction = GodSystemConfig.AutoRecyclerWeightReduction or 50,
-        upgradeCost = 0,
+    local data = GodSystem.getData()
+    local capacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity", level)
+    local reduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction", level)
+    return {
+        level = math.max(1, math.floor(tonumber(level) or GodSystemTerminalUpgrades.getLevel(data, "capacity"))),
+        capacity = capacity.value or 10,
+        weightReduction = reduction.value or 50,
+        upgradeCost = capacity.upgradeCost or 0,
     }
 end
 
 function GodSystem.getAutoRecyclerLevel()
-    local data = GodSystem.getData()
-    return math.max(1, math.min(math.floor(tonumber(data.autoRecyclerLevel) or 1), GodSystem.getAutoRecyclerMaxLevel()))
+    return GodSystemTerminalUpgrades.getLevel(GodSystem.getData(), "capacity")
+end
+
+function GodSystem.getTerminalUpgradeInfo(upgradeType)
+    return GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), upgradeType)
 end
 
 function GodSystem.getAutoRecyclerNextUpgradeCost()
@@ -3684,7 +3893,7 @@ function GodSystem.getAutoRecyclerNextUpgradeCost()
 end
 
 function GodSystem.getAutoRecyclerRecoverCost()
-    local level = GodSystem.getAutoRecyclerLevel()
+    local level = GodSystemTerminalUpgrades.getRecoveryLevel(GodSystem.getData())
     local costs = GodSystemConfig.AutoRecyclerRecoverCosts or {}
     for i = 1, #costs do
         if level <= (costs[i].maxLevel or level) then
@@ -3712,29 +3921,12 @@ function GodSystem.isAutoRecyclerFullType(fullType)
 end
 
 function GodSystem.applyAutoRecyclerContainerStats(item, level)
-    if not item then
-        return false
+    if not item then return false end
+    if (isClient and isClient()) or (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        return true
     end
-    local levelData = GodSystem.getAutoRecyclerLevelData(level or GodSystem.getAutoRecyclerLevel())
-    local inventory = nil
-    if item.getInventory then
-        local ok, child = pcall(function() return item:getInventory() end)
-        if ok then
-            inventory = child
-        end
-    end
-    if inventory then
-        if inventory.setCapacity then
-            pcall(function() inventory:setCapacity(levelData.capacity or GodSystemConfig.AutoRecyclerCapacity or 10) end)
-        end
-        if inventory.setWeightReduction then
-            pcall(function() inventory:setWeightReduction(levelData.weightReduction or GodSystemConfig.AutoRecyclerWeightReduction or 50) end)
-        end
-    end
-    if item.setWeightReduction then
-        pcall(function() item:setWeightReduction(levelData.weightReduction or GodSystemConfig.AutoRecyclerWeightReduction or 50) end)
-    end
-    return true
+    local data = GodSystem.getData()
+    return GodSystemTerminalUpgrades.applyTerminal(item, data, gsPlayer())
 end
 
 function GodSystem.markAutoRecyclerContainer(item, level)
@@ -3744,7 +3936,12 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     if not GodSystem.isAutoRecyclerFullType(item:getFullType()) then
         return false
     end
-    level = math.max(1, math.min(math.floor(tonumber(level) or GodSystem.getAutoRecyclerLevel()), GodSystem.getAutoRecyclerMaxLevel()))
+    if (isClient and isClient()) or (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        GodSystem.autoRecyclerCache = { item = item }
+        return true
+    end
+    local playerData = GodSystem.getData()
+    level = GodSystemTerminalUpgrades.getLevel(playerData, "capacity")
     local data = GodSystem.getItemModData(item)
     if data then
         data[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] = true
@@ -3756,13 +3953,34 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     if item.setCustomName then
         pcall(function() item:setCustomName(true) end)
     end
-    GodSystem.applyAutoRecyclerContainerStats(item, level)
+    if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        GodSystemTerminalRelief.removeEscapedFromPlayer(gsPlayer(), item)
+    end
+    local applied = GodSystem.applyAutoRecyclerContainerStats(item)
+    GodSystem.autoRecyclerCache = { item = item }
+    return applied == true
+end
+
+function GodSystem.migrateLegacyTerminalWear(player)
+    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return false end
+    player = player or gsPlayer()
+    if not player or not player.getWornItem or not ItemBodyLocation or not ItemBodyLocation.NECKLACE then return false end
+    local okItem, item = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
+    if not okItem or not item or not item.getFullType or not GodSystem.isAutoRecyclerFullType(item:getFullType()) then return false end
+    if not pcall(player.removeWornItem, player, item) then return false end
+    local verifyOk, stillWorn = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
+    if verifyOk and stillWorn == item then return false end
+    if item.setJobDelta then pcall(item.setJobDelta, item, 0) end
+    if item.setJobType then pcall(item.setJobType, item, "") end
+    if triggerEvent then pcall(triggerEvent, "OnClothingUpdated", player) end
+    print("[GodSystem][TerminalWear] legacy-unwear success item=" .. tostring(item.getID and item:getID() or "?") .. " slot=base:necklace")
+    GodSystem.notify(GodSystem.text("Notify_TerminalWearReset", "The system space terminal moved to its independent equipment slot. Please equip it again."))
     return true
 end
 
 function GodSystem.getAutoRecyclerItemLevel(item)
     local data = GodSystem.getItemModData(item)
-    local level = data and data[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"] or nil
+    local level = data and (data[GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel"] or data[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"]) or nil
     return math.max(1, math.min(math.floor(tonumber(level) or GodSystem.getAutoRecyclerLevel()), GodSystem.getAutoRecyclerMaxLevel()))
 end
 
@@ -3859,7 +4077,46 @@ function GodSystem.findAutoRecyclerCandidates()
     return result
 end
 
-function GodSystem.getAutoRecyclerContainer()
+function GodSystem.isAutoRecyclerOwnedByPlayer(item)
+    local player = gsPlayer()
+    if not player or not item then return false end
+    local root = player.getInventory and player:getInventory() or nil
+    local current = item
+    local seen = {}
+    for _ = 1, 34 do
+        if not current or seen[current] then return false end
+        seen[current] = true
+        local ok, container = pcall(function() return current:getContainer() end)
+        if not ok or not container then return false end
+        if container == root then return true end
+        local parent = nil
+        if container.getContainingItem then
+            local parentOk, value = pcall(function() return container:getContainingItem() end)
+            if parentOk then parent = value end
+        end
+        current = parent
+    end
+    return false
+end
+
+function GodSystem.getCachedAutoRecyclerContainer()
+    local cache = GodSystem.autoRecyclerCache
+    local item = cache and cache.item or nil
+    if item and GodSystem.isAutoRecyclerContainer(item) and GodSystem.isAutoRecyclerOwnedByPlayer(item) then
+        return { item = item, container = item.getContainer and item:getContainer() or nil }
+    end
+    if item then GodSystemTerminalUpgrades.restoreTerminal(item) end
+    GodSystem.autoRecyclerCache = nil
+    return nil
+end
+
+function GodSystem.getAutoRecyclerContainer(forceSearch)
+    local cached = GodSystem.getCachedAutoRecyclerContainer()
+    if cached then
+        GodSystem.markAutoRecyclerContainer(cached.item)
+        return cached
+    end
+    if forceSearch == false then return nil end
     local found = GodSystem.findAutoRecyclerCandidates()
     local candidates = {}
     for i = 1, #found do
@@ -3883,13 +4140,18 @@ function GodSystem.getAutoRecyclerContainer()
     local data = GodSystem.getData()
     local level = math.max(GodSystem.getAutoRecyclerItemLevel(primary.item), GodSystem.getAutoRecyclerLevel())
     data.autoRecyclerClaimed = true
-    data.autoRecyclerLevel = level
-    GodSystem.markAutoRecyclerContainer(primary.item, level)
+    GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
+    GodSystem.markAutoRecyclerContainer(primary.item)
     return primary
 end
 
-function GodSystem.refreshAutoRecyclerContainers()
-    return GodSystem.getAutoRecyclerContainer()
+function GodSystem.refreshAutoRecyclerContainers(forceSearch)
+    local player = gsPlayer()
+    if player and not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+        GodSystemLegacyCompressionCleanup.restorePlayerInventory(player, GodSystem.getData())
+    end
+    local entry = GodSystem.getAutoRecyclerContainer(forceSearch == true)
+    return entry
 end
 
 function GodSystem.getShopRewardText(shopItem)
@@ -3929,14 +4191,15 @@ function GodSystem.getShopBuyReference(fullType)
         end
     end
     local unlocked = GodSystem.getData().unlockedShopItems or {}
-    local autoItem = unlocked[fullType]
-    if autoItem then
-        local buyPrice = GodSystem.getAutoShopBuyPriceForItem(fullType, autoItem.sellPrice or 1)
-        if not best or buyPrice < best.price then
-            best = {
-                label = autoItem.label or fullType,
-                price = buyPrice,
-            }
+    for _, autoItem in pairs(unlocked) do
+        if autoItem and autoItem.fullType == fullType then
+            local buyPrice = GodSystem.getAutoShopBuyPriceForItem(fullType, autoItem.sellPrice or 1)
+            if not best or buyPrice < best.price then
+                best = {
+                    label = autoItem.label or fullType,
+                    price = buyPrice,
+                }
+            end
         end
     end
     return best
@@ -4476,7 +4739,16 @@ function GodSystem.isAutoShopUnlockAllowed(fullType)
     return moduleName ~= nil and GodSystemConfig.AutoShopAllowedModules[moduleName] == true
 end
 
-function GodSystem.unlockAutoShopItem(fullType, label, sellValue)
+function GodSystem.getConfiguredShopKeySet()
+    return GodSystem.configuredShopKeySet or {}
+end
+
+function GodSystem.getShopListingState(fullType, itemOrSprite)
+    local data = GodSystem.getData()
+    return GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), fullType, itemOrSprite)
+end
+
+function GodSystem.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
     if not GodSystem.isAutoShopUnlockAllowed(fullType) then
         return false
     end
@@ -4485,28 +4757,27 @@ function GodSystem.unlockAutoShopItem(fullType, label, sellValue)
     data.unlockedShopItems = data.unlockedShopItems or {}
     local baseSell = math.max(1, math.floor(tonumber(sellValue) or 1))
     local buyPrice = GodSystem.getAutoShopBuyPriceForItem(fullType, baseSell)
-    local existing = data.unlockedShopItems[fullType]
+    local worldSprite = GodSystemShopVariants.getWorldSprite(itemOrSprite)
+    local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
+    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), variantKey)
+    if known then return false, source, variantKey end
 
-    if existing then
-        existing.label = existing.label or label or GodSystem.getItemDisplayName(fullType)
-        existing.sellPrice = baseSell
-        existing.buyPrice = buyPrice
-        return false
-    end
-
-    data.unlockedShopItems[fullType] = {
+    data.unlockedShopItems[variantKey] = {
         fullType = fullType,
+        worldSprite = worldSprite,
+        variantKey = variantKey,
         module = gsGetModuleName(fullType),
         label = label or GodSystem.getItemDisplayName(fullType),
         sellPrice = baseSell,
         buyPrice = buyPrice,
         unlockedAt = math.floor(gsNowHours()),
+        hidden = false,
     }
     GodSystem.save()
-    return true
+    return true, "created", variantKey
 end
 
-function GodSystem.listOnlyAutoShopItem(fullType)
+function GodSystem.listOnlyAutoShopItem(fullType, itemId)
     if GodSystem.isFeatureEnabled("EnableRecycle") == false or GodSystem.isFeatureEnabled("EnableShop") == false then
         GodSystem.notify(GodSystem.text("Notify_ListOnlyDisabled", "This item cannot be listed."))
         return false
@@ -4521,19 +4792,33 @@ function GodSystem.listOnlyAutoShopItem(fullType)
     end
 
     local data = GodSystem.getData()
-    data.unlockedShopItems = data.unlockedShopItems or {}
-    if data.unlockedShopItems[fullType] then
-        GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+    if itemId == nil or tostring(itemId or "") == "" then
+        GodSystem.notify(GodSystem.text("Notify_ListItemChanged", "The selected item changed; reopen the recycle page"))
         return false
     end
-
-    local found = gsFindInventoryItems(fullType, false, false)
-    if #found <= 0 then
+    local item = gsInventoryItemById(itemId)
+    if item and item.getFullType and item:getFullType() ~= fullType then item = nil end
+    if not item then
         GodSystem.notify(GodSystem.text("Notify_NoRecycleItem", "No recyclable item"))
         return false
     end
 
-    local item = found[1].item
+    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), variantKey)
+    if known then
+        if source == "configured" then
+            GodSystem.notify(GodSystem.text("Notify_ShopConfiguredAlreadyListed", "This built-in shop item is already listed."))
+        elseif data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
+            GodSystem.notify(GodSystem.text("Notify_ShopHiddenAlreadyListed", "This item is listed but hidden. Restore it from hidden management."))
+        else
+            GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+        end
+        return false
+    end
+    if not GodSystem.canContextRecycleItem(item) then
+        GodSystem.notify(GodSystem.text("Notify_ListOnlyDisabled", "This item cannot be listed."))
+        return false
+    end
     local label = (item and item.getDisplayName and item:getDisplayName()) or GodSystem.getItemDisplayName(fullType)
     local sellValue = GodSystem.getItemSellPrice(fullType, item)
     local cost, buyPrice = GodSystem.getAutoShopListOnlyCost(fullType, sellValue)
@@ -4541,13 +4826,21 @@ function GodSystem.listOnlyAutoShopItem(fullType)
         GodSystem.notify(GodSystem.text("Notify_ListOnlyInsufficient", "Not enough system coins to list this item."))
         return false
     end
-    local paid = GodSystem.spendCurrency(cost)
+    local paid, fromBank, fromCash = GodSystem.spendCurrency(cost)
     if not paid then
         GodSystem.notify(GodSystem.text("Notify_ListOnlyInsufficient", "Not enough system coins to list this item."))
         return false
     end
-    if not GodSystem.unlockAutoShopItem(fullType, label, sellValue) then
-        GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+    local created, failureSource = GodSystem.unlockAutoShopItem(fullType, label, sellValue, item)
+    if not created then
+        GodSystem.refundCurrencySources(fromBank, fromCash)
+        if failureSource == "configured" then
+            GodSystem.notify(GodSystem.text("Notify_ShopConfiguredAlreadyListed", "This built-in shop item is already listed."))
+        elseif data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
+            GodSystem.notify(GodSystem.text("Notify_ShopHiddenAlreadyListed", "This item is listed but hidden. Restore it from hidden management."))
+        else
+            GodSystem.notify(GodSystem.text("Notify_ListOnlyAlreadyUnlocked", "This item is already listed."))
+        end
         return false
     end
 
@@ -4557,47 +4850,84 @@ function GodSystem.listOnlyAutoShopItem(fullType)
     return true
 end
 
-function GodSystem.getUnlockedShopItemsList()
+function GodSystem.getUnlockedShopItemsList(includeHidden)
     local data = GodSystem.getData()
     local result = {}
-    for fullType, item in pairs(data.unlockedShopItems or {}) do
+    local rows = GodSystemShopVariants.getUnlockedRows(data, includeHidden)
+    for i = 1, #rows do
+        local item = rows[i]
+        local variantKey = item.variantKey or GodSystemShopVariants.getKey(item.fullType, item.worldSprite)
+        local fullType = item.fullType or variantKey
         if GodSystem.itemExists(fullType) then
             table.insert(result, {
-                id = "unlocked_" .. fullType,
+                id = "unlocked_" .. variantKey,
                 fullType = fullType,
+                worldSprite = item.worldSprite,
+                variantKey = variantKey,
                 label = GodSystem.getUnlockedShopLabel(fullType, item),
                 group = "unlocked",
                 price = GodSystem.getAutoShopBuyPriceForItem(fullType, item.sellPrice or 1),
                 description = "Unlocked by recycling.",
-                items = { { fullType = fullType, count = 1 } },
+                items = { { fullType = fullType, worldSprite = item.worldSprite, count = 1 } },
                 unlocked = true,
+                hidden = item.hidden == true,
             })
         end
     end
     table.sort(result, function(a, b)
-        return (a.label or a.id) < (b.label or b.id)
+        local left = tostring(a.label or a.id)
+        local right = tostring(b.label or b.id)
+        if left == right then return tostring(a.variantKey or a.id) < tostring(b.variantKey or b.id) end
+        return left < right
     end)
     return result
 end
 
-function GodSystem.removeUnlockedShopItem(fullType)
-    if not fullType then
+function GodSystem.setShopItemHidden(variantKey, hidden)
+    if not variantKey then
         GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
         return false
     end
     local data = GodSystem.getData()
-    data.unlockedShopItems = data.unlockedShopItems or {}
-    local item = data.unlockedShopItems[fullType]
-    if not item then
+    local ok, changed, item = GodSystemShopVariants.setHidden(data, variantKey, hidden)
+    if not ok or not item then
         GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
         return false
     end
-    local label = item.label or GodSystem.getItemDisplayName(fullType)
-    data.unlockedShopItems[fullType] = nil
-    gsAppendHistory(data, { kind = "shop", text = GodSystem.text("History_RemoveUnlockedShopItem", "Removed unlocked shop item: ") .. tostring(label) })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_RemoveUnlockedShopItem", "Removed unlocked shop item: ") .. tostring(label))
+    local label = item.label or GodSystem.getItemDisplayName(item.fullType or variantKey)
+    local targetHidden = hidden == true
+    if changed then
+        local historyKey = targetHidden and "History_ShopItemHidden" or "History_ShopItemVisible"
+        local historyFallback = targetHidden and "Hidden shop item: " or "Restored shop item: "
+        gsAppendHistory(data, { kind = "shop", text = GodSystem.text(historyKey, historyFallback) .. tostring(label) })
+        GodSystem.save()
+    end
+    local notifyKey = targetHidden and "Notify_ShopItemHidden" or "Notify_ShopItemVisible"
+    local notifyFallback = targetHidden and "Hidden shop item: " or "Restored shop item: "
+    GodSystem.notify(GodSystem.text(notifyKey, notifyFallback) .. tostring(label))
     return true
+end
+
+function GodSystem.deleteShopItem(variantKey)
+    if not variantKey then
+        GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
+        return false
+    end
+    local data = GodSystem.getData()
+    local ok, item = GodSystemShopVariants.deleteUnlocked(data, variantKey)
+    if not ok or not item then
+        GodSystem.notify(GodSystem.text("Notify_ShopItemMissing", "The player-listed item no longer exists."))
+        return false
+    end
+    local label = item.label or GodSystem.getItemDisplayName(item.fullType or variantKey)
+    gsAppendHistory(data, { kind = "shop", text = GodSystem.text("History_ShopItemDeleted", "Delisted shop item: ") .. tostring(label) })
+    GodSystem.save()
+    GodSystem.notify(GodSystem.text("Notify_ShopItemDeleted", "Delisted shop item: ") .. tostring(label))
+    return true
+end
+
+function GodSystem.removeUnlockedShopItem(variantKey)
+    return GodSystem.setShopItemHidden(variantKey, true)
 end
 
 function GodSystem.getConfiguredShopFullTypeSet()
@@ -4679,8 +5009,8 @@ function GodSystem.getLotteryCandidates(categoryKey)
     end
 
     local data = GodSystem.getData()
-    for fullType, item in pairs(data.unlockedShopItems or {}) do
-        gsLotteryAddCandidate(result, seen, fullType, item and item.label)
+    for variantKey, item in pairs(data.unlockedShopItems or {}) do
+        gsLotteryAddCandidate(result, seen, item and item.fullType or variantKey, item and item.label)
     end
 
     for fullType, _ in pairs(GodSystemConfig.VanillaItemBuyPrices or {}) do
@@ -4869,11 +5199,13 @@ function GodSystem.getShopLotteryCandidates(categoryKey)
     local categories = GodSystemConfig.VanillaItemPriceCategories or {}
     local data = GodSystem.getData()
     local unlocked = data.unlockedShopItems or {}
+    local unlockedTypes = {}
+    for variantKey, row in pairs(unlocked) do unlockedTypes[row and row.fullType or variantKey] = true end
     local configured = GodSystem.getConfiguredShopFullTypeSet()
     local result = {}
 
     for fullType, _ in pairs(prices) do
-        if not unlocked[fullType] and not configured[fullType] and GodSystem.isAutoShopUnlockAllowed(fullType) and GodSystemAdminConfig.isLotteryItemEnabled(fullType, true) and GodSystem.itemExists(fullType) and GodSystem.isEconomicItemAllowed(fullType, "lottery") then
+        if not unlockedTypes[fullType] and not configured[fullType] and GodSystem.isAutoShopUnlockAllowed(fullType) and GodSystemAdminConfig.isLotteryItemEnabled(fullType, true) and GodSystem.itemExists(fullType) and GodSystem.isEconomicItemAllowed(fullType, "lottery") then
             local key = tostring(categories[fullType] or GodSystem.getPricingCategoryKey(fullType) or "normal")
             key = key:lower():gsub("[^a-z0-9_]+", "_")
             if key == "" then
@@ -5687,6 +6019,18 @@ function GodSystem.buyShopItem(shopItem, quantity)
     if not shopItem then
         return false
     end
+    local data = GodSystem.getData()
+    if shopItem.unlocked == true then
+        local variantKey = shopItem.variantKey or GodSystemShopVariants.getKey(shopItem.fullType, shopItem.worldSprite)
+        local stored = data.unlockedShopItems and data.unlockedShopItems[variantKey] or nil
+        if not stored then
+            GodSystem.notify(GodSystem.text("Notify_ShopItemMissing", "This player-listed item no longer exists."))
+            return false
+        elseif stored.hidden == true then
+            GodSystem.notify(GodSystem.text("Notify_ShopHiddenAlreadyListed", "This item is hidden. Restore it from hidden management."))
+            return false
+        end
+    end
     local primaryFullType = GodSystem.getShopPrimaryFullType(shopItem)
     if primaryFullType and GodSystemAdminConfig.isShopItemEnabled(primaryFullType, true) == false then
         GodSystem.notify("Shop item disabled")
@@ -5705,7 +6049,6 @@ function GodSystem.buyShopItem(shopItem, quantity)
         return false
     end
 
-    local data = GodSystem.getData()
     local expected = 0
     local grantItems = gsMultiplyItems(availableItems or shopItem.items, quantity)
     for i = 1, #(grantItems or {}) do
@@ -5804,8 +6147,14 @@ function GodSystem.canContextListItem(item)
     if not allowed then return false, reason end
     local fullType = item:getFullType()
     if not GodSystem.isAutoShopUnlockAllowed(fullType) then return false, "notListable" end
-    local unlocked = GodSystem.getData().unlockedShopItems or {}
-    if unlocked[fullType] then return false, "alreadyListed" end
+    local data = GodSystem.getData()
+    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), variantKey)
+    if known then
+        if source == "configured" then return false, "configuredListed" end
+        if data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then return false, "hiddenListed" end
+        return false, "alreadyListed"
+    end
     return true, nil
 end
 
@@ -5821,6 +6170,9 @@ end
 
 function GodSystem.canAutoRecycleItem(item)
     if not item or not item.getFullType then
+        return false
+    end
+    if GodSystemTerminalRelief.isReliefItem(item) then
         return false
     end
     local fullType = item:getFullType()
@@ -5857,7 +6209,7 @@ function GodSystem.processAutoRecyclerContainer(container)
             table.insert(groups[fullType].items, item)
             groups[fullType].raw = groups[fullType].raw + GodSystem.getRecycleValue(item)
             groups[fullType].count = groups[fullType].count + 1
-        else
+        elseif not GodSystemTerminalRelief.isReliefItem(item) then
             skipped = skipped + 1
         end
     end
@@ -5936,11 +6288,6 @@ function GodSystem.processAutoRecycler()
     local data = GodSystem.getData()
     data.stats.recycledItems = (data.stats.recycledItems or 0) + totalRemoved
     data.stats.recycledPoints = (data.stats.recycledPoints or 0) + totalPayout
-    if unlockShop == true then
-        for i = 1, #unlockDetails do
-            GodSystem.unlockAutoShopItem(unlockDetails[i].fullType, unlockDetails[i].label, unlockDetails[i].sellValue)
-        end
-    end
     GodSystem.giveCurrency(totalPayout)
     gsAppendHistory(data, { kind = "recycle", text = GodSystem.text("History_AutoRecycler", "Auto recycler: ") .. tostring(totalRemoved) .. GodSystem.text("Unit_Item", " items, gained ") .. tostring(totalPayout) .. GodSystem.text("Unit_Coin", " coins") })
     GodSystem.save()
@@ -5998,7 +6345,7 @@ function GodSystem.claimOrRecoverAutoRecycler()
 
     data.autoRecyclerClaimed = true
     data.autoRecyclerLevel = GodSystem.getAutoRecyclerLevel()
-    GodSystem.markAutoRecyclerContainer(addedItems[1], data.autoRecyclerLevel)
+    GodSystem.markAutoRecyclerContainer(addedItems[1])
     local historyKey = cost > 0 and "History_AutoRecyclerRecovered" or "History_AutoRecyclerClaimed"
     local notifyKey = cost > 0 and "Notify_AutoRecyclerRecovered" or "Notify_AutoRecyclerClaimed"
     local suffix = cost > 0 and (" -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins")) or ""
@@ -6008,35 +6355,13 @@ function GodSystem.claimOrRecoverAutoRecycler()
     return true
 end
 
-function GodSystem.upgradeAutoRecycler()
-    local entry = GodSystem.getAutoRecyclerContainer()
-    if not entry then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMissing", "System space terminal not found"))
-        return false
-    end
-    local data = GodSystem.getData()
-    local level = GodSystem.getAutoRecyclerLevel()
-    if level >= GodSystem.getAutoRecyclerMaxLevel() then
-        GodSystem.notify(GodSystem.text("Notify_AutoRecyclerMaxLevel", "System space terminal is max level"))
-        return false
-    end
-    local cost = GodSystem.getAutoRecyclerNextUpgradeCost() or 0
-    if cost > 0 and not GodSystem.canAfford(cost) then
-        GodSystem.notify(GodSystem.text("Notify_CurrencyNotEnough", "Not enough currency"))
-        return false
-    end
-    if cost > 0 and not GodSystem.addPoints(-cost) then
-        return false
-    end
+function GodSystem.upgradeTerminal(upgradeType)
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" then return false end
+    return GodSystem.upgradeSystem("terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2))
+end
 
-    data.autoRecyclerLevel = level + 1
-    data.autoRecyclerClaimed = true
-    GodSystem.markAutoRecyclerContainer(entry.item, data.autoRecyclerLevel)
-    local levelData = GodSystem.getAutoRecyclerLevelData(data.autoRecyclerLevel)
-    gsAppendHistory(data, { kind = "system", text = GodSystem.text("History_AutoRecyclerUpgraded", "System space terminal upgraded to Lv.") .. tostring(data.autoRecyclerLevel) .. " -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins") })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_AutoRecyclerUpgraded", "System space terminal upgraded to Lv.") .. tostring(data.autoRecyclerLevel) .. " | " .. tostring(levelData.capacity or 0) .. "/" .. tostring(levelData.weightReduction or 0) .. "%")
-    return true
+function GodSystem.upgradeAutoRecycler()
+    return GodSystem.upgradeTerminal("capacity")
 end
 
 function GodSystem.getAutoRecyclerInventory()
@@ -6053,26 +6378,58 @@ end
 
 function GodSystem.getAutoRecyclerInfo()
     local data = GodSystem.getData()
-    local level = GodSystem.getAutoRecyclerLevel()
-    local levelData = GodSystem.getAutoRecyclerLevelData(level)
+    local capacityInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "capacity")
+    local reductionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "reduction")
+    local reliefInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "relief")
     local inventory, entry = GodSystem.getAutoRecyclerInventory()
+    local appliedStatus = entry and entry.item and GodSystemTerminalUpgrades.getAppliedStatus(entry.item, data, gsPlayer()) or nil
     local count = 0
+    local contentsWeight = nil
     if inventory and inventory.getItems then
         local ok, items = pcall(function() return inventory:getItems() end)
         if ok and items and items.size then
-            count = items:size()
+            for i = 0, items:size() - 1 do
+                if not GodSystemTerminalRelief.isReliefItem(items:get(i)) then count = count + 1 end
+            end
         end
     end
+    if inventory and inventory.getContentsWeight then
+        local ok, value = pcall(function() return inventory:getContentsWeight() end)
+        if ok then contentsWeight = tonumber(value) end
+    end
+    local actualRelief = appliedStatus and tonumber(appliedStatus.actualRelief) or 0
     return {
         claimed = data.autoRecyclerClaimed == true,
         found = entry ~= nil,
-        level = level,
-        maxLevel = GodSystem.getAutoRecyclerMaxLevel(),
-        capacity = levelData.capacity or 0,
-        weightReduction = levelData.weightReduction or 0,
-        nextCost = GodSystem.getAutoRecyclerNextUpgradeCost(),
+        level = capacityInfo.level,
+        maxLevel = capacityInfo.maxLevel,
+        capacityLevel = capacityInfo.level,
+        capacityMaxLevel = capacityInfo.maxLevel,
+        reductionLevel = reductionInfo.level,
+        reductionMaxLevel = reductionInfo.maxLevel,
+        reliefLevel = reliefInfo.level,
+        reliefMaxLevel = reliefInfo.maxLevel,
+        capacity = capacityInfo.value or 0,
+        weightReduction = reductionInfo.value or 0,
+        reliefOffset = reliefInfo.offset or 0,
+        reliefNextOffset = reliefInfo.nextOffset,
+        effectiveCapacity = (capacityInfo.value or 0) + (reliefInfo.offset or 0),
+        visibleContentsWeight = math.max(0, (tonumber(contentsWeight) or 0) + actualRelief),
+        actualCapacity = appliedStatus and appliedStatus.outerCapacity or nil,
+        actualInnerCapacity = appliedStatus and appliedStatus.innerCapacity or nil,
+        actualWeightReduction = appliedStatus and appliedStatus.outerReduction or nil,
+        actualInnerWeightReduction = appliedStatus and appliedStatus.innerReduction or nil,
+        capacityApplied = appliedStatus and appliedStatus.capacityApplied == true,
+        reductionApplied = appliedStatus and appliedStatus.reductionApplied == true,
+        reliefApplied = appliedStatus and appliedStatus.reliefApplied == true,
+        actualRelief = appliedStatus and appliedStatus.actualRelief or nil,
+        capacityNextCost = capacityInfo.nextCost,
+        reductionNextCost = reductionInfo.nextCost,
+        reliefNextCost = reliefInfo.nextCost,
+        nextCost = capacityInfo.nextCost,
         recoverCost = GodSystem.getAutoRecyclerRecoverCost(),
         itemCount = count,
+        contentsWeight = contentsWeight,
         autoRecycleUnlocked = data.waistAutoRecycleUnlocked == true,
         autoRecycleEnabled = data.waistAutoRecycleEnabled == true,
         recycleUnlockMode = data.waistRecycleUnlockMode == true,
@@ -6144,6 +6501,9 @@ function GodSystem.canRecycleWaistSpaceItem(item)
     if not item or not item.getFullType then
         return false
     end
+    if GodSystemTerminalRelief.isReliefItem(item) then
+        return false
+    end
     local fullType = item:getFullType()
     if GodSystem.isAutoRecyclerContainer(item) then
         return false
@@ -6191,7 +6551,7 @@ function GodSystem.getWaistSpaceRecycleGroups()
             result[fullType].count = result[fullType].count + 1
             result[fullType].rawTotalValue = result[fullType].rawTotalValue + value
             result[fullType].totalValue = GodSystem.calculateRecyclePayout(fullType, result[fullType].rawTotalValue, result[fullType].count)
-        else
+        elseif not GodSystemTerminalRelief.isReliefItem(item) then
             skipped = skipped + 1
         end
     end
@@ -6224,7 +6584,15 @@ function GodSystem.recycleWaistSpaceItemsInternal(selectedFullTypes, unlockShop)
         if selected and group and (group.totalValue or 0) > 0 then
             totalPayout = totalPayout + (group.totalValue or 0)
             if unlockShop == true then
-                unlockDetails[#unlockDetails + 1] = { fullType = fullType, label = group.label, sellValue = group.valueEach or 1 }
+                local variants = {}
+                for j = 1, #(group.items or {}) do
+                    local item = group.items[j]
+                    local variantKey = GodSystemShopVariants.getKey(fullType, item)
+                    if not variants[variantKey] then
+                        variants[variantKey] = true
+                        unlockDetails[#unlockDetails + 1] = { fullType = fullType, label = item:getDisplayName() or group.label, sellValue = group.valueEach or 1, worldSprite = GodSystemShopVariants.getWorldSprite(item) }
+                    end
+                end
             end
             for j = 1, #(group.items or {}) do
                 table.insert(removedItems, group.items[j])
@@ -6247,7 +6615,7 @@ function GodSystem.recycleWaistSpaceItemsInternal(selectedFullTypes, unlockShop)
     data.stats.recycledPoints = (data.stats.recycledPoints or 0) + totalPayout
     if unlockShop == true then
         for i = 1, #unlockDetails do
-            GodSystem.unlockAutoShopItem(unlockDetails[i].fullType, unlockDetails[i].label, unlockDetails[i].sellValue)
+            GodSystem.unlockAutoShopItem(unlockDetails[i].fullType, unlockDetails[i].label, unlockDetails[i].sellValue, unlockDetails[i].worldSprite)
         end
     end
     GodSystem.giveCurrency(totalPayout)
@@ -6315,8 +6683,18 @@ function GodSystem.getInventoryRecycleGroups()
                         rawTotalValue = 0,
                         totalValue = 0,
                         unitDivisor = GodSystem.getRecycleUnitDivisor(fullType, item),
+                        itemIds = {},
                     }
                     table.insert(order, fullType)
+                end
+                if item.getID then result[fullType].itemIds[#result[fullType].itemIds + 1] = tostring(item:getID()) end
+                if not result[fullType].listItemId then
+                    local listable = GodSystem.canContextListItem(item)
+                    if listable == true and item.getID then
+                        result[fullType].listItemId = tostring(item:getID())
+                        result[fullType].listVariantKey = GodSystemShopVariants.getKey(fullType, item)
+                        result[fullType].listWorldSprite = GodSystemShopVariants.getWorldSprite(item)
+                    end
                 end
                 result[fullType].count = result[fullType].count + 1
                 result[fullType].rawTotalValue = result[fullType].rawTotalValue + value
@@ -6356,6 +6734,7 @@ function GodSystem.removeInventoryItems(fullType, count)
                 fullType = item:getFullType(),
                 label = item:getDisplayName() or GodSystem.getItemDisplayName(item:getFullType()),
                 sellValue = unlockValue,
+                worldSprite = GodSystemShopVariants.getWorldSprite(item),
             })
             found[i].container:Remove(item)
             removed = removed + 1
@@ -6424,7 +6803,7 @@ function GodSystem.recycleInventoryItems(fullType, count)
     if GodSystem.isRecycleUnlockMode() then
         for i = 1, #(removedDetails or {}) do
             local detail = removedDetails[i]
-            GodSystem.unlockAutoShopItem(detail.fullType, detail.label, detail.sellValue)
+            GodSystem.unlockAutoShopItem(detail.fullType, detail.label, detail.sellValue, detail.worldSprite)
         end
     end
     local historyText = GodSystem.text("History_Recycled", "Recycled ") .. tostring(removed) .. GodSystem.text("Unit_Item", " items, gained ") .. tostring(totalValue) .. GodSystem.text("Unit_Coin", " coins")
@@ -6467,7 +6846,7 @@ local function gsRestoreContextUseState(player, row)
     if row.secondary then pcall(function() player:setSecondaryHandItem(row.item) end) end
 end
 
-function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures)
+function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped)
     mode = tostring(mode or "")
     if mode ~= "recycle" and mode ~= "recycleAndList" and mode ~= "listOnly" then return false end
     if GodSystem.isFeatureEnabled("EnableRecycle") == false then
@@ -6481,6 +6860,7 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
     local seen = {}
     local types = {}
     local typeOrder = {}
+    local skipped = math.min(10000, math.max(0, math.floor(tonumber(clientSkipped) or 0)))
     for i = 1, #(itemIds or {}) do
         local id = tostring(itemIds[i] or "")
         if id ~= "" and not seen[id] then
@@ -6491,20 +6871,17 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
                 return false
             end
             local allowed = GodSystem.canContextRecycleItem(item)
-            if not allowed then
-                GodSystem.notify(GodSystem.text("Notify_RecycleSelectionProtected", "A selected item cannot be recycled"))
-                return false
-            end
             local fullType = item:getFullType()
-            if mode ~= "recycle" then
+            local eligible = allowed == true
+            if eligible and mode ~= "recycle" then
                 local listable, reason = GodSystem.canContextListItem(item)
                 if not listable then
-                    local key = reason == "alreadyListed" and "Notify_RecycleSelectionAlreadyListed" or "Notify_RecycleSelectionNotListable"
-                    GodSystem.notify(GodSystem.text(key, "A selected item cannot be listed"))
-                    return false
+                    eligible = false
                 end
             end
-            if mode ~= "listOnly" then
+            if not eligible then
+                skipped = skipped + 1
+            elseif mode ~= "listOnly" then
                 local expected = type(containerContentSignatures) == "table" and containerContentSignatures[id] or nil
                 local hasContents = gsItemInventoryCount(item) > 0
                 if (hasContents or expected) and (allowDestroyContents ~= true or not expected or GodSystem.getContextContainerSignature(item) ~= expected) then
@@ -6512,24 +6889,32 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
                     return false
                 end
             end
-            selected[#selected + 1] = { item = item, container = container, fullType = fullType }
-            if not types[fullType] then
-                types[fullType] = { item = item, raw = 0, count = 0 }
-                typeOrder[#typeOrder + 1] = fullType
+            if eligible then
+                local variantKey = GodSystemShopVariants.getKey(fullType, item)
+                local groupKey = mode == "recycle" and fullType or variantKey
+                selected[#selected + 1] = { item = item, container = container, fullType = fullType, variantKey = variantKey }
+                if not types[groupKey] then
+                    types[groupKey] = { item = item, fullType = fullType, raw = 0, count = 0 }
+                    typeOrder[#typeOrder + 1] = groupKey
+                end
+                types[groupKey].raw = types[groupKey].raw + GodSystem.getContextRecycleValue(item)
+                types[groupKey].count = types[groupKey].count + 1
             end
-            types[fullType].raw = types[fullType].raw + GodSystem.getContextRecycleValue(item)
-            types[fullType].count = types[fullType].count + 1
         end
     end
-    if #selected <= 0 then return false end
+    if #selected <= 0 then
+        GodSystem.notify(gsFormatText(GodSystem.text("Notify_RecycleSelectionEmptySkipped", "No eligible items; skipped {1}"), { skipped }))
+        return false
+    end
 
     local data = GodSystem.getData()
     if mode == "listOnly" then
         local totalCost = 0
         local listRows = {}
         for i = 1, #typeOrder do
-            local fullType = typeOrder[i]
-            local row = types[fullType]
+            local variantKey = typeOrder[i]
+            local row = types[variantKey]
+            local fullType = row.fullType
             local sellValue = GodSystem.getItemSellPrice(fullType, row.item)
             local cost = GodSystem.getAutoShopListOnlyCost(fullType, sellValue)
             totalCost = totalCost + cost
@@ -6543,28 +6928,27 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
         local unlocked = {}
         for i = 1, #listRows do
             local row = listRows[i]
-            if not GodSystem.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), row.sellValue) then
+            if not GodSystem.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), row.sellValue, row.item) then
                 for j = 1, #unlocked do data.unlockedShopItems[unlocked[j]] = nil end
-                local bank = GodSystem.getBank()
-                bank.current = (bank.current or 0) + (fromBank or 0)
-                if (fromCash or 0) > 0 then GodSystem.giveCurrency(fromCash) end
+                GodSystem.refundCurrencySources(fromBank, fromCash)
                 GodSystem.save()
                 GodSystem.notify(GodSystem.text("Notify_RecycleSelectionChanged", "Selected items changed; action cancelled"))
                 return false
             end
-            unlocked[#unlocked + 1] = row.fullType
+            unlocked[#unlocked + 1] = GodSystemShopVariants.getKey(row.fullType, row.item)
         end
         local data = GodSystem.getData()
         gsAppendHistory(data, { kind = "shop", text = gsFormatText(GodSystem.text("History_RecycleSelectionListOnly", "Listed {1} item types for {2} coins"), { #listRows, totalCost }) })
         GodSystem.save()
-        GodSystem.notify(gsFormatText(GodSystem.text("Notify_RecycleSelectionListOnly", "Listed {1} item types for {2} coins"), { #listRows, totalCost }))
+        local notifyKey = skipped > 0 and "Notify_RecycleSelectionListOnlyPartial" or "Notify_RecycleSelectionListOnly"
+        GodSystem.notify(gsFormatText(GodSystem.text(notifyKey, "Listed {1} item types for {2} coins; skipped {3}"), { #listRows, totalCost, skipped }))
         return true
     end
 
     local rawPayout = 0
     for i = 1, #typeOrder do
         local row = types[typeOrder[i]]
-        rawPayout = rawPayout + GodSystem.calculateRecyclePayout(typeOrder[i], row.raw, row.count)
+        rawPayout = rawPayout + GodSystem.calculateRecyclePayout(row.fullType, row.raw, row.count)
     end
     if rawPayout <= 0 then return false end
 
@@ -6618,17 +7002,17 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
     end
     if mode == "recycleAndList" then
         for i = 1, #typeOrder do
-            local fullType = typeOrder[i]
-            local row = types[fullType]
-            GodSystem.unlockAutoShopItem(fullType, row.item:getDisplayName(), GodSystem.getItemSellPrice(fullType, row.item))
+            local row = types[typeOrder[i]]
+            GodSystem.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), GodSystem.getItemSellPrice(row.fullType, row.item), row.item)
         end
     end
     data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
     data.stats.recycledPoints = (data.stats.recycledPoints or 0) + payout
     local key = mode == "recycleAndList" and "Notify_RecycleSelectionAndList" or "Notify_RecycleSelectionSuccess"
+    if skipped > 0 then key = key .. "Partial" end
     gsAppendHistory(data, { kind = "recycle", text = gsFormatText(GodSystem.text("History_RecycleSelection", "Recycled {1} items for {2} coins"), { #removed, payout }) })
     GodSystem.save()
-    GodSystem.notify(gsFormatText(GodSystem.text(key, "Recycled {1} items for {2} coins"), { #removed, payout }))
+    GodSystem.notify(gsFormatText(GodSystem.text(key, "Recycled {1} items for {2} coins; skipped {3}"), { #removed, payout, skipped }))
     return true
 end
 
@@ -7170,7 +7554,9 @@ function GodSystem.onPlayerUpdate(player)
     GodSystem.generateDailyTasks(false)
     GodSystem.updateKillRewards()
     GodSystem.updateTaskTimeouts()
-    GodSystem.refreshAutoRecyclerContainers()
+    if GodSystem.updateTicks % 300 == 0 then
+        GodSystem.refreshAutoRecyclerContainers(false)
+    end
     GodSystem.updateAutoRecycler()
     GodSystem.processAutoTaskClaim()
     GodSystem.processBankAutoDeposit()
@@ -7185,19 +7571,37 @@ function GodSystem.onPlayerDeath(player)
     if player and type(player) ~= "number" and player ~= gsPlayer() then
         return
     end
+    local cached = GodSystem.autoRecyclerCache and GodSystem.autoRecyclerCache.item or nil
+    if cached then GodSystemTerminalUpgrades.restoreTerminal(cached) end
+    GodSystem.autoRecyclerCache = nil
+    GodSystemCarryCapacity.clearRuntime(type(player) == "number" and nil or player)
     GodSystem.normalizeActiveKillTasks()
     GodSystem.handlePlayerDeath()
 end
 
 function GodSystem.onGameStart()
-    GodSystem.getData()
+    local data = GodSystem.getData()
+    GodSystem.migrateLegacyTerminalWear(gsPlayer())
+    GodSystem.applyCarryCapacity(gsPlayer(), data)
     GodSystem.ensureCurrencyInitialized()
     GodSystem.generateDailyTasks(false)
-    GodSystem.refreshAutoRecyclerContainers()
+    GodSystem.refreshAutoRecyclerContainers(true)
+end
+
+function GodSystem.onCreatePlayer(_, player)
+    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
+    GodSystemCarryCapacity.clearRuntime(player)
+    GodSystem.applyCarryCapacity(player or gsPlayer(), GodSystem.getData())
 end
 
 function GodSystem.onInitGlobalModData()
     GodSystem.getData()
+end
+
+function GodSystem.onGameExit()
+    local cached = GodSystem.autoRecyclerCache and GodSystem.autoRecyclerCache.item or nil
+    if cached then GodSystemTerminalUpgrades.restoreTerminal(cached) end
+    GodSystem.autoRecyclerCache = nil
 end
 
 function GodSystem.debugAddPoints()
@@ -7214,9 +7618,15 @@ end
 if Events.OnGameStart then
     Events.OnGameStart.Add(GodSystem.onGameStart)
 end
+if Events.OnCreatePlayer then
+    Events.OnCreatePlayer.Add(GodSystem.onCreatePlayer)
+end
 if Events.OnPlayerUpdate then
     Events.OnPlayerUpdate.Add(GodSystem.onPlayerUpdate)
 end
 if Events.OnPlayerDeath then
     Events.OnPlayerDeath.Add(GodSystem.onPlayerDeath)
+end
+if Events.OnGameExit then
+    Events.OnGameExit.Add(GodSystem.onGameExit)
 end

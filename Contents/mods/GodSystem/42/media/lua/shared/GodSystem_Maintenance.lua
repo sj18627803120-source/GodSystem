@@ -88,6 +88,9 @@ function GodSystemMaintenance.repairVehicle(vehicle)
 
     local after = GodSystemMaintenance.vehicleDamageSummary(vehicle)
     if after.damaged > 0 then
+        if after.damaged < before.damaged then
+            return true, "VehicleRepaired", before, after
+        end
         return false, "VehicleRepairFailed", before, after
     end
     return true, "VehicleRepaired", before, after
