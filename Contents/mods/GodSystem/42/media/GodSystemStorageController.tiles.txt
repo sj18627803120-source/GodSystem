@@ -1,0 +1,18 @@
+version = 1
+tileset
+{
+    file = GodSystem_StorageController
+    size = 1,1
+    id = 1
+    // GodSystem_StorageController_0
+    tile
+    {
+        xy = 0,0
+        BlocksPlacement =
+        CustomItem = GodSystem.StorageController
+        CustomName = System Storage Controller
+        IsMoveAble =
+        MoveType = Object
+        PickUpWeight = 20
+    }
+}

@@ -1,7 +1,7 @@
 version=1
 id=3743333332
 title=神级系统 / God System CN [SP/MP]
-description=v1.16.68
+description=v1.16.69
 description=由于一直想体验一下末世系统，但是没找到和我想的比较像的，就用AI做了一个，测试环境42.19 栀子合集，100%纯AI制作修复维护听天由命。
 description=
 description=纯正义mod 可以考虑加点提难度的一起玩 虽然我什么都没加也天天开饭

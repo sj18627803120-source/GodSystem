@@ -11,6 +11,7 @@ local Client = GodSystemStorageClient
 Context.connectMode = Context.connectMode == true
 Context.highlighted = Context.highlighted or {}
 Context.markers = Context.markers or {}
+Context.markerCount = Context.markerCount or 0
 Context.lineTexture = Context.lineTexture or nil
 
 local function text(key, fallback)
@@ -81,12 +82,16 @@ function Context.clearHighlights()
     end
     Context.highlighted = {}
     Context.markers = {}
+    Context.markerCount = 0
 end
 
 local function cacheMarker(object, marker, connected)
     local position = Storage.objectCoordinates(object)
     local objectId = marker and tostring(marker.objectId or "") or ""
     if not position or objectId == "" then return end
+    if Context.markers[objectId] == nil then
+        Context.markerCount = Context.markerCount + 1
+    end
     Context.markers[objectId] = {
         x = position.x,
         y = position.y,
@@ -109,7 +114,7 @@ local function drawLine(renderer, texture, x1, y1, x2, y2, red, green, blue)
 end
 
 function Context.renderMarkers()
-    if not Context.connectMode or not next(Context.markers) then return end
+    if not Context.connectMode or Context.markerCount <= 0 then return end
     if not isIngameState or not isIngameState() then return end
     local renderer = getRenderer and getRenderer() or nil
     if not renderer then return end

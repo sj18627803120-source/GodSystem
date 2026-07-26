@@ -16,5 +16,5 @@ ItemName_CH = {
     ItemName_GodSystem.SystemTerminalRelief = "系统内部减载核心",
 
     ItemName_GodSystem.StorageController = "系统仓库总控制器",
-    Tooltip_GodSystem_StorageController = "使用原版“放置物品”放到地面。开启连接模式，把上下左右紧贴或同格堆叠的场景箱柜标记为网络容器；靠近控制器右键打开统一仓库。",
+    Tooltip_GodSystem_StorageController = "在背包中使用原版家具“放置”功能安装控制器。开启连接模式，把上下左右紧贴或同格堆叠的场景箱柜标记为网络容器；靠近控制器右键打开统一仓库。",
 }
