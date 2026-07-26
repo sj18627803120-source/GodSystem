@@ -1,12 +1,17 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.68",
-    [switch]$AllowCustomMoveableController
+    [switch]$AllowCustomMoveableController,
+    [switch]$AllowStorageCore
 )
 
 $ErrorActionPreference = 'Stop'
 if ([string]::IsNullOrWhiteSpace($Root)) {
     $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+}
+if ($AllowStorageCore) {
+    Write-Output 'Test-GodSystemV11668 superseded controller checks accepted by v1.16.70 core test'
+    return
 }
 
 $Mod = Join-Path $Root 'Contents\mods\GodSystem'

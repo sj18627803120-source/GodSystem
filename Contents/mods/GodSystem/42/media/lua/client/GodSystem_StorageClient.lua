@@ -10,7 +10,7 @@ local MODULE = Storage.Module
 Client.snapshot = Client.snapshot or nil
 Client.snapshotBuilding = Client.snapshotBuilding or nil
 Client.details = Client.details or {}
-Client.controller = Client.controller or nil
+Client.core = Client.core or nil
 Client.pending = Client.pending or {}
 Client.lastError = Client.lastError or nil
 Client.claimState = Client.claimState or nil
@@ -30,22 +30,22 @@ local function text(key, fallback)
 end
 
 local reasonText = {
-    controllerMissing = { "Storage_Error_ControllerMissing", "Controller is missing" },
-    controllerInvalid = { "Storage_Error_ControllerInvalid", "Controller identity is invalid" },
-    controllerChanged = { "Storage_Error_ControllerChanged", "Controller changed" },
-    controllerExpired = { "Storage_Error_ControllerExpired", "This controller has expired; recover it from the God System page" },
-    controllerOwned = { "Storage_Error_ControllerOwned", "A valid controller kit is already in your inventory" },
-    controllerInstalled = { "Storage_Error_ControllerInstalled", "The controller is already installed" },
-    controllerNotInstalled = { "Storage_Error_ControllerNotInstalled", "This controller is not installed" },
-    controllerOverlap = { "Storage_Error_ControllerOverlap", "A controller already occupies this square" },
-    placementBlocked = { "Storage_Error_PlacementBlocked", "The controller cannot be installed on this square" },
-    placementInvalid = { "Storage_Error_PlacementInvalid", "The selected installation square is invalid" },
-    placementUnsupported = { "Storage_Error_PlacementUnsupported", "This game version cannot create the installed controller" },
-    placementFailed = { "Storage_Error_PlacementFailed", "Controller installation failed" },
-    reclaimFailed = { "Storage_Error_ReclaimFailed", "Controller reclaim failed" },
+    coreMissing = { "Storage_Error_CoreMissing", "Storage core is missing" },
+    coreHostMissing = { "Storage_Error_CoreHostMissing", "Storage core host is missing" },
+    coreInvalid = { "Storage_Error_CoreInvalid", "Storage core identity is invalid" },
+    coreChanged = { "Storage_Error_CoreChanged", "Storage core host changed" },
+    coreExpired = { "Storage_Error_CoreExpired", "This storage core has expired; recover it from the God System page" },
+    coreOwned = { "Storage_Error_CoreOwned", "A valid storage core is already in your inventory" },
+    coreInstalled = { "Storage_Error_CoreInstalled", "A storage core is already installed" },
+    networkContainerRequired = { "Storage_Error_NetworkContainerRequired", "Mark this furniture as a network container first" },
+    coreHostNotEmpty = { "Storage_Error_CoreHostNotEmpty", "Every storage slot in the host furniture must be empty" },
+    capacityLockFailed = { "Storage_Error_CapacityLockFailed", "The host capacity could not be locked" },
+    capacityRestoreFailed = { "Storage_Error_CapacityRestoreFailed", "The host capacity could not be restored" },
+    coreConsumeFailed = { "Storage_Error_CoreConsumeFailed", "The storage core could not be consumed" },
+    coreReturnFailed = { "Storage_Error_CoreReturnFailed", "The storage core could not be returned; the host was unlocked" },
     currencyNotEnough = { "Storage_Error_CurrencyNotEnough", "Not enough system coins" },
     economyUnavailable = { "Storage_Error_EconomyUnavailable", "The system coin service is unavailable" },
-    tooFar = { "Storage_Error_TooFar", "Move closer to the controller" },
+    tooFar = { "Storage_Error_TooFar", "Move closer to the storage core host" },
     notAllowed = { "Storage_Error_NotAllowed", "You cannot use this storage network" },
     manageDenied = { "Storage_Error_ManageDenied", "You cannot manage this storage network" },
     safehouseHasNetwork = { "Storage_Error_SafehouseHasNetwork", "This safehouse already has a storage network" },
@@ -64,7 +64,6 @@ local reasonText = {
     adminOnly = { "Storage_Error_AdminOnly", "Only an administrator can change this setting" },
     internalError = { "Storage_Error_Internal", "Storage operation failed" },
     markerFailed = { "Storage_Error_MarkerFailed", "The network container mark could not be changed" },
-    nativePlacementRequired = { "Storage_Error_NativePlacement", "Use the game's Place Item action to install this controller" },
 }
 
 function Client.notifyReason(reason)
@@ -78,45 +77,43 @@ function Client.newOperationId(command)
     return Storage.newId("op-" .. tostring(command or "storage"), Storage.playerKey(player()))
 end
 
-function Client.controllerArgs()
-    local current = Client.controller or {}
+function Client.coreArgs()
+    local current = Client.core or {}
     return {
         x = current.x,
         y = current.y,
         z = current.z,
-        controllerX = current.x,
-        controllerY = current.y,
-        controllerZ = current.z,
-        controllerItemId = current.itemId,
-        controllerToken = current.token,
-        controllerObjectId = current.objectId,
+        coreX = current.x,
+        coreY = current.y,
+        coreZ = current.z,
+        coreItemId = current.itemId,
+        coreToken = current.token,
+        coreObjectId = current.objectId,
         networkId = current.networkId,
     }
 end
 
-local function mergeControllerArgs(args)
-    local result = Client.controllerArgs()
+local function mergeCoreArgs(args)
+    local result = Client.coreArgs()
     for key, value in pairs(args or {}) do result[key] = value end
     return result
 end
 
-function Client.setController(item, x, y, z, object)
-    local networkId, token = Storage.getControllerIdentity(item)
-    if (not networkId or networkId == "") and object then networkId, token = Storage.getControllerIdentity(object) end
+function Client.setCoreHost(x, y, z, object)
+    local marker = object and Storage.getCoreHostMarker(object) or nil
+    local networkId = marker and tostring(marker.networkId or "") or ""
+    local token = marker and tostring(marker.token or "") or ""
     if not networkId or networkId == "" or not token or token == "" then return false end
-    local _, _, objectId = Storage.getInstalledControllerIdentity(object)
-    local worldItem = object and Storage.safeCall(object, "getItem", nil) or nil
-    local controllerItemId = Storage.itemId(worldItem)
-    if not controllerItemId and item ~= object then controllerItemId = Storage.itemId(item) end
-    if Client.controller and tostring(Client.controller.networkId or "") ~= tostring(networkId) then
+    local objectId = tostring(marker.objectId or "")
+    if Client.core and tostring(Client.core.networkId or "") ~= tostring(networkId) then
         Client.networkState = nil
         Client.snapshot = nil
     end
-    Client.controller = {
+    Client.core = {
         x = Storage.integer(x, 0),
         y = Storage.integer(y, 0),
         z = Storage.integer(z, 0),
-        itemId = controllerItemId,
+        itemId = nil,
         token = token,
         networkId = networkId,
         objectId = objectId ~= "" and objectId or nil,
@@ -143,10 +140,10 @@ end
 local function startLocalIndex(allowRemote)
     local p = player()
     local ok, reason, job = Manager.startIndex(p, {
-        x = Client.controller.x, y = Client.controller.y, z = Client.controller.z,
-        controllerItemId = Client.controller.itemId,
-        controllerToken = Client.controller.token,
-        networkId = Client.controller.networkId,
+        x = Client.core.x, y = Client.core.y, z = Client.core.z,
+        coreToken = Client.core.token,
+        coreObjectId = Client.core.objectId,
+        networkId = Client.core.networkId,
         allowRemote = allowRemote == true,
     }, function(_, snapshot)
         Client.applySnapshot(snapshot)
@@ -164,21 +161,21 @@ local function refreshGodSystemStoragePage()
     end
 end
 
-function Client.requestControllerStatus(force)
+function Client.requestCoreStatus(force)
     local now = Storage.nowMs()
     if force ~= true and Client.claimState and now - (Client.statusRequestedAtMs or 0) < 1500 then
         return Client.claimState
     end
     Client.statusRequestedAtMs = now
     if isMultiplayer() then
-        send("controllerStatus", {})
+        send("coreStatus", {})
         return Client.claimState
     end
-    local status, reason = Manager.controllerStatus(player())
+    local status, reason = Manager.coreStatus(player())
     if not status then Client.notifyReason(reason); return nil end
     Client.claimState = status
-    if status.state ~= "installed" and status.state ~= "legacyGround" then
-        Client.controller = nil
+    if status.state ~= "installed" then
+        Client.core = nil
         Client.networkState = nil
     end
     refreshGodSystemStoragePage()
@@ -198,14 +195,14 @@ local function beginStandalone(command, args)
     return true, args
 end
 
-function Client.claimController(forceRecovery)
-    local fresh, args = beginStandalone("claimController", { forceRecovery = forceRecovery == true })
+function Client.claimCore(forceRecovery)
+    local fresh, args = beginStandalone("claimCore", { forceRecovery = forceRecovery == true })
     if not fresh then
-        if isMultiplayer() then return send("claimController", args) end
+        if isMultiplayer() then return send("claimCore", args) end
         return false
     end
-    if isMultiplayer() then return send("claimController", args) end
-    local ok, reason, payload = Manager.claimController(player(), {
+    if isMultiplayer() then return send("claimCore", args) end
+    local ok, reason, payload = Manager.claimCore(player(), {
         forceRecovery = forceRecovery == true,
         charge = function(cost)
             if not GodSystem or not GodSystem.spendCurrency then return false, nil end
@@ -225,55 +222,105 @@ function Client.claimController(forceRecovery)
     })
     Client.pending[args.opId] = nil
     if not ok then Client.notifyReason(reason); return false end
-    Client.requestControllerStatus(true)
+    Client.requestCoreStatus(true)
     if GodSystem and GodSystem.notify then
-        GodSystem.notify(text(payload and payload.recovered and "Storage_Notify_ControllerRecovered" or "Storage_Notify_ControllerClaimed", "Storage controller received"))
+        GodSystem.notify(text(payload and payload.recovered and "Storage_Notify_CoreRecovered" or "Storage_Notify_CoreClaimed", "Storage core received"))
     end
     return true, payload
 end
 
-function Client.installController()
-    Client.notifyReason("nativePlacementRequired")
-    return false
+local function findCarriedCore()
+    local status = Client.claimState or {}
+    local inventory = Storage.safeCall(player(), "getInventory", nil)
+    if not inventory then return nil end
+    local expectedId = tostring(status.coreItemId or "")
+    if expectedId ~= "" then
+        local item = Storage.findItemRecursive(inventory, expectedId)
+        if item and Storage.isCore(item) then return item end
+    end
+    local seen = {}
+    local function visit(container, depth)
+        if not container or seen[container] or depth > Storage.MaxDepth then return nil end
+        seen[container] = true
+        local items = Storage.safeCall(container, "getItems", nil)
+        local size = Storage.integer(Storage.safeCall(items, "size", 0), 0)
+        for i = 0, size - 1 do
+            local item = Storage.safeCall(items, "get", nil, i)
+            local networkId, token = Storage.getCoreIdentity(item)
+            if Storage.isCore(item) and tostring(networkId or "") ~= "" and tostring(token or "") ~= "" then
+                return item
+            end
+            local nested = visit(Storage.safeCall(item, "getInventory", nil), depth + 1)
+            if nested then return nested end
+        end
+        return nil
+    end
+    return visit(inventory, 0)
 end
 
-function Client.open(item, x, y, z, object)
-    if not Client.setController(item, x, y, z, object) then
-        Client.notifyReason("controllerInvalid")
+Client.findCarriedCore = findCarriedCore
+
+function Client.installCore(target)
+    target = type(target) == "table" and target or {}
+    local item = findCarriedCore()
+    if not item then Client.notifyReason("coreMissing"); return false end
+    local networkId, token = Storage.getCoreIdentity(item)
+    target.networkId = networkId
+    target.coreToken = token
+    target.coreItemId = Storage.itemId(item)
+    local fresh, args = beginStandalone("installCore", target)
+    if not fresh then
+        if isMultiplayer() then return send("installCore", args) end
+        return false
+    end
+    if isMultiplayer() then return send("installCore", args) end
+    local ok, reason, payload = Manager.installCore(player(), args)
+    Client.pending[args.opId] = nil
+    if not ok then Client.notifyReason(reason); return false end
+    Client.requestCoreStatus(true)
+    if GodSystem and GodSystem.notify then
+        GodSystem.notify(text("Storage_Notify_CoreInstalled", "Storage core installed"))
+    end
+    return true, payload
+end
+
+function Client.open(x, y, z, object)
+    if not Client.setCoreHost(x, y, z, object) then
+        Client.notifyReason("coreInvalid")
         return false
     end
     Client.snapshot = nil
     Client.snapshotBuilding = nil
     if GodSystemStorageUI and GodSystemStorageUI.open then GodSystemStorageUI.open() end
-    if isMultiplayer() then return send("open", Client.controllerArgs()) end
+    if isMultiplayer() then return send("open", Client.coreArgs()) end
     return startLocalIndex()
 end
 
-function Client.reclaim(item, x, y, z, object)
-    if not Client.setController(item, x, y, z, object) then
-        Client.notifyReason("controllerInvalid")
+function Client.retrieveCore(x, y, z, object)
+    if not Client.setCoreHost(x, y, z, object) then
+        Client.notifyReason("coreInvalid")
         return false
     end
-    local args = Client.controllerArgs()
+    local args = Client.coreArgs()
     local fresh
-    fresh, args = beginStandalone("reclaimController", args)
+    fresh, args = beginStandalone("retrieveCore", args)
     if not fresh then
-        if isMultiplayer() then return send("reclaimController", args) end
+        if isMultiplayer() then return send("retrieveCore", args) end
         return false
     end
-    if isMultiplayer() then return send("reclaimController", args) end
-    local ok, reason, payload = Manager.reclaimController(player(), args)
+    if isMultiplayer() then return send("retrieveCore", args) end
+    local ok, reason, payload = Manager.retrieveCore(player(), args)
     Client.pending[args.opId] = nil
     if not ok then Client.notifyReason(reason); return false end
-    Client.controller = nil
-    Client.requestControllerStatus(true)
-    if GodSystem and GodSystem.notify then GodSystem.notify(text("Storage_Notify_ControllerReclaimed", "Storage controller reclaimed")) end
+    Client.core = nil
+    Client.requestCoreStatus(true)
+    if GodSystem and GodSystem.notify then GodSystem.notify(text("Storage_Notify_CoreRetrieved", "Storage core retrieved")) end
     return true, payload
 end
 
 function Client.refresh()
-    if not Client.controller then return false end
-    if isMultiplayer() then return send("refresh", Client.controllerArgs()) end
+    if not Client.core then return false end
+    if isMultiplayer() then return send("refresh", Client.coreArgs()) end
     return startLocalIndex()
 end
 
@@ -282,12 +329,12 @@ function Client.requestDetails(groupKey)
     groupKey = tostring(groupKey or "")
     Client.details[groupKey] = {}
     if isMultiplayer() then
-        return send("details", mergeControllerArgs({
+        return send("details", mergeCoreArgs({
             snapshotId = Client.snapshot.snapshotId,
             groupKey = groupKey,
         }))
     end
-    local job = Manager.latestJob(Client.controller.networkId, Client.snapshot.snapshotId)
+    local job = Manager.latestJob(Client.core.networkId, Client.snapshot.snapshotId)
     if not job then Client.notifyReason("snapshotExpired"); return false end
     Client.details[groupKey] = Storage.copyInstanceDetails(job, groupKey)
     if GodSystemStorageUI and GodSystemStorageUI.onDetails then
@@ -298,25 +345,25 @@ end
 
 local function localMutation(command, args)
     local p = player()
-    local controller = {
-        x = Client.controller.x, y = Client.controller.y, z = Client.controller.z,
-        controllerItemId = Client.controller.itemId,
-        controllerToken = Client.controller.token,
-        networkId = Client.controller.networkId,
+    local core = {
+        x = Client.core.x, y = Client.core.y, z = Client.core.z,
+        coreObjectId = Client.core.objectId,
+        coreToken = Client.core.token,
+        networkId = Client.core.networkId,
     }
     local ok, reason, payload
     if command == "link" then
-        ok, reason, payload = Manager.linkContainer(p, controller, args)
+        ok, reason, payload = Manager.linkContainer(p, core, args)
     elseif command == "unlink" then
-        ok, reason, payload = Manager.unlinkContainer(p, controller, args.linkId)
+        ok, reason, payload = Manager.unlinkContainer(p, core, args.linkId)
     elseif command == "updateLink" then
-        ok, reason, payload = Manager.updateLink(p, controller, args)
+        ok, reason, payload = Manager.updateLink(p, core, args)
     elseif command == "updateLimits" then
-        ok, reason, payload = Manager.updateLimits(p, controller, args.radius, args.maxLinks)
+        ok, reason, payload = Manager.updateLimits(p, core, args.radius, args.maxLinks)
     elseif command == "deposit" then
-        ok, reason, payload = Manager.deposit(p, controller, args)
+        ok, reason, payload = Manager.deposit(p, core, args)
     elseif command == "withdraw" then
-        ok, reason, payload = Manager.withdraw(p, controller, args)
+        ok, reason, payload = Manager.withdraw(p, core, args)
     end
     if not ok then Client.notifyReason(reason) end
     if payload and GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
@@ -331,7 +378,7 @@ local function localMutation(command, args)
 end
 
 function Client.mutate(command, args)
-    if not Client.controller then return false end
+    if not Client.core then return false end
     if isMultiplayer() then
         for _, pending in pairs(Client.pending) do
             if pending.command == command and type(pending.args) == "table" then
@@ -340,7 +387,7 @@ function Client.mutate(command, args)
             end
         end
     end
-    args = mergeControllerArgs(args or {})
+    args = mergeCoreArgs(args or {})
     args.opId = args.opId or Client.newOperationId(command)
     Client.pending[args.opId] = { command = command, args = args, startedAtMs = Storage.nowMs() }
     if isMultiplayer() then return send(command, args) end
@@ -366,7 +413,7 @@ function Client.setNetworkContainer(target)
     if GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
         GodSystemStorageContext.refreshHighlights()
     end
-    if Client.controller then Client.refresh() end
+    if Client.core then Client.refresh() end
     return ok, reason, payload
 end
 
@@ -383,9 +430,9 @@ function Client.updateLimits(radius, maxLinks)
 end
 
 function Client.takeOver()
-    if not Client.controller then return false end
-    if isMultiplayer() then return send("takeOver", Client.controllerArgs()) end
-    local network = Manager.getNetwork(Client.controller.networkId)
+    if not Client.core then return false end
+    if isMultiplayer() then return send("takeOver", Client.coreArgs()) end
+    local network = Manager.getNetwork(Client.core.networkId)
     if not network or not Storage.isAdmin(player()) then Client.notifyReason("adminOnly"); return false end
     network.owner = Storage.playerKey(player())
     network.creator = network.owner
@@ -425,14 +472,10 @@ end
 function Client.onServerCommand(module, command, args)
     if module ~= MODULE then return end
     args = args or {}
-    if command == "claimResult" then
-        if GodSystem and GodSystem.notify then GodSystem.notify(text("Storage_Notify_ControllerClaimed", "Storage controller received")) end
-        return
-    end
-    if command == "controllerStatus" then
+    if command == "coreStatus" then
         Client.claimState = args
-        if args.state ~= "installed" and args.state ~= "legacyGround" then
-            Client.controller = nil
+        if args.state ~= "installed" then
+            Client.core = nil
             Client.networkState = nil
         end
         Client.statusRequestedAtMs = Storage.nowMs()
@@ -491,27 +534,27 @@ function Client.onServerCommand(module, command, args)
         local opId = tostring(args.opId or "")
         Client.pending[opId] = nil
         if args.ok ~= true then Client.notifyReason(args.reason) end
-        if args.command == "claimController" or args.command == "installController" or args.command == "reclaimController" then
+        if args.command == "claimCore" or args.command == "installCore" or args.command == "retrieveCore" then
             if args.ok == true and type(args.payload) == "table" and args.payload.state then
                 local nextState = Client.claimState or {}
                 nextState.state = tostring(args.payload.state)
                 nextState.networkId = args.payload.networkId or nextState.networkId
-                nextState.controllerItemId = args.payload.controllerItemId
+                nextState.coreItemId = args.payload.coreItemId
                 nextState.claimedOnce = true
-                nextState.recoveryCost = Storage.ControllerRecoveryCost
-                nextState.nextCost = Storage.ControllerRecoveryCost
-                nextState.controller = args.payload.controller
+                nextState.recoveryCost = Storage.CoreRecoveryCost
+                nextState.nextCost = Storage.CoreRecoveryCost
+                nextState.coreHost = args.payload.coreHost
                 Client.claimState = nextState
             end
-            if args.command == "reclaimController" and args.ok == true then Client.controller = nil end
-            Client.requestControllerStatus(true)
+            if args.command == "retrieveCore" and args.ok == true then Client.core = nil end
+            Client.requestCoreStatus(true)
             refreshGodSystemStoragePage()
         end
         if args.command == "setNetworkContainer" then
             if GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
                 GodSystemStorageContext.refreshHighlights()
             end
-            if args.ok == true and Client.controller then Client.refresh() end
+            if args.ok == true and Client.core then Client.refresh() end
         end
         if GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
             GodSystemStorageUI.onOperationResult(args.command, args.ok == true, args.reason, args.payload)
@@ -540,7 +583,7 @@ function Client.reset()
     Client.snapshot = nil
     Client.snapshotBuilding = nil
     Client.details = {}
-    Client.controller = nil
+    Client.core = nil
     Client.pending = {}
     Client.networkState = nil
     Client.claimState = nil

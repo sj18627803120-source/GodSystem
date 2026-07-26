@@ -28,6 +28,46 @@ function Manager.save(network)
     transmitStore()
 end
 
+function Manager.calibrateLoadedSquare(square)
+    local changed = false
+    local objects = Storage.squareObjects(square)
+    for i = 1, #objects do
+        local object = objects[i]
+        local host = Storage.getCoreHostMarker(object)
+        if host then
+            local network = Manager.getNetwork(host.networkId)
+            local position = Storage.objectCoordinates(object)
+            local recorded = network and (network.coreHost or network.controller) or nil
+            local active = network
+                and tostring(network.coreToken or network.controllerToken or "") == tostring(host.token or "")
+                and type(recorded) == "table"
+                and position
+                and Storage.integer(recorded.x, -1) == Storage.integer(position.x, 0)
+                and Storage.integer(recorded.y, -1) == Storage.integer(position.y, 0)
+                and Storage.integer(recorded.z, -1) == Storage.integer(position.z, 0)
+                and tostring(recorded.objectId or "") == tostring(host.objectId or "")
+            if active then
+                Storage.enforceCoreHostLock(object, host.networkId, host.token)
+            else
+                local unlocked = Storage.unlockCoreHost(object, host.token)
+                if unlocked and network and tostring(network.coreToken or "") == tostring(host.token or "") then
+                    network.coreState = "missing"
+                    network.coreHost = nil
+                    network.coreItemId = nil
+                    network.revision = Storage.integer(network.revision, 0) + 1
+                    changed = true
+                end
+                if unlocked and network and type(network.pendingCoreUnlock) == "table"
+                    and tostring(network.pendingCoreUnlock.token or "") == tostring(host.token or "") then
+                    network.pendingCoreUnlock = nil
+                    changed = true
+                end
+            end
+        end
+    end
+    if changed then transmitStore() end
+end
+
 function Manager.getStore()
     local store
     if ModData and ModData.getOrCreate then
@@ -75,8 +115,13 @@ function Manager.createNetwork(player, scope, scopeKey)
         safehouse = scope == "safehouse" and scopeKey or nil,
         owner = owner,
         creator = owner,
-        controllerToken = "",
-        controller = nil,
+        coreToken = "",
+        coreClaimedOnce = false,
+        coreState = "unclaimed",
+        coreItemId = nil,
+        coreHost = nil,
+        pendingCoreUnlock = nil,
+        coreMigrationVersion = 1,
         radius = Storage.DefaultRadius,
         maxLinks = Storage.MaxLinks,
         links = {},
@@ -106,8 +151,8 @@ function Manager.canUse(player, network)
     if Storage.isAdmin(player) then return true end
     if network.scope == "personal" then return Storage.playerKey(player) == tostring(network.owner or "") end
     if network.scope == "safehouse" then
-        local controller = network.controller or {}
-        local safehouse = Storage.getSafehouseAt(controller.x or 0, controller.y or 0)
+        local coreHost = network.coreHost or network.controller or {}
+        local safehouse = Storage.getSafehouseAt(coreHost.x or 0, coreHost.y or 0)
         if Storage.safehouseKey(safehouse) == tostring(network.safehouse or "") then
             return Storage.playerAllowedSafehouse(player, safehouse)
         end
@@ -120,8 +165,8 @@ function Manager.canManage(player, network)
     if Storage.isAdmin(player) then return true end
     if not Manager.canUse(player, network) then return false end
     if network.scope == "personal" then return Storage.playerKey(player) == tostring(network.owner or "") end
-    local controller = network.controller or {}
-    local safehouse = Storage.getSafehouseAt(controller.x or 0, controller.y or 0)
+    local coreHost = network.coreHost or network.controller or {}
+    local safehouse = Storage.getSafehouseAt(coreHost.x or 0, coreHost.y or 0)
     local username = Storage.playerKey(player)
     if Storage.safehouseKey(safehouse) ~= tostring(network.safehouse or "") then
         return username == tostring(network.creator or "")
@@ -131,12 +176,12 @@ function Manager.canManage(player, network)
         or username == tostring(network.creator or "")
 end
 
-local function inventoryAddController(player, network, token)
+local function inventoryAddCore(player, network, token)
     local inventory = safeCall(player, "getInventory", nil)
     if not inventory then return nil, "inventoryMissing" end
     local item
     if InventoryItemFactory and InventoryItemFactory.CreateItem then
-        local ok, created = pcall(InventoryItemFactory.CreateItem, Storage.ControllerFullType)
+        local ok, created = pcall(InventoryItemFactory.CreateItem, Storage.CoreFullType)
         if ok then item = created end
     end
     if item then
@@ -144,10 +189,10 @@ local function inventoryAddController(player, network, token)
         if not ok or not Storage.containerContains(inventory, item) then item = nil end
     end
     if not item then
-        item = safeCall(inventory, "AddItem", nil, Storage.ControllerFullType)
+        item = safeCall(inventory, "AddItem", nil, Storage.CoreFullType)
     end
     if not item then return nil, "createFailed" end
-    if not Storage.setControllerIdentity(item, network.networkId, token) then
+    if not Storage.setCoreIdentity(item, network.networkId, token) then
         pcall(function() inventory:Remove(item) end)
         return nil, "identityFailed"
     end
@@ -163,7 +208,7 @@ local function removeInventoryItem(container, item)
     return true
 end
 
-local function collectControllerItems(player)
+local function collectCoreItems(player)
     local root = safeCall(player, "getInventory", nil)
     local result, seenContainers = {}, {}
     local function visit(container, depth)
@@ -173,7 +218,7 @@ local function collectControllerItems(player)
         local size = Storage.integer(safeCall(items, "size", 0), 0)
         for i = 0, size - 1 do
             local item = safeCall(items, "get", nil, i)
-            if Storage.isController(item) then
+            if Storage.isCore(item) then
                 result[#result + 1] = { item = item, container = container }
             end
             visit(safeCall(item, "getInventory", nil), depth + 1)
@@ -183,23 +228,25 @@ local function collectControllerItems(player)
     return result
 end
 
-local function findInventoryController(player, networkId, token)
-    local rows = collectControllerItems(player)
+local function findInventoryCore(player, networkId, token, expectedItemId)
+    local rows = collectCoreItems(player)
     for i = 1, #rows do
-        local itemNetworkId, itemToken = Storage.getControllerIdentity(rows[i].item)
+        local itemNetworkId, itemToken = Storage.getCoreIdentity(rows[i].item)
         if tostring(itemNetworkId or "") == tostring(networkId or "")
-            and tostring(itemToken or "") == tostring(token or "") then
+            and tostring(itemToken or "") == tostring(token or "")
+            and (not expectedItemId or tostring(expectedItemId) == ""
+                or tostring(Storage.itemId(rows[i].item) or "") == tostring(expectedItemId)) then
             return rows[i].item, rows[i].container
         end
     end
     return nil, nil
 end
 
-local function cleanupInventoryControllers(player, networkId, keepItem)
+local function cleanupInventoryCores(player, networkId, keepItem)
     local removed = 0
-    local rows = collectControllerItems(player)
+    local rows = collectCoreItems(player)
     for i = 1, #rows do
-        local itemNetworkId = Storage.getControllerIdentity(rows[i].item)
+        local itemNetworkId = Storage.getCoreIdentity(rows[i].item)
         if rows[i].item ~= keepItem and tostring(itemNetworkId or "") == tostring(networkId or "")
             and removeInventoryItem(rows[i].container, rows[i].item) then
             removed = removed + 1
@@ -208,7 +255,7 @@ local function cleanupInventoryControllers(player, networkId, keepItem)
     return removed
 end
 
-local function removeWorldController(object)
+local function removeLegacyWorldObject(object)
     local square = safeCall(object, "getSquare", nil)
     if not square or not object then return false end
     if square.transmitRemoveItemFromSquare then
@@ -221,31 +268,59 @@ local function removeWorldController(object)
     return Storage.integer(safeCall(object, "getObjectIndex", -1), -1) < 0
 end
 
-local function normalizeControllerFields(network)
+local function normalizeCoreFields(network)
     local changed = false
-    local token = tostring(network.controllerToken or "")
-    if network.controllerClaimedOnce == nil then
-        network.controllerClaimedOnce = token ~= ""
+    if Storage.integer(network.coreMigrationVersion, 0) < 1 then
+        local legacyToken = tostring(network.controllerToken or "")
+        if tostring(network.coreToken or "") == "" then network.coreToken = legacyToken end
+        if network.coreClaimedOnce == nil then
+            network.coreClaimedOnce = network.controllerClaimedOnce == true or legacyToken ~= ""
+        end
+        local legacyState = tostring(network.controllerState or "")
+        if type(network.controller) == "table"
+            and (legacyState == "installed" or legacyState == "legacyGround") then
+            network.legacyControllerCleanup = network.controller
+            network.legacyControllerCleanup.token = legacyToken
+            network.coreState = "migrationPending"
+        elseif legacyState == "kit" then
+            network.coreState = "kit"
+            network.coreItemId = network.controllerItemId
+        elseif tostring(network.coreToken or "") == "" then
+            network.coreState = "unclaimed"
+        else
+            network.coreState = "missing"
+        end
+        network.coreMigrationVersion = 1
+        network.controller = nil
+        network.controllerToken = nil
+        network.controllerState = nil
+        network.controllerItemId = nil
+        network.controllerClaimedOnce = nil
         changed = true
     end
-    if token == "" and tostring(network.controllerState or "") ~= "unclaimed" then
-        network.controllerState = "unclaimed"
-        network.controllerItemId = nil
+    local token = tostring(network.coreToken or "")
+    if network.coreClaimedOnce == nil then
+        network.coreClaimedOnce = token ~= ""
         changed = true
-    elseif token ~= "" and tostring(network.controllerState or "") == "" then
-        network.controllerState = "missing"
+    end
+    if token == "" and tostring(network.coreState or "") ~= "unclaimed" then
+        network.coreState = "unclaimed"
+        network.coreItemId = nil
+        changed = true
+    elseif token ~= "" and tostring(network.coreState or "") == "" then
+        network.coreState = "missing"
         changed = true
     end
     return changed
 end
 
-local function setControllerState(network, state, itemId, controller)
-    local changed = tostring(network.controllerState or "") ~= tostring(state or "")
-        or tostring(network.controllerItemId or "") ~= tostring(itemId or "")
-        or network.controller ~= controller
-    network.controllerState = tostring(state or "missing")
-    network.controllerItemId = itemId and tostring(itemId) or nil
-    network.controller = controller
+local function setCoreState(network, state, itemId, coreHost)
+    local changed = tostring(network.coreState or "") ~= tostring(state or "")
+        or tostring(network.coreItemId or "") ~= tostring(itemId or "")
+        or network.coreHost ~= coreHost
+    network.coreState = tostring(state or "missing")
+    network.coreItemId = itemId and tostring(itemId) or nil
+    network.coreHost = coreHost
     if changed then
         network.revision = Storage.integer(network.revision, 0) + 1
         network.updatedAtMs = Storage.nowMs()
@@ -253,146 +328,204 @@ local function setControllerState(network, state, itemId, controller)
     return changed
 end
 
-function Manager.controllerStatus(player)
+local function findRecordedCoreHost(network, expectedToken)
+    local host = type(network.coreHost) == "table" and network.coreHost or nil
+    if not host then return nil, nil, false end
+    local square = Storage.getSquare(host.x, host.y, host.z)
+    if not square then return nil, nil, false end
+    local object, marker = Storage.findCoreHost(host.x, host.y, host.z, host.objectId,
+        network.networkId, expectedToken)
+    return object, marker, true
+end
+
+local function processPendingUnlock(network)
+    local pending = type(network.pendingCoreUnlock) == "table" and network.pendingCoreUnlock or nil
+    if not pending then return false end
+    local square = Storage.getSquare(pending.x, pending.y, pending.z)
+    if not square then return false end
+    local object = Storage.findCoreHost(pending.x, pending.y, pending.z,
+        pending.objectId, network.networkId, pending.token)
+    if object then
+        local unlocked = Storage.unlockCoreHost(object, pending.token)
+        if not unlocked then return false end
+    end
+    network.pendingCoreUnlock = nil
+    return true
+end
+
+local function cleanupLegacyController(network)
+    local legacy = type(network.legacyControllerCleanup) == "table" and network.legacyControllerCleanup or nil
+    if not legacy then return false end
+    local square = Storage.getSquare(legacy.x, legacy.y, legacy.z)
+    if not square then return false end
+    local object = Storage.findLegacyWorldController(
+        legacy.x, legacy.y, legacy.z, legacy.itemId,
+        tostring(legacy.token or network.coreToken or ""), legacy.objectId)
+    if object and not removeLegacyWorldObject(object) then return false end
+    network.legacyControllerCleanup = nil
+    return true
+end
+
+local function migrateInventoryCore(player, network, item, container)
+    if not item or not Storage.hasLegacyControllerIdentity(item) then
+        if item then Storage.setCoreIdentity(item, network.networkId, network.coreToken) end
+        return item, container
+    end
+    local replacement, reason = inventoryAddCore(player, network, network.coreToken)
+    if not replacement then return item, container, reason end
+    if not removeInventoryItem(container, item) then
+        removeInventoryItem(safeCall(player, "getInventory", nil), replacement)
+        return item, container, "migrationRemoveFailed"
+    end
+    return replacement, safeCall(replacement, "getContainer", nil)
+end
+
+function Manager.coreStatus(player)
     local position = Storage.positionOfPlayer(player)
     if not position then return nil, "playerMissing" end
     local network
-    local controllerRows = collectControllerItems(player)
-    for i = 1, #controllerRows do
-        local networkId, token = Storage.getControllerIdentity(controllerRows[i].item)
+    local coreRows = collectCoreItems(player)
+    for i = 1, #coreRows do
+        local networkId, token = Storage.getCoreIdentity(coreRows[i].item)
         local candidate = Manager.getNetwork(networkId)
-        if candidate and tostring(candidate.controllerToken or "") == tostring(token or "") then
+        if candidate then normalizeCoreFields(candidate) end
+        if candidate and tostring(candidate.coreToken or "") == tostring(token or "") then
             network = candidate
             break
         end
     end
-    if not network then
-        local nearbyObject, nearbyItem = Storage.findNearbyWorldController(position, nil, nil, Storage.HighlightRadius)
-        local networkId, token = Storage.getInstalledControllerIdentity(nearbyObject)
-        if not networkId or networkId == "" then networkId, token = Storage.getControllerIdentity(nearbyItem) end
-        local candidate = Manager.getNetwork(networkId)
-        if candidate and tostring(candidate.controllerToken or "") == tostring(token or "") then network = candidate end
-    end
+    local scopeNetwork
     if not network then
         local _, scopeKey = Manager.scopeForPosition(player, position)
-        network = Manager.getNetworkByScope(scopeKey)
+        scopeNetwork = Manager.getNetworkByScope(scopeKey)
+        if scopeNetwork then
+            normalizeCoreFields(scopeNetwork)
+            if tostring(scopeNetwork.coreToken or "") ~= "" then network = scopeNetwork end
+        end
     end
+    if not network then
+        local username = Storage.playerKey(player)
+        local newestAt = -1
+        for _, candidate in pairs(Manager.getStore().networks) do
+            if tostring(candidate.owner or candidate.creator or "") == username
+                and tostring(candidate.coreToken or candidate.controllerToken or "") ~= ""
+                and Storage.number(candidate.updatedAtMs, 0) > newestAt then
+                network = candidate
+                newestAt = Storage.number(candidate.updatedAtMs, 0)
+            end
+        end
+    end
+    if not network then network = scopeNetwork end
     if not network then
         return {
             state = "unclaimed",
             claimedOnce = false,
-            recoveryCost = Storage.ControllerRecoveryCost,
+            recoveryCost = Storage.CoreRecoveryCost,
             nextCost = 0,
             canClaim = true,
         }
     end
     if not Manager.canUse(player, network) then return nil, "notAllowed" end
 
-    local changed = normalizeControllerFields(network)
-    local token = tostring(network.controllerToken or "")
-    local state = tostring(network.controllerState or "missing")
-    local itemId = network.controllerItemId
-    local controller = network.controller
+    local changed = normalizeCoreFields(network)
+    if processPendingUnlock(network) then changed = true end
+    if cleanupLegacyController(network) then changed = true end
+    local token = tostring(network.coreToken or "")
+    local state = tostring(network.coreState or "missing")
+    local itemId = network.coreItemId
+    local coreHost = network.coreHost
+    local activeCoreItem
     if token ~= "" then
-        local item = findInventoryController(player, network.networkId, token)
+        local item, container = findInventoryCore(player, network.networkId, token)
         if item then
+            item, container = migrateInventoryCore(player, network, item, container)
+            activeCoreItem = item
             itemId = Storage.itemId(item)
-            controller = nil
+            if type(coreHost) == "table" then
+                local staleHost, _, loaded = findRecordedCoreHost(network, token)
+                if staleHost then
+                    local unlocked = Storage.unlockCoreHost(staleHost, token)
+                    if not unlocked then return nil, "capacityRestoreFailed" end
+                elseif not loaded then
+                    network.pendingCoreUnlock = {
+                        x = coreHost.x, y = coreHost.y, z = coreHost.z,
+                        objectId = coreHost.objectId, token = token,
+                    }
+                end
+            end
+            coreHost = nil
             state = "kit"
-        elseif type(controller) == "table" then
-            local square = Storage.getSquare(controller.x, controller.y, controller.z)
-            local object, worldItem = Storage.findWorldController(
-                controller.x, controller.y, controller.z,
-                controller.itemId, token, controller.objectId
-            )
+        elseif state == "migrationPending" then
+            local migrated, migrateReason = inventoryAddCore(player, network, token)
+            if not migrated then return nil, migrateReason end
+            activeCoreItem = migrated
+            itemId = Storage.itemId(migrated)
+            coreHost = nil
+            state = "kit"
+            cleanupLegacyController(network)
+        elseif type(coreHost) == "table" then
+            local object, _, loaded = findRecordedCoreHost(network, token)
             if object then
-                Storage.markInstalledController(object, network.networkId, token, controller.objectId ~= "" and controller.objectId or Storage.newId("controller-object", network.networkId))
+                local locked, lockReason = Storage.enforceCoreHostLock(object, network.networkId, token)
+                if not locked then return nil, lockReason end
                 state = "installed"
-                itemId = Storage.itemId(worldItem)
-            elseif square then
-                state = "missing"
-                controller = nil
                 itemId = nil
-            elseif state ~= "installed" then
+            elseif loaded then
                 state = "missing"
-                controller = nil
+                coreHost = nil
                 itemId = nil
             end
         else
-            local object, worldItem = Storage.findNearbyWorldController(position, network.networkId, token, Storage.HighlightRadius)
-            if object then
-                local objectId = Storage.newId("controller-object", network.networkId)
-                Storage.markInstalledController(object, network.networkId, token, objectId)
-                local objectPosition = Storage.objectCoordinates(object)
-                controller = {
-                    x = objectPosition.x, y = objectPosition.y, z = objectPosition.z,
-                    itemId = Storage.itemId(worldItem),
-                    objectId = objectId,
-                }
-                itemId = Storage.itemId(worldItem)
-                state = "installed"
-            else
-                state = "missing"
-                itemId = nil
-            end
+            state = "missing"
+            itemId = nil
         end
     else
         state = "unclaimed"
         itemId = nil
-        controller = nil
+        coreHost = nil
     end
-    if setControllerState(network, state, itemId, controller) then changed = true end
+    if setCoreState(network, state, itemId, coreHost) then changed = true end
+    if token ~= "" and cleanupInventoryCores(player, network.networkId, activeCoreItem) > 0 then changed = true end
     if changed then transmitStore() end
 
-    local claimedOnce = network.controllerClaimedOnce == true
+    local claimedOnce = network.coreClaimedOnce == true
     return {
         networkId = network.networkId,
         state = state,
         claimedOnce = claimedOnce,
-        recoveryCost = Storage.ControllerRecoveryCost,
-        nextCost = claimedOnce and Storage.ControllerRecoveryCost or 0,
+        recoveryCost = Storage.CoreRecoveryCost,
+        nextCost = claimedOnce and Storage.CoreRecoveryCost or 0,
         canClaim = state == "unclaimed" or state == "missing",
-        canForceRecover = state == "installed" or state == "legacyGround",
-        controllerItemId = itemId,
-        controller = controller,
+        canForceRecover = state == "installed",
+        coreItemId = itemId,
+        coreHost = coreHost,
         revision = Storage.integer(network.revision, 0),
     }
 end
 
-local function removeRecordedController(network, expectedToken, recordedController)
-    local controller = type(recordedController) == "table" and recordedController
-        or (type(network.controller) == "table" and network.controller or nil)
-    if not controller then return false end
-    local object = Storage.findWorldController(
-        controller.x, controller.y, controller.z,
-        controller.itemId, expectedToken, controller.objectId
-    )
-    if not object then return false end
-    return removeWorldController(object)
-end
-
-function Manager.claimController(player, options)
+function Manager.claimCore(player, options)
     options = type(options) == "table" and options or {}
-    local network, reason, created = Manager.getOrCreateNetwork(player)
+    local status, statusReason = Manager.coreStatus(player)
+    if not status then return false, statusReason end
+    local network = status.networkId and Manager.getNetwork(status.networkId) or nil
+    local reason, created
+    if not network then network, reason, created = Manager.getOrCreateNetwork(player) end
     if not network then return false, reason end
     if not Manager.canUse(player, network) then return false, "notAllowed" end
     if not created and not Manager.canManage(player, network) then return false, "manageDenied" end
-    normalizeControllerFields(network)
-
-    local status, statusReason = Manager.controllerStatus(player)
-    if not status then return false, statusReason end
+    normalizeCoreFields(network)
     local state = tostring(status.state or "missing")
     local forceRecovery = options.forceRecovery == true
-    if state == "kit" then return false, "controllerOwned" end
-    if (state == "installed" or state == "legacyGround") and not forceRecovery then
-        return false, "controllerInstalled"
+    if state == "kit" then return false, "coreOwned" end
+    if state == "installed" and not forceRecovery then
+        return false, "coreInstalled"
     end
 
-    local recovered = network.controllerClaimedOnce == true
-    local cost = recovered and Storage.ControllerRecoveryCost or 0
-    local oldToken = tostring(network.controllerToken or "")
-    local oldController = network.controller
-    local token = Storage.newId("controller", network.networkId)
+    local recovered = network.coreClaimedOnce == true
+    local cost = recovered and Storage.CoreRecoveryCost or 0
+    local oldToken = tostring(network.coreToken or "")
+    local oldHost = network.coreHost
+    local token = Storage.newId("storage-core", network.networkId)
 
     local receipt
     if cost > 0 then
@@ -405,7 +538,7 @@ function Manager.claimController(player, options)
             return false, "currencyNotEnough"
         end
     end
-    local item, createReason = inventoryAddController(player, network, token)
+    local item, createReason = inventoryAddCore(player, network, token)
     if not item then
         if cost > 0 and type(options.refund) == "function" then
             pcall(options.refund, receipt)
@@ -413,18 +546,33 @@ function Manager.claimController(player, options)
         return false, createReason
     end
 
-    network.controllerToken = token
-    network.controllerClaimedOnce = true
-    setControllerState(network, "kit", Storage.itemId(item), nil)
-    local removedDuplicates = cleanupInventoryControllers(player, network.networkId, item)
-    if oldToken ~= "" then removeRecordedController(network, oldToken, oldController) end
+    if type(oldHost) == "table" and oldToken ~= "" then
+        local oldObject, _, loaded = findRecordedCoreHost(network, oldToken)
+        if oldObject then
+            local unlocked, unlockReason = Storage.unlockCoreHost(oldObject, oldToken)
+            if not unlocked then
+                removeInventoryItem(safeCall(player, "getInventory", nil), item)
+                if cost > 0 and type(options.refund) == "function" then pcall(options.refund, receipt) end
+                return false, unlockReason
+            end
+        elseif not loaded then
+            network.pendingCoreUnlock = {
+                x = oldHost.x, y = oldHost.y, z = oldHost.z,
+                objectId = oldHost.objectId, token = oldToken,
+            }
+        end
+    end
+    network.coreToken = token
+    network.coreClaimedOnce = true
+    setCoreState(network, "kit", Storage.itemId(item), nil)
+    local removedDuplicates = cleanupInventoryCores(player, network.networkId, item)
     transmitStore()
     if type(options.onCommit) == "function" then
         pcall(options.onCommit, cost, recovered, receipt)
     end
     return true, nil, {
         networkId = network.networkId,
-        controllerItemId = Storage.itemId(item),
+        coreItemId = Storage.itemId(item),
         token = token,
         recovered = recovered,
         cost = cost,
@@ -433,119 +581,183 @@ function Manager.claimController(player, options)
     }
 end
 
-function Manager.installController()
-    return false, "nativePlacementRequired"
+local function installTarget(player, args)
+    local position = {
+        x = Storage.integer(args.x, 0),
+        y = Storage.integer(args.y, 0),
+        z = Storage.integer(args.z, 0),
+    }
+    local playerPosition = Storage.positionOfPlayer(player)
+    if not playerPosition or Storage.distance2D(playerPosition, position) > 2.5
+        or Storage.integer(playerPosition.z, 0) ~= position.z then
+        return nil, nil, "targetTooFar"
+    end
+    local object = Storage.resolveObjectCandidate(position.x, position.y, position.z,
+        args.objectIndex, args.sprite)
+    if not object then return nil, nil, "targetChanged" end
+    local marker = Storage.getNetworkContainerMarker(object)
+    if not marker then return nil, nil, "networkContainerRequired" end
+    if Storage.isCoreHost(object) then return nil, nil, "coreInstalled" end
+    if not Storage.coreHostIsEmpty(object) then return nil, nil, "coreHostNotEmpty" end
+    return object, position, nil
 end
 
-function Manager.reclaimController(player, args)
-    local network, worldObject, item, reason = Manager.resolveController(player, args)
-    if not network then return false, reason end
-    if not Manager.canManage(player, network) then return false, "manageDenied" end
-    local inventory = safeCall(player, "getInventory", nil)
-    if not inventory then return false, "inventoryMissing" end
-    local reclaimed, createReason = inventoryAddController(player, network, tostring(network.controllerToken or ""))
-    if not reclaimed then return false, createReason end
-    if not removeWorldController(worldObject) then
-        removeInventoryItem(inventory, reclaimed)
-        return false, "reclaimFailed"
+local function bindNetworkScope(player, network, position)
+    local scope, scopeKey, safehouse = Manager.scopeForPosition(player, position)
+    if scope == "safehouse" and not (Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)) then
+        return false, "notAllowed"
     end
-    local removedDuplicates = cleanupInventoryControllers(player, network.networkId, reclaimed)
-    setControllerState(network, "kit", Storage.itemId(reclaimed), nil)
-    transmitStore()
+    if tostring(network.scopeKey or "") == tostring(scopeKey or "") then return true end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    local existing = Manager.getNetworkByScope(scopeKey)
+    if existing and existing ~= network then return false, "safehouseHasNetwork" end
+    local store = Manager.getStore()
+    if store.scopeIndex[network.scopeKey] == network.networkId then store.scopeIndex[network.scopeKey] = nil end
+    network.scope = scope
+    network.scopeKey = scopeKey
+    network.safehouse = scope == "safehouse" and scopeKey or nil
+    store.scopeIndex[scopeKey] = network.networkId
+    return true
+end
+
+function Manager.installCore(player, args)
+    args = type(args) == "table" and args or {}
+    local network = Manager.getNetwork(args.networkId)
+    if not network then return false, "coreInvalid" end
+    normalizeCoreFields(network)
+    local token = tostring(args.coreToken or "")
+    if token == "" or token ~= tostring(network.coreToken or "") then return false, "coreExpired" end
+    if type(network.coreHost) == "table" or tostring(network.coreState or "") == "installed" then
+        return false, "coreInstalled"
+    end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    local core, coreContainer = findInventoryCore(player, network.networkId, token, args.coreItemId)
+    if not core or not coreContainer then return false, "coreMissing" end
+    local object, position, targetReason = installTarget(player, args)
+    if not object then return false, targetReason end
+    local scoped, scopeReason = bindNetworkScope(player, network, position)
+    if not scoped then return false, scopeReason end
+    local marker = Storage.getNetworkContainerMarker(object)
+    if tostring(marker.scopeKey or "") ~= tostring(network.scopeKey or "") then return false, "scopeMismatch" end
+    local locked, lockReason, hostMarker = Storage.lockCoreHost(object, network.networkId, token)
+    if not locked then return false, lockReason end
+    if not removeInventoryItem(coreContainer, core) then
+        Storage.unlockCoreHost(object, token)
+        return false, "coreConsumeFailed"
+    end
+    local host = {
+        x = position.x, y = position.y, z = position.z,
+        objectId = tostring(hostMarker.objectId or ""),
+        sprite = Storage.objectSpriteName(object),
+    }
+    setCoreState(network, "installed", nil, host)
+    Manager.save(network)
     return true, nil, {
         networkId = network.networkId,
-        controllerItemId = Storage.itemId(reclaimed),
-        token = tostring(network.controllerToken or ""),
+        token = token,
+        coreHost = host,
+        state = "installed",
+    }
+end
+
+function Manager.retrieveCore(player, args)
+    local network, object, _, reason = Manager.resolveCoreHost(player, args)
+    if not network then return false, reason end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    local token = tostring(network.coreToken or "")
+    local unlocked, unlockReason = Storage.unlockCoreHost(object, token)
+    if not unlocked then return false, unlockReason end
+    local item, createReason = inventoryAddCore(player, network, token)
+    if not item then
+        local relocked = Storage.lockCoreHost(object, network.networkId, token)
+        if not relocked then
+            setCoreState(network, "missing", nil, nil)
+            Manager.save(network)
+            return false, "coreReturnFailed"
+        end
+        return false, createReason
+    end
+    local removedDuplicates = cleanupInventoryCores(player, network.networkId, item)
+    setCoreState(network, "kit", Storage.itemId(item), nil)
+    Manager.save(network)
+    return true, nil, {
+        networkId = network.networkId,
+        coreItemId = Storage.itemId(item),
+        token = token,
         state = "kit",
         removedDuplicates = removedDuplicates,
     }
 end
 
-function Manager.resolveController(player, args)
+function Manager.resolveCoreHost(player, args)
     args = type(args) == "table" and args or {}
-    local controllerX = args.x ~= nil and args.x or args.controllerX
-    local controllerY = args.y ~= nil and args.y or args.controllerY
-    local controllerZ = args.z ~= nil and args.z or args.controllerZ
-    local worldObject, item = Storage.findWorldController(
-        controllerX, controllerY, controllerZ,
-        args.controllerItemId, args.controllerToken, args.controllerObjectId
-    )
-    if not worldObject then return nil, nil, nil, "controllerMissing" end
-    local networkId, token = Storage.getInstalledControllerIdentity(worldObject)
-    if not networkId or networkId == "" then networkId, token = Storage.getControllerIdentity(item) end
-    if networkId == "" or token == "" then return nil, nil, nil, "controllerInvalid" end
+    local coreX = args.x ~= nil and args.x or args.coreX
+    local coreY = args.y ~= nil and args.y or args.coreY
+    local coreZ = args.z ~= nil and args.z or args.coreZ
+    local worldObject, hostMarker = Storage.findCoreHost(
+        coreX, coreY, coreZ, args.coreObjectId, args.networkId, args.coreToken)
+    if not worldObject then return nil, nil, nil, "coreHostMissing" end
+    local networkId = tostring(hostMarker.networkId or "")
+    local token = tostring(hostMarker.token or "")
+    if networkId == "" or token == "" then return nil, nil, nil, "coreInvalid" end
     if args.networkId and tostring(args.networkId) ~= "" and tostring(args.networkId) ~= networkId then
-        return nil, nil, nil, "controllerChanged"
+        return nil, nil, nil, "coreChanged"
     end
     local network = Manager.getNetwork(networkId)
-    if not network or tostring(network.controllerToken or "") ~= token then
-        return nil, nil, nil, "controllerExpired"
+    if not network then
+        Storage.unlockCoreHost(worldObject, token)
+        return nil, nil, nil, "coreExpired"
+    end
+    normalizeCoreFields(network)
+    if tostring(network.coreToken or "") ~= token then
+        local unlocked = Storage.unlockCoreHost(worldObject, token)
+        if network and type(network.pendingCoreUnlock) == "table"
+            and tostring(network.pendingCoreUnlock.token or "") == token and unlocked then
+            network.pendingCoreUnlock = nil
+            Manager.save(network)
+        end
+        return nil, nil, nil, "coreExpired"
     end
     local playerPosition = Storage.positionOfPlayer(player)
-    local controllerPosition = {
-        x = Storage.number(controllerX, 0),
-        y = Storage.number(controllerY, 0),
-        z = Storage.integer(controllerZ, 0),
+    local corePosition = {
+        x = Storage.number(coreX, 0),
+        y = Storage.number(coreY, 0),
+        z = Storage.integer(coreZ, 0),
     }
-    if args.allowRemote ~= true and (not playerPosition or Storage.distance2D(playerPosition, controllerPosition) > Storage.ControllerUseDistance
-        or Storage.integer(playerPosition.z, 0) ~= Storage.integer(controllerPosition.z, 0)) then
+    if args.allowRemote ~= true and (not playerPosition or Storage.distance2D(playerPosition, corePosition) > Storage.CoreUseDistance
+        or Storage.integer(playerPosition.z, 0) ~= Storage.integer(corePosition.z, 0)) then
         return nil, nil, nil, "tooFar"
     end
-
-    local scope, scopeKey, safehouse = Manager.scopeForPosition(player, controllerPosition)
-    if tostring(network.scopeKey or "") ~= tostring(scopeKey or "") then
-        local existing = Manager.getNetworkByScope(scopeKey)
-        if existing and existing ~= network then return nil, nil, nil, "safehouseHasNetwork" end
-        local store = Manager.getStore()
-        if store.scopeIndex[network.scopeKey] == network.networkId then store.scopeIndex[network.scopeKey] = nil end
-        network.scope = scope
-        network.scopeKey = scopeKey
-        network.safehouse = scope == "safehouse" and scopeKey or nil
-        store.scopeIndex[scopeKey] = network.networkId
-    end
-    local allowedAtCurrentPosition
-    if network.scope == "safehouse" then
-        if scope == "safehouse" and scopeKey == tostring(network.safehouse or "") then
-            allowedAtCurrentPosition = Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)
-        else
-            allowedAtCurrentPosition = Storage.playerKey(player) == tostring(network.creator or "") or Storage.isAdmin(player)
-        end
-    else
-        allowedAtCurrentPosition = Manager.canUse(player, network)
-    end
-    if not allowedAtCurrentPosition then return nil, nil, nil, "notAllowed" end
-    local _, _, objectId = Storage.getInstalledControllerIdentity(worldObject)
-    if not objectId or objectId == "" then
-        objectId = Storage.newId("controller-object", network.networkId)
-        Storage.markInstalledController(worldObject, network.networkId, token, objectId)
-    end
+    if not Manager.canUse(player, network) then return nil, nil, nil, "notAllowed" end
+    local objectId = tostring(hostMarker.objectId or "")
+    local locked, lockReason = Storage.enforceCoreHostLock(worldObject, networkId, token)
+    if not locked then return nil, nil, nil, lockReason end
     local resolvedState = "installed"
-    local changed = type(network.controller) ~= "table"
-        or Storage.integer(network.controller.x, -1) ~= Storage.integer(controllerPosition.x, 0)
-        or Storage.integer(network.controller.y, -1) ~= Storage.integer(controllerPosition.y, 0)
-        or Storage.integer(network.controller.z, -1) ~= Storage.integer(controllerPosition.z, 0)
-        or tostring(network.controller.itemId or "") ~= tostring(Storage.itemId(item) or "")
-        or tostring(network.controller.objectId or "") ~= tostring(objectId or "")
-        or tostring(network.controllerState or "") ~= resolvedState
-    network.controller = {
-        x = Storage.integer(controllerPosition.x, 0),
-        y = Storage.integer(controllerPosition.y, 0),
-        z = Storage.integer(controllerPosition.z, 0),
-        itemId = Storage.itemId(item),
+    local changed = type(network.coreHost) ~= "table"
+        or Storage.integer(network.coreHost.x, -1) ~= Storage.integer(corePosition.x, 0)
+        or Storage.integer(network.coreHost.y, -1) ~= Storage.integer(corePosition.y, 0)
+        or Storage.integer(network.coreHost.z, -1) ~= Storage.integer(corePosition.z, 0)
+        or tostring(network.coreHost.objectId or "") ~= tostring(objectId or "")
+        or tostring(network.coreState or "") ~= resolvedState
+    network.coreHost = {
+        x = Storage.integer(corePosition.x, 0),
+        y = Storage.integer(corePosition.y, 0),
+        z = Storage.integer(corePosition.z, 0),
         objectId = objectId ~= "" and objectId or nil,
     }
-    network.controllerState = resolvedState
-    network.controllerItemId = Storage.itemId(item)
+    network.coreState = resolvedState
+    network.coreItemId = nil
     if changed then
         network.revision = Storage.integer(network.revision, 0) + 1
         network.updatedAtMs = Storage.nowMs()
         transmitStore()
     end
-    return network, worldObject, item, nil
+    return network, worldObject, hostMarker, nil
 end
 
-function Manager.connectedNetwork(network, controllerObject)
+function Manager.connectedNetwork(network, coreObject)
     if type(network) ~= "table" then return nil end
+    if processPendingUnlock(network) then Manager.save(network) end
     if Storage.integer(network.topologyVersion, 0) < Storage.TopologyVersion then
         local migrated = {}
         for _, legacyLink in pairs(type(network.links) == "table" and network.links or {}) do
@@ -574,7 +786,7 @@ function Manager.connectedNetwork(network, controllerObject)
         network.revision = Storage.integer(network.revision, 0) + 1
         transmitStore()
     end
-    return Storage.discoverNetwork(network, controllerObject)
+    return Storage.discoverNetwork(network, coreObject)
 end
 
 function Manager.networkSummary(player, network)
@@ -594,7 +806,7 @@ function Manager.networkSummary(player, network)
         canUse = Manager.canUse(player, network),
         canManage = Manager.canManage(player, network),
         isAdmin = Storage.isAdmin(player),
-        controller = network.controller,
+        coreHost = network.coreHost,
     }
 end
 
@@ -615,7 +827,7 @@ local function targetObject(player, targetArgs)
         or Storage.integer(playerPosition.z, 0) ~= targetPosition.z then return nil, nil, "targetTooFar" end
     local object = Storage.resolveObjectCandidate(targetPosition.x, targetPosition.y, targetPosition.z, targetArgs.objectIndex, targetArgs.sprite)
     if not object then return nil, nil, "targetChanged" end
-    if Storage.isInstalledController(object) or Storage.isController(object) then return nil, nil, "targetInvalid" end
+    if Storage.isCoreHost(object) then return nil, nil, "coreInstalled" end
     local slots = Storage.getContainerSlots(object)
     if #slots <= 0 then return nil, nil, "containerMissing" end
     for i = 1, #slots do
@@ -644,6 +856,7 @@ function Manager.setNetworkContainer(player, targetArgs)
     if existing and not markerManageAllowed(player, existing, position) then return false, "manageDenied" end
     if not enabled then
         if not existing then return true, nil, { enabled = false } end
+        if Storage.isCoreHost(object) then return false, "coreInstalled" end
         if not Storage.clearNetworkContainerMarker(object) then return false, "markerFailed" end
         return true, nil, { enabled = false, objectId = existing.objectId }
     end
@@ -674,11 +887,11 @@ function Manager.linkContainer(player, _, targetArgs)
     return Manager.setNetworkContainer(player, targetArgs)
 end
 
-function Manager.unlinkContainer(player, controllerArgs, linkId)
-    local network, controllerObject, _, reason = Manager.resolveController(player, controllerArgs)
+function Manager.unlinkContainer(player, coreArgs, linkId)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
     if not Manager.canManage(player, network) then return false, "manageDenied" end
-    local view = Manager.connectedNetwork(network, controllerObject)
+    local view = Manager.connectedNetwork(network, coreObject)
     local link = view.links[tostring(linkId or "")]
     if not link then return false, "linkMissing" end
     local object = Storage.resolveLink(link)
@@ -709,11 +922,11 @@ local function normalizeCategoryRules(source)
     return result
 end
 
-function Manager.updateLink(player, controllerArgs, args)
-    local network, controllerObject, _, reason = Manager.resolveController(player, controllerArgs)
+function Manager.updateLink(player, coreArgs, args)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
     if not Manager.canManage(player, network) then return false, "manageDenied" end
-    local view = Manager.connectedNetwork(network, controllerObject)
+    local view = Manager.connectedNetwork(network, coreObject)
     local link = view.links[tostring(args.linkId or "")]
     if not link then return false, "linkMissing" end
     local object = Storage.resolveLink(link)
@@ -735,8 +948,8 @@ function Manager.updateLink(player, controllerArgs, args)
     return true, nil, marker
 end
 
-function Manager.updateLimits(player, controllerArgs)
-    local network, _, _, reason = Manager.resolveController(player, controllerArgs)
+function Manager.updateLimits(player, coreArgs)
+    local network, _, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
     if not Storage.isAdmin(player) then return false, "adminOnly" end
     network.radius = nil
@@ -747,10 +960,10 @@ function Manager.updateLimits(player, controllerArgs)
     return true, nil
 end
 
-function Manager.startIndex(player, controllerArgs, callback)
-    local network, controllerObject, _, reason = Manager.resolveController(player, controllerArgs)
+function Manager.startIndex(player, coreArgs, callback)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
-    local connected = Manager.connectedNetwork(network, controllerObject)
+    local connected = Manager.connectedNetwork(network, coreObject)
     local job = Storage.newIndexJob(connected)
     local jobId = Storage.newId("index", network.networkId)
     job.jobId = jobId
@@ -834,10 +1047,10 @@ local function collectSafeDepositItems(player)
     return result
 end
 
-function Manager.deposit(player, controllerArgs, args)
-    local network, controllerObject, _, reason = Manager.resolveController(player, controllerArgs)
+function Manager.deposit(player, coreArgs, args)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
-    local connected = Manager.connectedNetwork(network, controllerObject)
+    local connected = Manager.connectedNetwork(network, coreObject)
     local candidates = {}
     if args.safeAll == true then
         candidates = collectSafeDepositItems(player)
@@ -854,7 +1067,7 @@ function Manager.deposit(player, controllerArgs, args)
         end
     end
     local stats = { requested = #candidates, success = 0, skipped = 0, failed = 0, coldDowngrade = 0, offline = 0 }
-    local fallbackSquare = Storage.getSquare(network.controller.x, network.controller.y, network.controller.z)
+    local fallbackSquare = Storage.getSquare(network.coreHost.x, network.coreHost.y, network.coreHost.z)
     for i = 1, #candidates do
         local row = candidates[i]
         local allowed = Storage.isSafeDepositItem(player, row.item)
@@ -905,10 +1118,10 @@ local function playerWearsItem(player, expectedItem)
     return false
 end
 
-function Manager.withdraw(player, controllerArgs, args)
-    local network, controllerObject, _, reason = Manager.resolveController(player, controllerArgs)
+function Manager.withdraw(player, coreArgs, args)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
-    local connected = Manager.connectedNetwork(network, controllerObject)
+    local connected = Manager.connectedNetwork(network, coreObject)
     local job = Manager.latestJob(network.networkId, args.snapshotId)
     if not job then return false, "snapshotExpired" end
     local instances = job.instances[tostring(args.groupKey or "")] or {}
@@ -932,7 +1145,7 @@ function Manager.withdraw(player, controllerArgs, args)
     end
     if not target then return false, "targetMissing" end
     local stats = { requested = wanted, success = 0, skipped = 0, failed = 0, coldDowngrade = 0, offline = 0 }
-    local fallbackSquare = Storage.getSquare(network.controller.x, network.controller.y, network.controller.z)
+    local fallbackSquare = Storage.getSquare(network.coreHost.x, network.coreHost.y, network.coreHost.z)
     local selected, expectedIds = {}, {}
     for i = 1, math.min(wanted, #instances) do
         selected[#selected + 1] = instances[i]
