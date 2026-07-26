@@ -185,11 +185,7 @@ function GodSystemStorageWindow:createChildren()
     self.priorityDownButton = self:createButton(margin + 291, actionY, 42, 30, "-10", "priorityDown", self.onManageAction)
     self.priorityUpButton = self:createButton(margin + 341, actionY, 42, 30, "+10", "priorityUp", self.onManageAction)
     self.unlinkButton = self:createButton(margin + 391, actionY, 120, 30, text("Storage_Unlink", "Remove link"), "unlink", self.onManageAction)
-    self.radiusDownButton = self:createButton(margin + 519, actionY, 42, 30, "-5", "radiusDown", self.onManageAction)
-    self.radiusUpButton = self:createButton(margin + 569, actionY, 42, 30, "+5", "radiusUp", self.onManageAction)
-    self.limitDownButton = self:createButton(margin + 619, actionY, 42, 30, "-8", "limitDown", self.onManageAction)
-    self.limitUpButton = self:createButton(margin + 669, actionY, 42, 30, "+8", "limitUp", self.onManageAction)
-    self.takeOverButton = self:createButton(margin + 719, actionY, 130, 30, text("Storage_TakeOver", "Admin take over"), "takeOver", self.onManageAction)
+    self.takeOverButton = self:createButton(margin + 519, actionY, 130, 30, text("Storage_TakeOver", "Admin take over"), "takeOver", self.onManageAction)
 
     self:updatePageVisibility()
     self:rebuild()
@@ -234,8 +230,7 @@ function GodSystemStorageWindow:updatePageVisibility()
     for i = 1, #storageButtons do storageButtons[i]:setVisible(storagePage) end
     local manageButtons = {
         self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton,
-        self.unlinkButton, self.radiusDownButton, self.radiusUpButton, self.limitDownButton, self.limitUpButton,
-        self.takeOverButton,
+        self.unlinkButton, self.takeOverButton,
     }
     for i = 1, #manageButtons do manageButtons[i]:setVisible(not storagePage) end
     styleButton(self.storageTab, storagePage)
@@ -346,10 +341,6 @@ function GodSystemStorageWindow:updateLabels()
     end
     if selected then self.roleButton:setTitle(text("Storage_Role", "Role") .. ": " .. text("Storage_Role_" .. tostring(selected.role), selected.role)) end
     local admin = state.isAdmin == true
-    self.radiusDownButton.enable = admin
-    self.radiusUpButton.enable = admin
-    self.limitDownButton.enable = admin
-    self.limitUpButton.enable = admin
     self.takeOverButton.enable = admin
 end
 
@@ -589,9 +580,9 @@ function GodSystemStorageWindow:updateDetails()
         if not selected then
             local state = Client.networkState or {}
             self.detailList:addItem(text("Storage_SelectContainer", "Select a connected container"), {})
-            self.detailList:addItem(text("Storage_Radius", "Radius") .. ": " .. tostring(state.radius or Storage.DefaultRadius), {})
-            self.detailList:addItem(text("Storage_LinkLimit", "Connection limit") .. ": " .. tostring(state.maxLinks or Storage.DefaultMaxLinks), {})
-            self.detailList:addItem(text("Storage_LinkCount", "Connected") .. ": " .. tostring(state.linkCount or 0), {})
+            self.detailList:addItem(text("Storage_NodeCount", "Connected furniture") .. ": " .. tostring(state.nodeCount or 0) .. "/" .. tostring(state.maxLinks or Storage.MaxLinks), {})
+            self.detailList:addItem(text("Storage_ContainerSlotCount", "Storage compartments") .. ": " .. tostring(state.linkCount or 0), {})
+            if state.truncated == true then self.detailList:addItem(text("Storage_TopologyTruncated", "Network exceeds the 128-furniture limit"), {}) end
             return
         end
         self.detailList:addItem(tostring(selected.name or "Container"), {})
@@ -647,17 +638,6 @@ function GodSystemStorageWindow:onManageAction(button)
     end
     if button.internal == "takeOver" then
         Client.takeOver()
-        return
-    end
-    local state = Client.networkState or {}
-    if button.internal == "radiusDown" or button.internal == "radiusUp" or button.internal == "limitDown" or button.internal == "limitUp" then
-        local radius = tonumber(state.radius) or Storage.DefaultRadius
-        local limit = tonumber(state.maxLinks) or Storage.DefaultMaxLinks
-        if button.internal == "radiusDown" then radius = radius - 5 end
-        if button.internal == "radiusUp" then radius = radius + 5 end
-        if button.internal == "limitDown" then limit = limit - 8 end
-        if button.internal == "limitUp" then limit = limit + 8 end
-        Client.updateLimits(radius, limit)
         return
     end
     if not self.selectedLinkId then return end

@@ -119,6 +119,7 @@ local function fingerprint(command, args)
         tostring(args and args.radius or ""),
         tostring(args and args.maxLinks or ""),
         tostring(args and args.forceRecovery == true),
+        tostring(args and args.enabled == true),
     }
     for i = 1, #((args and args.itemIds) or {}) do parts[#parts + 1] = tostring(args.itemIds[i]) end
     for i = 1, #Storage.Categories do
@@ -257,6 +258,18 @@ function Commands.link(player, args)
             priority = args.priority,
         })
     end)
+end
+
+function Commands.setNetworkContainer(player, args)
+    operation(player, "setNetworkContainer", args, function()
+        return Manager.setNetworkContainer(player, {
+            x = args.x, y = args.y, z = args.z,
+            objectIndex = args.objectIndex,
+            sprite = args.sprite,
+            name = args.name,
+            enabled = args.enabled == true,
+        })
+    end, false)
 end
 
 function Commands.unlink(player, args)

@@ -2198,6 +2198,10 @@ function GodSystemWindow:onModeButton(button)
         return
     end
     self:captureSelection()
+    if self.mode == "storage" and button.internal ~= "storage"
+        and GodSystemStorageContext and GodSystemStorageContext.setConnectMode then
+        GodSystemStorageContext.setConnectMode(false)
+    end
     self.mode = button.internal
     if self.mode == "info" then
         self:recordInfoSecretClick()
@@ -3547,6 +3551,7 @@ function GodSystemWindow:populateStorageNetwork()
     local status = GodSystemStorageClient and GodSystemStorageClient.requestControllerStatus(false) or nil
     self.storagePrimaryAction = nil
     self.storageSecondaryAction = nil
+    self.storageThirdAction = "connectMode"
     self.primaryButton.enable = false
     self.secondaryButton.enable = false
     self.secondaryButton:setVisible(false)
@@ -3585,7 +3590,12 @@ function GodSystemWindow:populateStorageNetwork()
             end
         end
     end
-    self.thirdButton:setVisible(false)
+    local connectMode = GodSystemStorageContext and GodSystemStorageContext.connectMode == true
+    gsSetButtonTitle(self.thirdButton, connectMode
+        and GodSystem.text("Storage_ConnectModeOff", "Close connection mode")
+        or GodSystem.text("Storage_ConnectModeOn", "Open connection mode"))
+    self.thirdButton.enable = true
+    self.thirdButton:setVisible(true)
     self.fourthButton:setVisible(false)
     self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(false)
@@ -3596,7 +3606,12 @@ function GodSystemWindow:populateStorageNetwork()
     if self.storageSecondaryAction then
         storageActions[#storageActions + 1] = { id = "secondary", width = 210 }
     end
+    storageActions[#storageActions + 1] = { id = "third", width = 210 }
     self:setActionBar(storageActions)
+    self:addListItem(GodSystem.text("Storage_Manual_Title", "User guide"), {
+        kind = "storageInfo",
+        detail = GodSystem.text("Storage_Manual_Detail", "Claim the first controller for free, place it with the vanilla Place Item action, mark adjacent scene containers in connection mode, then open the controller to deposit or withdraw. Only same-floor cardinal neighbors and stacked containers connect. Moved furniture must be marked again.")
+    })
     if status then
         local stateKey = "Storage_ControllerState_" .. tostring(status.state or "missing")
         local stateText = GodSystem.text(stateKey, tostring(status.state or "missing"))
@@ -3610,22 +3625,6 @@ function GodSystemWindow:populateStorageNetwork()
                 or GodSystem.text("Storage_FirstClaimRule", "The first controller is free."),
         })
     end
-    self:addListItem(GodSystem.text("Storage_Main_Separate", "The storage network is independent from the wearable system space terminal."), {
-        kind = "storageInfo",
-        detail = GodSystem.text("Storage_Main_SeparateDetail", "Items remain inside real crates, cabinets, shelves, refrigerators and freezers. The controller only indexes, filters and moves them."),
-    })
-    self:addListItem(GodSystem.text("Storage_Main_Place", "Right-click the controller kit in inventory and select Install."), {
-        kind = "storageInfo",
-        detail = GodSystem.text("Storage_Main_PlaceDetail", "Installed controllers are fixed devices. Reclaim them from the world context menu before moving them."),
-    })
-    self:addListItem(GodSystem.text("Storage_Main_Link", "Enable connection mode in container management, then right-click a nearby fixed container."), {
-        kind = "storageInfo",
-        detail = GodSystem.text("Storage_Main_LinkDetail", "The first release supports fixed scene containers only. Vehicles, portable bags, corpses and ground inventories are excluded."),
-    })
-    self:addListItem(GodSystem.text("Storage_Main_Safety", "Destroyed or moved furniture becomes offline and never binds a replacement automatically."), {
-        kind = "storageInfo",
-        detail = GodSystem.text("Storage_Main_SafetyDetail", "The game handles items from destroyed furniture. The storage network never recreates items from an old index snapshot."),
-    })
 end
 
 function GodSystemWindow:confirmStorageRecovery(forceRecovery)
@@ -5662,6 +5661,13 @@ end
 
 function GodSystemWindow:onThirdAction()
     local payload = self:getSelectedPayload()
+    if self.mode == "storage" then
+        if GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode then
+            GodSystemStorageContext.toggleConnectMode()
+        end
+        self:requestDeferredPopulate(1)
+        return
+    end
     if self.mode == "companion" then
         if GodSystemCompanionUI and GodSystemCompanionUI.toggleShortcut then GodSystemCompanionUI.toggleShortcut(self) end
         self:populateList()
@@ -5835,6 +5841,9 @@ end
 
 function GodSystemWindow:close()
     if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
+    if GodSystemStorageContext and GodSystemStorageContext.setConnectMode then
+        GodSystemStorageContext.setConnectMode(false)
+    end
     local data = GodSystem.getData()
     data.ui.windowX = math.floor(self.x or 0)
     data.ui.windowY = math.floor(self.y or 0)

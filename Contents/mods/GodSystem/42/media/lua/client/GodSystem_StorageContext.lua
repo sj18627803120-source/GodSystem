@@ -1,5 +1,4 @@
 require "GodSystem_StorageUI"
-require "BuildingObjects/ISBuildingObject"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISWorldObjectContextMenu"
 
@@ -19,85 +18,6 @@ end
 
 local function playerByNumber(playerNum)
     return getSpecificPlayer and getSpecificPlayer(playerNum) or getPlayer()
-end
-
-local ControllerPlacement = ISBuildingObject:derive("GodSystemStorageControllerPlacement")
-
-function ControllerPlacement:isValid(square)
-    local player = playerByNumber(self.player)
-    if not square or not player or not self.item then return false end
-    if Storage.itemId(self.item) ~= tostring(self.itemId or "") then return false end
-    local networkId, token = Storage.getControllerIdentity(self.item)
-    if networkId == "" or token == "" then return false end
-    local position = {
-        x = Storage.integer(Storage.safeCall(square, "getX", 0), 0),
-        y = Storage.integer(Storage.safeCall(square, "getY", 0), 0),
-        z = Storage.integer(Storage.safeCall(square, "getZ", 0), 0),
-    }
-    local playerPosition = Storage.positionOfPlayer(player)
-    if not playerPosition
-        or Storage.integer(playerPosition.z, -1) ~= position.z
-        or Storage.distance2D(playerPosition, position) > Storage.ControllerPlacementDistance then
-        return false
-    end
-    if Storage.safeCall(square, "isVehicleIntersecting", false) == true then return false end
-    if not Storage.safeCall(square, "getFloor", nil) then return false end
-    local objects = Storage.squareObjects(square)
-    for i = 1, #objects do
-        local object = objects[i]
-        if Storage.isInstalledController(object)
-            or Storage.isController(Storage.safeCall(object, "getItem", nil)) then
-            return false
-        end
-    end
-    return true
-end
-
-function ControllerPlacement:render(x, y, z, square)
-    local cursor = self:getFloorCursorSprite()
-    if self:isValid(square) then
-        cursor:RenderGhostTileColor(x, y, z, 0, 0, 0.12, 0.72, 0.95, 0.75)
-    else
-        cursor:RenderGhostTileColor(x, y, z, 0, 0, 0.85, 0.12, 0.12, 0.75)
-    end
-end
-
-function ControllerPlacement:create(x, y, z)
-    getCell():setDrag(nil, self.player)
-    Client.installController(self.item, x, y, z)
-end
-
-function ControllerPlacement:tryBuild(x, y, z)
-    local square = getCell():getGridSquare(x, y, z)
-    if not self:isValid(square) then return nil end
-    self:create(x, y, z)
-    return nil
-end
-
-function ControllerPlacement:new(playerNum, item)
-    local o = {}
-    setmetatable(o, self)
-    self.__index = self
-    o:init()
-    o.player = playerNum or 0
-    o.character = playerByNumber(o.player)
-    o.item = item
-    o.itemId = Storage.itemId(item)
-    o.name = "GodSystem Storage Controller"
-    o.noNeedHammer = true
-    o.skipBuildAction = true
-    o.dragNilAfterPlace = true
-    o.canBeAlwaysPlaced = true
-    o.blockAllTheSquare = false
-    o.canPassThrough = true
-    o:setSprite("carpentry_02_56")
-    o:setNorthSprite("carpentry_02_56")
-    return o
-end
-
-function ControllerPlacement.start(playerNum, item)
-    local cursor = ControllerPlacement:new(playerNum, item)
-    getCell():setDrag(cursor, playerNum or 0)
 end
 
 local function isInventoryItem(value)
@@ -155,22 +75,70 @@ end
 
 function Context.clearHighlights()
     for object in pairs(Context.highlighted) do
-        if object and object.setHighlighted then pcall(function() object:setHighlighted(false) end) end
+        if object and object.setHighlighted then object:setHighlighted(false) end
     end
     Context.highlighted = {}
 end
 
 function Context.highlight(object, r, g, b)
     if not object then return end
-    if object.setHighlightColor then pcall(function() object:setHighlightColor(r or 0.1, g or 0.65, b or 0.9, 1) end) end
-    if object.setHighlighted then pcall(function() object:setHighlighted(true) end) end
+    if object.setHighlightColor then object:setHighlightColor(r or 0.1, g or 0.65, b or 0.9, 1) end
+    if object.setHighlighted then object:setHighlighted(true) end
     Context.highlighted[object] = true
 end
 
+function Context.refreshHighlights()
+    Context.clearHighlights()
+    if not Context.connectMode then return end
+    local player = playerByNumber(0)
+    local position = Storage.positionOfPlayer(player)
+    if not position then return end
+    local connected = type(Client.networkState) == "table" and Client.networkState.connectedObjectIds or {}
+    local controller = Client.controller or (type(Client.claimState) == "table" and Client.claimState.controller or nil)
+    local controllerObject = type(controller) == "table" and controller.object or nil
+    if not controllerObject and type(controller) == "table" then
+        controllerObject = Storage.findWorldController(
+            controller.x, controller.y, controller.z,
+            controller.itemId, controller.token, controller.objectId
+        )
+    end
+    if controllerObject then
+        local controllerPosition = Storage.objectCoordinates(controllerObject)
+        local safehouse = controllerPosition and Storage.getSafehouseAt(controllerPosition.x, controllerPosition.y) or nil
+        local scopeKey
+        if safehouse and (Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)) then
+            scopeKey = Storage.safehouseKey(safehouse)
+        else
+            scopeKey = "personal:" .. Storage.playerKey(player)
+        end
+        connected = Storage.discoverNetwork({
+            scopeKey = scopeKey,
+            controller = controllerPosition,
+        }, controllerObject).connectedObjectIds
+    end
+    for x = Storage.integer(position.x, 0) - Storage.HighlightRadius, Storage.integer(position.x, 0) + Storage.HighlightRadius do
+        for y = Storage.integer(position.y, 0) - Storage.HighlightRadius, Storage.integer(position.y, 0) + Storage.HighlightRadius do
+            local objects = Storage.squareObjects(Storage.getSquare(x, y, position.z))
+            for i = 1, #objects do
+                local marker = Storage.getNetworkContainerMarker(objects[i])
+                if marker then
+                    if connected and connected[tostring(marker.objectId or "")] == true then
+                        Context.highlight(objects[i], 0.12, 0.82, 0.42)
+                    else
+                        Context.highlight(objects[i], 0.12, 0.48, 0.92)
+                    end
+                end
+            end
+        end
+    end
+end
+
 function Context.setConnectMode(enabled)
-    Context.connectMode = enabled == true
-    if not Context.connectMode then Context.clearHighlights() end
-    if GodSystem and GodSystem.notify then
+    local nextValue = enabled == true
+    local changed = Context.connectMode ~= nextValue
+    Context.connectMode = nextValue
+    if Context.connectMode then Context.refreshHighlights() else Context.clearHighlights() end
+    if changed and GodSystem and GodSystem.notify then
         GodSystem.notify(Context.connectMode
             and text("Storage_Notify_ConnectModeOn", "Connection mode enabled. Right-click a nearby fixed container.")
             or text("Storage_Notify_ConnectModeOff", "Connection mode disabled."))
@@ -182,112 +150,72 @@ function Context.toggleConnectMode()
 end
 
 function Context.openController(_, payload)
-    if not payload or not payload.item or not payload.position then return end
-    Client.open(payload.item, payload.position.x, payload.position.y, payload.position.z, payload.object)
+    if not payload or not payload.identity or not payload.position then return end
+    Client.open(payload.identity, payload.position.x, payload.position.y, payload.position.z, payload.object)
 end
 
 function Context.reclaimController(_, payload)
-    if not payload or not payload.item or not payload.position then return end
-    Client.reclaim(payload.item, payload.position.x, payload.position.y, payload.position.z, payload.object)
+    if not payload or not payload.identity or not payload.position then return end
+    Client.reclaim(payload.identity, payload.position.x, payload.position.y, payload.position.z, payload.object)
 end
 
-function Context.installController(_, payload)
-    if not payload or not payload.item then return end
-    ControllerPlacement.start(payload.playerNum or 0, payload.item)
-end
-
-function Context.linkContainer(_, payload)
+function Context.setNetworkContainer(_, payload)
     if not payload then return end
-    Client.link(payload)
+    Client.setNetworkContainer(payload)
 end
 
 local function addControllerOption(context, object)
     local item = worldItem(object)
-    if not Storage.isController(item) then return false end
+    local identity = Storage.isController(object) and object or item
+    if not Storage.isController(identity) then return false end
     local position = controllerPosition(object)
     if not position then return false end
-    Context.highlight(object, 0.08, 0.65, 0.92)
     context:addOption(text("Storage_Context_Open", "Open system storage"), Context, Context.openController, {
-        item = item,
+        identity = identity,
         position = position,
         object = object,
     })
-    if Storage.isInstalledController(object) then
-        context:addOption(text("Storage_Context_Reclaim", "Reclaim storage controller"), Context, Context.reclaimController, {
-            item = item,
-            position = position,
-            object = object,
-        })
-    end
+    context:addOption(text("Storage_Context_Reclaim", "Reclaim storage controller"), Context, Context.reclaimController, {
+        identity = identity,
+        position = position,
+        object = object,
+    })
     return true
 end
 
-local function removeNativeChargerOption(context, object)
-    if not context or not object or not Storage.isInstalledController(object) then return end
-    if not instanceof then return end
-    local ok, isCharger = pcall(instanceof, object, "IsoCarBatteryCharger")
-    if not ok or not isCharger then return end
-    local fetched = ISWorldObjectContextMenu and ISWorldObjectContextMenu.fetchVars
-        and ISWorldObjectContextMenu.fetchVars.carBatteryCharger or nil
-    if fetched and fetched ~= object then return end
-    if context.removeOptionByName and getText then
-        pcall(function() context:removeOptionByName(getText("ContextMenu_CarBatteryCharger")) end)
-    end
-end
-
-local function addLinkOptions(context, object)
+local function addNetworkContainerOption(context, object)
     local position = Storage.objectCoordinates(object)
     if not position then return false end
     local slots = Storage.getContainerSlots(object)
     if #slots <= 0 then return false end
-    Context.highlight(object, 0.15, 0.85, 0.55)
+    if Storage.isController(object) or Storage.isInstalledController(object) then return false end
     local objectIndex = Storage.getObjectIndex(object)
     if objectIndex < 0 then return false end
-    local base = {
+    local marker = Storage.getNetworkContainerMarker(object)
+    local payload = {
         x = position.x, y = position.y, z = position.z,
         objectIndex = objectIndex,
         sprite = Storage.objectSpriteName(object),
-        priority = 50,
-        role = "auto",
+        enabled = marker == nil,
+        name = marker and marker.name or (slots[1].type ~= "" and slots[1].type or text("Storage_Container", "Container")),
     }
-    if #slots == 1 then
-        local slot = slots[1]
-        local payload = {}
-        for key, value in pairs(base) do payload[key] = value end
-        payload.slotIndex = slot.index
-        payload.name = slot.type ~= "" and slot.type or text("Storage_Container", "Container")
-        context:addOption(text("Storage_Context_Link", "Connect to system storage"), Context, Context.linkContainer, payload)
-        return true
-    end
-    local root = context:addOption(text("Storage_Context_Link", "Connect to system storage"), nil, nil)
-    local submenu = ISContextMenu:getNew(context)
-    context:addSubMenu(root, submenu)
-    for i = 1, #slots do
-        local slot = slots[i]
-        local payload = {}
-        for key, value in pairs(base) do payload[key] = value end
-        payload.slotIndex = slot.index
-        payload.name = slot.type ~= "" and slot.type or (text("Storage_Container", "Container") .. " " .. tostring(i))
-        submenu:addOption(payload.name, Context, Context.linkContainer, payload)
-    end
+    local label = marker
+        and text("Storage_Context_UnmarkNetwork", "Remove network container mark")
+        or text("Storage_Context_MarkNetwork", "Mark as network container")
+    context:addOption(label, Context, Context.setNetworkContainer, payload)
     return true
 end
 
 function Context.fillWorldMenu(playerNum, context, worldObjects, test)
     if test then return end
     local objects = collectWorldObjects(worldObjects)
-    local sawController = false
     for i = 1, #objects do
-        removeNativeChargerOption(context, objects[i])
-        if addControllerOption(context, objects[i]) then sawController = true end
+        addControllerOption(context, objects[i])
     end
-    if not Context.connectMode or not Client.controller then return end
+    if not Context.connectMode then return end
     for i = 1, #objects do
         local object = objects[i]
-        if not Storage.isController(worldItem(object)) then addLinkOptions(context, object) end
-    end
-    if sawController and GodSystemStorageUI and GodSystemStorageUI.window then
-        Context.highlighted = Context.highlighted or {}
+        addNetworkContainerOption(context, object)
     end
 end
 
@@ -322,15 +250,6 @@ end
 function Context.fillInventoryMenu(playerNum, context, items)
     local p = playerByNumber(playerNum)
     local selected = collectInventoryItems(items)
-    for i = 1, #selected do
-        if Storage.isController(selected[i]) then
-            context:addOption(text("Storage_Context_Install", "Install storage controller"), Context, Context.installController, {
-                playerNum = playerNum,
-                item = selected[i],
-            })
-            break
-        end
-    end
     if not controllerNearby(p) then return end
     local eligible = {}
     for i = 1, #selected do
