@@ -1,19 +1,21 @@
-# 神级系统 v1.16.66 Workshop 上传包说明
+# 神级系统 v1.16.68 Workshop 上传包说明
 
 上传时选择本目录，也就是包含 `workshop.txt`、`preview.png`、`Contents` 的这一层。
 
 正确结构：
 
 ```text
-GodSystemWorkshopUpload_v1.16.66\workshop.txt
-GodSystemWorkshopUpload_v1.16.66\preview.png
-GodSystemWorkshopUpload_v1.16.66\Contents\mods\GodSystem\mod.info
-GodSystemWorkshopUpload_v1.16.66\Contents\mods\GodSystem\42\mod.info
-GodSystemWorkshopUpload_v1.16.66\Contents\mods\GodSystem\42\media\...
+GodSystemWorkshopUpload_v1.16.68\workshop.txt
+GodSystemWorkshopUpload_v1.16.68\preview.png
+GodSystemWorkshopUpload_v1.16.68\Contents\mods\GodSystem\mod.info
+GodSystemWorkshopUpload_v1.16.68\Contents\mods\GodSystem\42\mod.info
+GodSystemWorkshopUpload_v1.16.68\Contents\mods\GodSystem\42\media\...
 ```
 
 ## 本次更新
 
+- v1.16.68：控制器恢复为保留自身名称的普通地面物品，修复显示为“奥兹博士游戏机”、单人打开/刷新/收回坐标错位、使用说明空白和仓储列表 `__lt` 红字；连接模式改用绿色/蓝色轻量符号，不再让容器红色闪烁。该版本仍需完成 B42.19 单人和多人实机后才能作为稳定版发布。
+- v1.16.67：系统仓库容器改为上下左右紧贴或同格堆叠时自动连通，控制器作为访问入口和桥接节点；该版 Moveable 街机贴图路线已由 v1.16.68 撤销。
 - v1.16.66：修复背包右键安装系统仓库控制器时放置模块为 `nil` 的红字；安装光标改为右键模块内局部类，不再依赖独立全局文件。仓库页只在强制找回可用时显示第二个按钮，不再残留空间终端的“一键出售全部”。
 - v1.16.65：系统仓库控制器改为背包右键安装的固定设备，安装后可右键打开或收回；同格禁止重叠。每套网络首次免费领取，有效安装包存在时不能重复领取，遗失或强制找回收费2000系统币并让旧控制器失效。该功能仍需完成 B42.19 单人和多人实机后才能作为稳定版发布。
 - v1.16.55：系统空间终端改用原版项链槽；左侧导航改为自适应紧凑分页；悬浮入口改为黑金图标；同伴降低移动速度、增加停顿并允许在不可见区域继续活动，同时扩大灵视范围、缩短守护冷却；同伴和属性升级后保留选中项；车辆修复模块价格修正为5000，并统一走服务端修复流程。

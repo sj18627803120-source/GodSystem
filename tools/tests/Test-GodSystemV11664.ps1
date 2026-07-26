@@ -49,7 +49,8 @@ Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.i
 Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 if ($AllowPhysicalTopology) {
-    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Successor controller must remain a non-container Moveable'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:normal' 'Successor controller must remain a non-container world item'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=\s*CarBatteryCharger' 'Successor controller ground model is missing'
     Reject-Text $items 'item\s+StorageController[\s\S]{0,500}Capacity\s*=' 'Controller must not expose storage capacity'
     Require-Text $storage 'MaxLinks\s*=\s*128' 'Physical network node cap must remain 128'
     Require-Text $storage 'MaxDepth\s*=\s*32' 'Nested storage depth bound is missing'

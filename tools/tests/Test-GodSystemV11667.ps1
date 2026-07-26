@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
-    [string]$ExpectedVersion = "1.16.67"
+    [string]$ExpectedVersion = "1.16.67",
+    [switch]$AllowWorldItemController
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,9 +47,16 @@ Require-Text $rootInfo ('(?m)^modversion=' + $version + '\r?$') "Root mod.info v
 Require-Text $b42Info ('(?m)^modversion=' + $version + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $version + '\r?$') "Workshop version must be $ExpectedVersion"
 
-Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Controller must use the vanilla Moveable lifecycle'
-Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*recreational_01_16' 'Controller world sprite is missing'
-Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=' 'The failed static charger model must be retired'
+if ($AllowWorldItemController) {
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:normal' 'Successor controller must remain its own normal item'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=\s*CarBatteryCharger' 'Successor controller ground model is missing'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*recreational_01_16' 'Failed arcade Moveable identity returned'
+}
+else {
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Controller must use the vanilla Moveable lifecycle'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*recreational_01_16' 'Controller world sprite is missing'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=' 'The failed static charger model must be retired'
+}
 Reject-Text $context 'BuildingObjects/ISBuildingObject|ISBuildingObject:derive|ControllerPlacement' 'Client-only custom building placement must be removed'
 Reject-Text $manager 'IsoCarBatteryCharger\.new|AddSpecialObject' 'The failed charger construction path must be removed'
 Require-Text $storage 'MovableDataKey\s*=\s*"movableData"' 'Controller identity must survive vanilla Moveable pickup/place'
