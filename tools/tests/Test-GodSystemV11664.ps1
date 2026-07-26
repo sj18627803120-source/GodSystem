@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.64",
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [switch]$AllowPhysicalTopology
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,6 +47,29 @@ Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $escapedVersion + '"'
 Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod.info version must be $ExpectedVersion"
 Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
+
+if ($AllowPhysicalTopology) {
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Successor controller must remain a non-container Moveable'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}Capacity\s*=' 'Controller must not expose storage capacity'
+    Require-Text $storage 'MaxLinks\s*=\s*128' 'Physical network node cap must remain 128'
+    Require-Text $storage 'MaxDepth\s*=\s*32' 'Nested storage depth bound is missing'
+    Require-Text $storage 'MaxIndexedItems\s*=\s*20000' 'Index item bound is missing'
+    Require-Text $storage 'IndexBatchItems\s*=\s*250' 'Index batch bound is missing'
+    Require-Text $storage 'IndexBudgetMs\s*=\s*2' 'Index time budget is missing'
+    Require-Text $storage 'function\s+Storage\.discoverNetwork' 'Physical topology discovery is missing'
+    Require-Text $storage 'sourceValidator' 'Transactions must revalidate the source'
+    Require-Text $storage 'targetValidator' 'Transactions must revalidate the target'
+    Require-Text $storage 'restoredToPlayer' 'Second-level recovery is missing'
+    Require-Text $storage 'restoredToGround' 'Third-level recovery is missing'
+    Require-Text $manager 'Storage\.findNetworkItems' 'Bulk withdrawal must use bounded live lookup'
+    Require-Text $server 'Manager\.deposit' 'Server-authoritative deposit route is missing'
+    Require-Text $server 'Manager\.withdraw' 'Server-authoritative withdrawal route is missing'
+    Require-Text $context 'OnFillWorldObjectContextMenu' 'World controller and marker context menu is missing'
+    Require-Text $context 'OnFillInventoryObjectContextMenu' 'Selected-item deposit context menu is missing'
+    Reject-Text ($storage + $manager + $server + $client) 'Events\.OnPlayerUpdate|Events\.EveryTenMinutes|Events\.EveryHours' 'Storage network must not add continuous scans'
+    Write-Output 'Test-GodSystemV11664 passed (physical topology successor mode)'
+    return
+}
 
 Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:normal' 'Controller must not be a storage container'
 Require-Text $items 'item\s+StorageController[\s\S]{0,500}Icon\s*=\s*SystemSpaceTerminal' 'Controller must use the existing black-blue system icon'

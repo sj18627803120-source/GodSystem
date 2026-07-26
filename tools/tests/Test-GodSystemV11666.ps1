@@ -1,5 +1,6 @@
 param(
-    [string]$Root = ""
+    [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.66"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,18 +35,16 @@ $storageSectionMatch = [regex]::Match(
 if (-not $storageSectionMatch.Success) { throw 'Storage page implementation section was not found' }
 $storageSection = $storageSectionMatch.Value
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.66"' 'Config version must be 1.16.66'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.66\r?$' 'Root mod.info version must be 1.16.66'
-Require-Text $b42Info '(?m)^modversion=1\.16\.66\r?$' 'B42 mod.info version must be 1.16.66'
-Require-Text $workshop '(?m)^description=v1\.16\.66\r?$' 'Workshop metadata must mention v1.16.66'
+$escapedVersion = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $escapedVersion + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 if (Test-Path -LiteralPath $retiredPlacement) {
     throw 'The independently loaded storage placement file must be removed in v1.16.66'
 }
-Require-Text $context 'require\s+"BuildingObjects/ISBuildingObject"' 'The always-loaded context module must load ISBuildingObject directly'
-Require-Text $context 'local\s+ControllerPlacement\s*=\s*ISBuildingObject:derive\("GodSystemStorageControllerPlacement"\)' 'The controller placement class must be local to the context module'
-Require-Text $context 'function\s+ControllerPlacement\.start' 'The context-local placement entry point is missing'
-Require-Text $context 'ControllerPlacement\.start\(payload\.playerNum\s+or\s+0,\s*payload\.item\)' 'The install context callback must call the local placement class'
+Reject-Text $context 'BuildingObjects/ISBuildingObject|ISBuildingObject:derive|ControllerPlacement' 'The failed client building-object placement path must remain retired'
 Reject-Text $context 'GodSystemStoragePlacement' 'The failed cross-file placement global must not remain'
 Reject-Text $context 'require\s+"GodSystem_StoragePlacement"' 'The failed independent placement require must not remain'
 Reject-Text $context 'pcall\s*\(\s*require' 'Required internal modules must not be hidden behind pcall'

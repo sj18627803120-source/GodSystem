@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.65",
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [switch]$AllowMoveableController
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +51,20 @@ Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $escapedVersion + '"'
 Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod.info version must be $ExpectedVersion"
 Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
+
+if ($AllowMoveableController) {
+    Require-Text $storage 'MovableDataKey\s*=\s*"movableData"' 'Moveable controller identity migration is missing'
+    Require-Text $manager 'function\s+Manager\.reclaimController' 'Controller reclaim transaction is missing'
+    Require-Text $client 'beginStandalone\("claimController"' 'Claim requests need stable operation IDs'
+    Require-Text $client 'beginStandalone\("reclaimController"' 'Reclaim requests need stable operation IDs'
+    Require-Text $context 'Storage_Context_Reclaim' 'World reclaim context option is missing'
+    Reject-Text ($manager + $context) 'IsoCarBatteryCharger\.new|ISBuildingObject:derive' 'Retired controller installation path returned'
+    foreach ($command in @('controllerStatus', 'claimController', 'reclaimController')) {
+        Require-Text $server ('function Commands\.' + $command) "Storage server command missing: $command"
+    }
+    Write-Output 'Test-GodSystemV11665 passed (Moveable successor mode)'
+    return
+}
 
 Require-Text $storage 'ControllerRecoveryCost\s*=\s*2000' 'Controller recovery cost must be 2000'
 Require-Text $storage 'ControllerInstalledKey' 'Installed controller marker is missing'
