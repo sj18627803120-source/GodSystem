@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.67",
-    [switch]$AllowWorldItemController
+    [switch]$AllowWorldItemController,
+    [switch]$AllowCustomMoveableController
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,7 +48,13 @@ Require-Text $rootInfo ('(?m)^modversion=' + $version + '\r?$') "Root mod.info v
 Require-Text $b42Info ('(?m)^modversion=' + $version + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $version + '\r?$') "Workshop version must be $ExpectedVersion"
 
-if ($AllowWorldItemController) {
+if ($AllowCustomMoveableController) {
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Successor controller must use the vanilla Moveable lifecycle'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*GodSystem_StorageController_0' 'Successor custom world sprite is missing'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=' 'Failed ground-item model returned'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*recreational_01_16' 'Failed arcade Moveable identity returned'
+}
+elseif ($AllowWorldItemController) {
     Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:normal' 'Successor controller must remain its own normal item'
     Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=\s*CarBatteryCharger' 'Successor controller ground model is missing'
     Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*recreational_01_16' 'Failed arcade Moveable identity returned'

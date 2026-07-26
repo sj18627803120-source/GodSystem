@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
-    [string]$ExpectedVersion = "1.16.68"
+    [string]$ExpectedVersion = "1.16.68",
+    [switch]$AllowCustomMoveableController
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,9 +46,16 @@ Require-Text $rootInfo ('(?m)^modversion=' + $version + '\r?$') "Root mod.info v
 Require-Text $b42Info ('(?m)^modversion=' + $version + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $workshop ('(?m)^description=v' + $version + '\r?$') "Workshop version must be $ExpectedVersion"
 
-Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:normal' 'Controller must remain its own normal inventory/world item'
-Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=\s*CarBatteryCharger' 'Controller ground model is missing'
-Reject-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Controller must not inherit an unrelated vanilla Moveable identity'
+if ($AllowCustomMoveableController) {
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Successor controller must use the native Moveable lifecycle'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*GodSystem_StorageController_0' 'Successor controller custom sprite is missing'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=' 'Failed normal ground-item route returned'
+}
+else {
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:normal' 'Controller must remain its own normal inventory/world item'
+    Require-Text $items 'item\s+StorageController[\s\S]{0,500}WorldStaticModel\s*=\s*CarBatteryCharger' 'Controller ground model is missing'
+    Reject-Text $items 'item\s+StorageController[\s\S]{0,500}ItemType\s*=\s*base:moveable' 'Controller must not inherit an unrelated vanilla Moveable identity'
+}
 Reject-Text $items 'item\s+StorageController[\s\S]{0,500}WorldObjectSprite\s*=\s*recreational_01_16' 'Dr Oids arcade identity must be removed'
 
 Require-Text $storage 'getWorldObjects' 'Placed normal controller lookup must scan world inventory objects'
