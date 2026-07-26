@@ -7052,13 +7052,14 @@ function GodSystem.isTaskTemplateAvailable(template)
     if not template then
         return false
     end
+    local blacklist = GodSystemConfig.TaskItemBlacklist or {}
     if template.kind == "turnInItem" then
-        return GodSystem.itemExists(template.item)
+        return not blacklist[template.item] and GodSystem.itemExists(template.item)
     end
     if template.kind == "turnInAnyItem" then
         local items = template.items or {}
         for i = 1, #items do
-            if GodSystem.itemExists(items[i]) then
+            if not blacklist[items[i]] and GodSystem.itemExists(items[i]) then
                 return true
             end
         end

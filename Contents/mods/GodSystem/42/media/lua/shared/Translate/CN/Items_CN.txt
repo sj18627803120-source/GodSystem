@@ -14,4 +14,7 @@ ItemName_CN = {
     Tooltip_GodSystem_SystemVehicleRepairModule = "一次性使用。持有后右键目标车辆，可完整修复车辆及缺失的标准部件。不会补充燃油或修改车内物品；自定义车辆系统可能无法兼容。",
 
     ItemName_GodSystem.SystemTerminalRelief = "系统内部减载核心",
+
+    ItemName_GodSystem.StorageController = "系统仓库总控制器",
+    Tooltip_GodSystem_StorageController = "放置到地面后靠近右键打开。它不是储物容器，只负责连接、索引、筛选和搬运固定场景容器中的真实物品。找回控制器会让旧令牌失效，不会删除仓库物品。",
 }

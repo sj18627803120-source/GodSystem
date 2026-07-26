@@ -2,6 +2,7 @@ require "GodSystem_Config"
 require "GodSystem_Core"
 require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
+require "GodSystem_StorageContext"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -1878,6 +1879,7 @@ function GodSystemWindow:createChildren()
         { id = "shop", label = GodSystem.text("Tab_Shop", "Shop") },
         { id = "bank", label = GodSystem.text("Tab_Bank", "Bank") },
         { id = "waist", label = GodSystem.text("Tab_WaistSpace", "Waist") },
+        { id = "storage", label = GodSystem.text("Tab_StorageNetwork", "Storage") },
         { id = "home", label = GodSystem.text("Tab_Home", "Home/Teleport") },
         { id = "traits", label = GodSystem.text("Tab_Traits", "Traits") },
         { id = "upgrades", label = GodSystem.text("Tab_Upgrades", "Upgrades") },
@@ -3541,6 +3543,32 @@ function GodSystemWindow:populateWaistSpace()
     end
 end
 
+function GodSystemWindow:populateStorageNetwork()
+    gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ClaimOrRecover", "Claim / recover controller"))
+    self.secondaryButton:setVisible(false)
+    self.thirdButton:setVisible(false)
+    self.fourthButton:setVisible(false)
+    self.fifthButton:setVisible(false)
+    self.sixthButton:setVisible(false)
+    self.seventhButton:setVisible(false)
+    self:addListItem(GodSystem.text("Storage_Main_Separate", "The storage network is independent from the wearable system space terminal."), {
+        kind = "storageInfo",
+        detail = GodSystem.text("Storage_Main_SeparateDetail", "Items remain inside real crates, cabinets, shelves, refrigerators and freezers. The controller only indexes, filters and moves them."),
+    })
+    self:addListItem(GodSystem.text("Storage_Main_Place", "Place the controller on the ground, move close, then right-click it to open."), {
+        kind = "storageInfo",
+        detail = GodSystem.text("Storage_Main_PlaceDetail", "Recovering creates a new token and invalidates older controllers, but does not delete stored items or connection records."),
+    })
+    self:addListItem(GodSystem.text("Storage_Main_Link", "Enable connection mode in container management, then right-click a nearby fixed container."), {
+        kind = "storageInfo",
+        detail = GodSystem.text("Storage_Main_LinkDetail", "The first release supports fixed scene containers only. Vehicles, portable bags, corpses and ground inventories are excluded."),
+    })
+    self:addListItem(GodSystem.text("Storage_Main_Safety", "Destroyed or moved furniture becomes offline and never binds a replacement automatically."), {
+        kind = "storageInfo",
+        detail = GodSystem.text("Storage_Main_SafetyDetail", "The game handles items from destroyed furniture. The storage network never recreates items from an old index snapshot."),
+    })
+end
+
 function GodSystemWindow:populateBank()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_BankDeposit", "Deposit"))
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_BankWithdraw", "Withdraw"))
@@ -4263,6 +4291,8 @@ function GodSystemWindow:populateList()
         self:populateRecycle()
     elseif self.mode == "waist" then
         self:populateWaistSpace()
+    elseif self.mode == "storage" then
+        self:populateStorageNetwork()
     elseif self.mode == "bank" then
         self:populateBank()
     elseif self.mode == "traits" then
@@ -4395,6 +4425,8 @@ function GodSystemWindow:updateDetail()
             self:setDetailText(GodSystem.text("Hint_Lottery", "Choose all-category or a category, then draw 1, 10, or a custom count. Results are granted directly."))
         elseif self.mode == "waist" then
             self:setDetailText(GodSystem.text("Hint_WaistSpace", "The space terminal reads the system space terminal. Click rows to select, then sell selected or sell all."))
+        elseif self.mode == "storage" then
+            self:setDetailText(GodSystem.text("Hint_StorageNetwork", "Claim a controller here. Place it on the ground and right-click it to open the independent storage network window."))
         elseif self.mode == "bank" then
             self:setDetailText(GodSystem.text("Hint_Bank", "Deposit cash into current account, move current balance into fixed deposits, and withdraw when needed. Death penalty only deducts current account."))
         elseif self.mode == "traits" then
@@ -5214,6 +5246,13 @@ function GodSystemWindow:onPrimaryAction()
         local sent = GodSystem.recycleWaistSpaceItemsByMode(selected)
         self.waistSelected = {}
         self:finishMultiplayerCommand(sent)
+        return
+    end
+    if self.mode == "storage" then
+        if GodSystemStorageClient then
+            GodSystemStorageClient.claimController()
+        end
+        self:requestDeferredPopulate(1)
         return
     end
     if self.mode == "traits" then

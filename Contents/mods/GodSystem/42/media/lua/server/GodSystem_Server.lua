@@ -11,6 +11,7 @@ require "GodSystem_CarryCapacity"
 require "GodSystem_TransactionOps"
 require "GodSystem_TerminalUpgrades"
 require "GodSystem_ShopVariants"
+require "GodSystem_StorageServer"
 
 if not (isServer and isServer()) then return end
 
@@ -2343,10 +2344,14 @@ end
 
 local function isTaskTemplateAvailable(template)
     if not template then return false end
-    if template.kind == "turnInItem" then return itemExists(template.item) end
+    local blacklist = GodSystemConfig.TaskItemBlacklist or {}
+    if template.kind == "turnInItem" then
+        return not blacklist[template.item] and itemExists(template.item)
+    end
     if template.kind == "turnInAnyItem" then
         for i = 1, #(template.items or {}) do
-            if itemExists(template.items[i]) then return true end
+            local fullType = template.items[i]
+            if not blacklist[fullType] and itemExists(fullType) then return true end
         end
         return false
     end
