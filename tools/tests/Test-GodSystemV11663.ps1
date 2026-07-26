@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.63",
     [switch]$SkipRuntime
 )
 
@@ -40,10 +41,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.63"' 'Config version must be 1.16.63'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.63\r?$' 'Root mod.info version must be 1.16.63'
-Require-Text $b42Info '(?m)^modversion=1\.16\.63\r?$' 'B42 mod.info version must be 1.16.63'
-Require-Text $workshop '(?m)^description=v1\.16\.63\r?$' 'Workshop metadata must mention v1.16.63'
+$escapedVersion = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $escapedVersion + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 Require-Text $items 'item\s+SystemTerminalRelief[\s\S]{0,500}Hidden\s*=\s*true' 'Relief item must be hidden'
 Require-Text $items 'item\s+SystemTerminalRelief[\s\S]{0,500}ItemType\s*=\s*base:food' 'Relief item must use native Food weight behavior'
