@@ -4,21 +4,23 @@ GodSystemStorage = GodSystemStorage or {}
 
 local Storage = GodSystemStorage
 
-Storage.SchemaVersion = 2
+Storage.SchemaVersion = 3
 Storage.Module = "GodSystemStorage"
 Storage.StoreKey = (GodSystemConfig.DataKey or "GodSystem_CN_Data") .. "_StorageNetworkV1"
-Storage.ControllerFullType = "GodSystem.StorageController"
-Storage.ControllerTokenKey = "GodSystemStorageControllerToken"
-Storage.ControllerNetworkKey = "GodSystemStorageNetworkId"
-Storage.ControllerInstalledKey = "GodSystemStorageControllerInstalled"
-Storage.ControllerObjectIdKey = "GodSystemStorageControllerObjectId"
+Storage.CoreFullType = "GodSystem.StorageController"
+Storage.CoreTokenKey = "GodSystemStorageCoreToken"
+Storage.CoreNetworkKey = "GodSystemStorageCoreNetworkId"
+Storage.CoreHostKey = "GodSystemStorageCoreHostV1"
+Storage.LegacyControllerTokenKey = "GodSystemStorageControllerToken"
+Storage.LegacyControllerNetworkKey = "GodSystemStorageNetworkId"
+Storage.LegacyControllerInstalledKey = "GodSystemStorageControllerInstalled"
+Storage.LegacyControllerObjectIdKey = "GodSystemStorageControllerObjectId"
 Storage.ObjectIdKey = "GodSystemStorageObjectId"
 Storage.ObjectLinksKey = "GodSystemStorageLinks"
 Storage.NetworkContainerKey = "GodSystemStorageNetworkContainerV2"
 Storage.MovableDataKey = "movableData"
 Storage.TopologyVersion = 2
-Storage.ControllerRecoveryCost = 2000
-Storage.ControllerPlacementDistance = 4.5
+Storage.CoreRecoveryCost = 2000
 Storage.DefaultRadius = 30
 Storage.DefaultMaxLinks = 128
 Storage.MinRadius = 1
@@ -31,7 +33,7 @@ Storage.MaxIndexedItems = 20000
 Storage.IndexBatchItems = 250
 Storage.IndexBudgetMs = 2
 Storage.SnapshotGroupChunk = 100
-Storage.ControllerUseDistance = 3.5
+Storage.CoreUseDistance = 3.5
 
 Storage.Roles = {
     "auto", "general", "fridge", "freezer", "food", "medical", "weapon",
@@ -118,79 +120,61 @@ local function modDataOf(value)
     return safeCall(value, "getModData", nil)
 end
 
-local function identityDataOf(value)
+local function legacyIdentityDataOf(value)
     local data = modDataOf(value)
     if type(data) ~= "table" then return nil, nil end
     local movableData = data[Storage.MovableDataKey]
     if type(movableData) == "table" then
-        local networkId = tostring(movableData[Storage.ControllerNetworkKey] or "")
-        local token = tostring(movableData[Storage.ControllerTokenKey] or "")
+        local networkId = tostring(movableData[Storage.LegacyControllerNetworkKey] or "")
+        local token = tostring(movableData[Storage.LegacyControllerTokenKey] or "")
         if networkId ~= "" or token ~= "" then return movableData, data end
     end
     return data, data
 end
 
-function Storage.isController(value)
-    if Storage.itemFullType(value) == Storage.ControllerFullType then return true end
-    local networkId, token = Storage.getControllerIdentity(value)
+function Storage.isCore(value)
+    if Storage.itemFullType(value) == Storage.CoreFullType then return true end
+    local networkId, token = Storage.getCoreIdentity(value)
     return networkId ~= nil and networkId ~= "" and token ~= nil and token ~= ""
 end
 
 function Storage.isProtected(item)
-    return Storage.ProtectedFullTypes[Storage.itemFullType(item)] == true or Storage.isController(item)
+    return Storage.ProtectedFullTypes[Storage.itemFullType(item)] == true or Storage.isCore(item)
 end
 
-function Storage.getControllerIdentity(value)
+function Storage.getCoreIdentity(value)
     if not value then return nil, nil end
-    local identity = identityDataOf(value)
-    if type(identity) ~= "table" then return nil, nil end
-    return tostring(identity[Storage.ControllerNetworkKey] or ""), tostring(identity[Storage.ControllerTokenKey] or "")
+    local data = modDataOf(value)
+    if type(data) ~= "table" then return nil, nil end
+    local networkId = tostring(data[Storage.CoreNetworkKey] or "")
+    local token = tostring(data[Storage.CoreTokenKey] or "")
+    if networkId ~= "" or token ~= "" then return networkId, token end
+    local legacy = legacyIdentityDataOf(value)
+    if type(legacy) ~= "table" then return nil, nil end
+    return tostring(legacy[Storage.LegacyControllerNetworkKey] or ""),
+        tostring(legacy[Storage.LegacyControllerTokenKey] or "")
 end
 
-function Storage.setControllerIdentity(value, networkId, token)
+function Storage.setCoreIdentity(value, networkId, token)
     local data = modDataOf(value)
     if type(data) ~= "table" then return false end
-    local movableData = data[Storage.MovableDataKey]
-    if type(movableData) ~= "table" then
-        movableData = {}
-        data[Storage.MovableDataKey] = movableData
-    end
-    movableData[Storage.ControllerNetworkKey] = tostring(networkId or "")
-    movableData[Storage.ControllerTokenKey] = tostring(token or "")
-    movableData[Storage.ControllerInstalledKey] = true
-    data[Storage.ControllerNetworkKey] = tostring(networkId or "")
-    data[Storage.ControllerTokenKey] = tostring(token or "")
+    data[Storage.CoreNetworkKey] = tostring(networkId or "")
+    data[Storage.CoreTokenKey] = tostring(token or "")
+    data[Storage.LegacyControllerNetworkKey] = nil
+    data[Storage.LegacyControllerTokenKey] = nil
+    data[Storage.LegacyControllerInstalledKey] = nil
+    data[Storage.LegacyControllerObjectIdKey] = nil
+    data[Storage.MovableDataKey] = nil
     if value.transmitModData then value:transmitModData() end
     return true
 end
 
-function Storage.getInstalledControllerIdentity(object)
-    if not object then return nil, nil, nil, nil end
-    local data = modDataOf(object)
-    local identity = identityDataOf(object)
-    if type(data) ~= "table" or type(identity) ~= "table" then return nil, nil, nil, nil end
-    local networkId = tostring(identity[Storage.ControllerNetworkKey] or "")
-    local token = tostring(identity[Storage.ControllerTokenKey] or "")
-    if networkId == "" or token == "" then return nil, nil, nil, nil end
-    local item = safeCall(object, "getItem", nil)
-    return networkId, token, tostring(data[Storage.ControllerObjectIdKey] or ""), item
-end
-
-function Storage.markInstalledController(object, networkId, token, objectId)
-    local data = modDataOf(object)
-    if type(data) ~= "table" then return false end
-    if not Storage.setControllerIdentity(object, networkId, token) then return false end
-    data[Storage.ControllerInstalledKey] = true
-    data[Storage.ControllerNetworkKey] = tostring(networkId or "")
-    data[Storage.ControllerTokenKey] = tostring(token or "")
-    data[Storage.ControllerObjectIdKey] = tostring(objectId or "")
-    if object.transmitModData then object:transmitModData() end
-    return true
-end
-
-function Storage.isInstalledController(object)
-    local networkId, token = Storage.getInstalledControllerIdentity(object)
-    return networkId ~= nil and networkId ~= "" and token ~= nil and token ~= ""
+function Storage.hasLegacyControllerIdentity(value)
+    local data = modDataOf(value)
+    local movableData = type(data) == "table" and data[Storage.MovableDataKey] or nil
+    return type(movableData) == "table"
+        and (tostring(movableData[Storage.LegacyControllerNetworkKey] or "") ~= ""
+            or tostring(movableData[Storage.LegacyControllerTokenKey] or "") ~= "")
 end
 
 function Storage.getItemContainer(item)
@@ -324,6 +308,130 @@ function Storage.getNetworkContainerMarker(object)
     return marker
 end
 
+function Storage.getCoreHostMarker(object)
+    local data = modDataOf(object)
+    local marker = type(data) == "table" and data[Storage.CoreHostKey] or nil
+    if type(marker) ~= "table" or marker.installed ~= true then return nil end
+    return marker
+end
+
+function Storage.isCoreHost(object)
+    local marker = Storage.getCoreHostMarker(object)
+    return marker ~= nil and tostring(marker.networkId or "") ~= ""
+        and tostring(marker.token or "") ~= ""
+end
+
+function Storage.containerItemCount(container)
+    local items = safeCall(container, "getItems", nil)
+    return integer(safeCall(items, "size", 0), 0)
+end
+
+function Storage.coreHostIsEmpty(object)
+    local slots = Storage.getContainerSlots(object)
+    if #slots <= 0 then return false end
+    for i = 1, #slots do
+        if Storage.containerItemCount(slots[i].container) > 0 then return false end
+    end
+    return true
+end
+
+local function capacityRows(object)
+    local rows = {}
+    local slots = Storage.getContainerSlots(object)
+    for i = 1, #slots do
+        rows[#rows + 1] = {
+            slotIndex = slots[i].index,
+            capacity = math.max(0, integer(safeCall(slots[i].container, "getCapacity", 0), 0)),
+            type = slots[i].type,
+        }
+    end
+    return rows
+end
+
+local function setSlotCapacities(object, rows, locked)
+    local slots = Storage.getContainerSlots(object)
+    local byIndex = {}
+    for i = 1, #slots do byIndex[tostring(slots[i].index)] = slots[i].container end
+    for i = 1, #(rows or {}) do
+        local row = rows[i]
+        local container = byIndex[tostring(integer(row.slotIndex, -1))]
+        if not container then return false end
+        local expected = locked and 0 or math.max(0, integer(row.capacity, 0))
+        container:setCapacity(expected)
+        if integer(container:getCapacity(), -1) ~= expected then return false end
+    end
+    return true
+end
+
+function Storage.lockCoreHost(object, networkId, token)
+    if not object or Storage.isCoreHost(object) then return false, "coreInstalled" end
+    local networkMarker = Storage.getNetworkContainerMarker(object)
+    if not networkMarker then return false, "networkContainerRequired" end
+    if not Storage.coreHostIsEmpty(object) then return false, "coreHostNotEmpty" end
+    local capacities = capacityRows(object)
+    if #capacities <= 0 then return false, "containerMissing" end
+    if not setSlotCapacities(object, capacities, true) then
+        setSlotCapacities(object, capacities, false)
+        return false, "capacityLockFailed"
+    end
+    local data = modDataOf(object)
+    data[Storage.CoreHostKey] = {
+        installed = true,
+        networkId = tostring(networkId or ""),
+        token = tostring(token or ""),
+        objectId = tostring(networkMarker.objectId or ""),
+        originalCapacities = capacities,
+        installedAtMs = Storage.nowMs(),
+    }
+    if object.transmitModData then object:transmitModData() end
+    return true, nil, data[Storage.CoreHostKey]
+end
+
+function Storage.enforceCoreHostLock(object, networkId, token)
+    local marker = Storage.getCoreHostMarker(object)
+    if not marker then return false, "coreHostMissing" end
+    if tostring(marker.networkId or "") ~= tostring(networkId or "")
+        or tostring(marker.token or "") ~= tostring(token or "") then
+        return false, "coreExpired"
+    end
+    if not setSlotCapacities(object, marker.originalCapacities or {}, true) then
+        return false, "capacityLockFailed"
+    end
+    return true
+end
+
+function Storage.unlockCoreHost(object, expectedToken)
+    local marker = Storage.getCoreHostMarker(object)
+    if not marker then return false, "coreHostMissing" end
+    if expectedToken and tostring(expectedToken) ~= ""
+        and tostring(marker.token or "") ~= tostring(expectedToken) then
+        return false, "coreExpired"
+    end
+    if not setSlotCapacities(object, marker.originalCapacities or {}, false) then
+        setSlotCapacities(object, marker.originalCapacities or {}, true)
+        return false, "capacityRestoreFailed"
+    end
+    local data = modDataOf(object)
+    data[Storage.CoreHostKey] = nil
+    if object.transmitModData then object:transmitModData() end
+    return true, nil, marker
+end
+
+function Storage.findCoreHost(x, y, z, objectId, networkId, token)
+    local objects = Storage.squareObjects(Storage.getSquare(x, y, z))
+    for i = 1, #objects do
+        local object = objects[i]
+        local marker = Storage.getCoreHostMarker(object)
+        if marker
+            and (not objectId or tostring(objectId) == "" or tostring(marker.objectId or "") == tostring(objectId))
+            and (not networkId or tostring(networkId) == "" or tostring(marker.networkId or "") == tostring(networkId))
+            and (not token or tostring(token) == "" or tostring(marker.token or "") == tostring(token)) then
+            return object, marker
+        end
+    end
+    return nil, nil
+end
+
 function Storage.setNetworkContainerMarker(object, marker)
     local data = modDataOf(object)
     if type(data) ~= "table" or type(marker) ~= "table" then return false end
@@ -445,45 +553,24 @@ function Storage.squareObjects(square)
     return result
 end
 
-function Storage.findWorldController(x, y, z, itemId, token, objectId)
+function Storage.findLegacyWorldController(x, y, z, itemId, token, objectId)
     local square = Storage.getSquare(x, y, z)
     local objects = Storage.squareObjects(square)
     for i = 1, #objects do
         local worldObject = objects[i]
         local item = safeCall(worldObject, "getItem", nil)
-        local networkId, itemToken, installedObjectId, installedItem = Storage.getInstalledControllerIdentity(worldObject)
-        if not networkId or networkId == "" then networkId, itemToken = Storage.getControllerIdentity(item) end
-        if installedItem then item = installedItem end
+        local data = modDataOf(worldObject)
+        local identity = legacyIdentityDataOf(worldObject)
+        local networkId = type(identity) == "table" and tostring(identity[Storage.LegacyControllerNetworkKey] or "") or ""
+        local itemToken = type(identity) == "table" and tostring(identity[Storage.LegacyControllerTokenKey] or "") or ""
+        local installedObjectId = type(data) == "table" and tostring(data[Storage.LegacyControllerObjectIdKey] or "") or ""
+        if networkId == "" or itemToken == "" then networkId, itemToken = Storage.getCoreIdentity(item) end
         local itemMatches = not itemId or tostring(itemId) == "" or not item or Storage.itemId(item) == tostring(itemId)
         if networkId and networkId ~= "" and itemToken and itemToken ~= ""
             and itemMatches
             and (not token or tostring(token) == "" or itemToken == tostring(token))
             and (not objectId or tostring(objectId) == "" or installedObjectId == tostring(objectId)) then
             return worldObject, item
-        end
-    end
-    return nil, nil
-end
-
-function Storage.findNearbyWorldController(position, networkId, token, radius)
-    if type(position) ~= "table" then return nil, nil end
-    radius = clamp(integer(radius, Storage.HighlightRadius), 1, Storage.HighlightRadius)
-    local z = integer(position.z, 0)
-    for distance = 0, radius do
-        for dx = -distance, distance do
-            local dy = distance - math.abs(dx)
-            local candidates = dy == 0 and { 0 } or { -dy, dy }
-            for i = 1, #candidates do
-                local x, y = integer(position.x, 0) + dx, integer(position.y, 0) + candidates[i]
-                local object, item = Storage.findWorldController(x, y, z, nil, token, nil)
-                if object then
-                    local foundNetworkId = Storage.getInstalledControllerIdentity(object)
-                    if not foundNetworkId or foundNetworkId == "" then foundNetworkId = Storage.getControllerIdentity(item) end
-                    if not networkId or tostring(networkId) == "" or tostring(foundNetworkId) == tostring(networkId) then
-                        return object, item
-                    end
-                end
-            end
         end
     end
     return nil, nil
@@ -508,7 +595,7 @@ function Storage.networkContainersOnSquare(x, y, z, scopeKey)
     return result
 end
 
-function Storage.discoverNetwork(network, controllerObject)
+function Storage.discoverNetwork(network, coreObject)
     local view = {}
     for key, value in pairs(type(network) == "table" and network or {}) do view[key] = value end
     view.topologyMode = "physical"
@@ -519,12 +606,12 @@ function Storage.discoverNetwork(network, controllerObject)
     view.nodeCount = 0
     view.truncated = false
 
-    local controller = view.controller
-    if controllerObject then
-        local position = Storage.objectCoordinates(controllerObject)
-        if position then controller = position end
+    local coreHost = view.coreHost or view.controller
+    if coreObject then
+        local position = Storage.objectCoordinates(coreObject)
+        if position then coreHost = position end
     end
-    if type(controller) ~= "table" then return view end
+    if type(coreHost) ~= "table" then return view end
 
     local scopeKey = tostring(view.scopeKey or view.safehouse or "")
     local queued, visitedObjects, visitedSquares = {}, {}, {}
@@ -542,7 +629,7 @@ function Storage.discoverNetwork(network, controllerObject)
         end
     end
 
-    local cx, cy, cz = integer(controller.x, 0), integer(controller.y, 0), integer(controller.z, 0)
+    local cx, cy, cz = integer(coreHost.x, 0), integer(coreHost.y, 0), integer(coreHost.z, 0)
     enqueueSquare(cx, cy, cz)
     enqueueSquare(cx - 1, cy, cz)
     enqueueSquare(cx + 1, cy, cz)
@@ -565,27 +652,30 @@ function Storage.discoverNetwork(network, controllerObject)
             local position = Storage.objectCoordinates(row.object)
             if position then
                 local slots = Storage.getContainerSlots(row.object)
-                for i = 1, #slots do
-                    local slot = slots[i]
-                    local suffix = slot.type ~= "" and slot.type or tostring(i)
-                    local linkId = "node:" .. objectId .. ":" .. tostring(slot.index)
-                    view.links[linkId] = {
-                        linkId = linkId,
-                        networkId = view.networkId,
-                        scopeKey = scopeKey,
-                        objectId = objectId,
-                        nodeId = objectId,
-                        x = position.x, y = position.y, z = position.z,
-                        slotIndex = slot.index,
-                        sprite = Storage.objectSpriteName(row.object),
-                        containerType = slot.type,
-                        name = (#slots > 1 and (tostring(row.marker.name or "Container") .. " / " .. suffix)
-                            or tostring(row.marker.name or slot.type or "Container")),
-                        role = tostring(row.marker.role or "auto"),
-                        priority = clamp(integer(row.marker.priority, 50), 0, 100),
-                        allowCategories = row.marker.allowCategories or {},
-                        denyCategories = row.marker.denyCategories or {},
-                    }
+                local isHost = Storage.isCoreHost(row.object)
+                if not isHost then
+                    for i = 1, #slots do
+                        local slot = slots[i]
+                        local suffix = slot.type ~= "" and slot.type or tostring(i)
+                        local linkId = "node:" .. objectId .. ":" .. tostring(slot.index)
+                        view.links[linkId] = {
+                            linkId = linkId,
+                            networkId = view.networkId,
+                            scopeKey = scopeKey,
+                            objectId = objectId,
+                            nodeId = objectId,
+                            x = position.x, y = position.y, z = position.z,
+                            slotIndex = slot.index,
+                            sprite = Storage.objectSpriteName(row.object),
+                            containerType = slot.type,
+                            name = (#slots > 1 and (tostring(row.marker.name or "Container") .. " / " .. suffix)
+                                or tostring(row.marker.name or slot.type or "Container")),
+                            role = tostring(row.marker.role or "auto"),
+                            priority = clamp(integer(row.marker.priority, 50), 0, 100),
+                            allowCategories = row.marker.allowCategories or {},
+                            denyCategories = row.marker.denyCategories or {},
+                        }
+                    end
                 end
                 enqueueSquare(position.x - 1, position.y, position.z)
                 enqueueSquare(position.x + 1, position.y, position.z)
@@ -668,17 +758,17 @@ end
 function Storage.isWithinNetworkRange(network, position)
     if type(network) ~= "table" or not position then return false end
     if network.topologyMode == "physical" then return true end
-    local controller = network.controller
-    if type(controller) ~= "table" then return false end
+    local coreHost = network.coreHost or network.controller
+    if type(coreHost) ~= "table" then return false end
     if network.scope == "safehouse" and network.safehouse then
-        local controllerSafehouse = Storage.getSafehouseAt(controller.x, controller.y)
-        if Storage.safehouseKey(controllerSafehouse) == tostring(network.safehouse) then
+        local coreSafehouse = Storage.getSafehouseAt(coreHost.x, coreHost.y)
+        if Storage.safehouseKey(coreSafehouse) == tostring(network.safehouse) then
             local targetSafehouse = Storage.getSafehouseAt(position.x, position.y)
             if Storage.safehouseKey(targetSafehouse) == tostring(network.safehouse) then return true end
         end
     end
-    if integer(position.z, 0) ~= integer(controller.z, 0) then return false end
-    return Storage.distance2D(controller, position) <= clamp(number(network.radius, Storage.DefaultRadius), Storage.MinRadius, Storage.MaxRadius)
+    if integer(position.z, 0) ~= integer(coreHost.z, 0) then return false end
+    return Storage.distance2D(coreHost, position) <= clamp(number(network.radius, Storage.DefaultRadius), Storage.MinRadius, Storage.MaxRadius)
 end
 
 local function lower(value)

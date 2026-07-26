@@ -62,11 +62,7 @@ local function collectWorldObjects(values)
     return result
 end
 
-local function worldItem(object)
-    return Storage.safeCall(object, "getItem", nil)
-end
-
-local function controllerPosition(object)
+local function objectPosition(object)
     local square = Storage.safeCall(object, "getSquare", nil)
     if not square then return nil end
     return {
@@ -85,7 +81,7 @@ function Context.clearHighlights()
     Context.markerCount = 0
 end
 
-local function cacheMarker(object, marker, connected)
+local function cacheMarker(object, marker)
     local position = Storage.objectCoordinates(object)
     local objectId = marker and tostring(marker.objectId or "") or ""
     if not position or objectId == "" then return end
@@ -96,7 +92,7 @@ local function cacheMarker(object, marker, connected)
         x = position.x,
         y = position.y,
         z = position.z,
-        connected = connected == true,
+        coreHost = Storage.isCoreHost(object),
     }
 end
 
@@ -129,7 +125,7 @@ function Context.renderMarkers()
             local stem = math.max(4, 7 / zoom)
             local cy = sy - math.max(20, 34 / zoom)
             local red, green, blue = 0.12, 0.48, 0.92
-            if marker.connected then red, green, blue = 0.12, 0.82, 0.42 end
+            if marker.coreHost then red, green, blue = 0.12, 0.82, 0.42 end
             drawLine(renderer, Context.lineTexture, sx, cy - size, sx + size, cy, red, green, blue)
             drawLine(renderer, Context.lineTexture, sx + size, cy, sx, cy + size, red, green, blue)
             drawLine(renderer, Context.lineTexture, sx, cy + size, sx - size, cy, red, green, blue)
@@ -145,37 +141,13 @@ function Context.refreshHighlights()
     local player = playerByNumber(0)
     local position = Storage.positionOfPlayer(player)
     if not position then return end
-    local connected = type(Client.networkState) == "table" and Client.networkState.connectedObjectIds or {}
-    local controller = Client.controller or (type(Client.claimState) == "table" and Client.claimState.controller or nil)
-    local controllerObject = type(controller) == "table" and controller.object or nil
-    if not controllerObject and type(controller) == "table" then
-        controllerObject = Storage.findWorldController(
-            controller.x, controller.y, controller.z,
-            controller.itemId, controller.token, controller.objectId
-        )
-    end
-    if controllerObject then
-        local controllerPosition = Storage.objectCoordinates(controllerObject)
-        local safehouse = controllerPosition and Storage.getSafehouseAt(controllerPosition.x, controllerPosition.y) or nil
-        local scopeKey
-        if safehouse and (Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)) then
-            scopeKey = Storage.safehouseKey(safehouse)
-        else
-            scopeKey = "personal:" .. Storage.playerKey(player)
-        end
-        connected = Storage.discoverNetwork({
-            scopeKey = scopeKey,
-            controller = controllerPosition,
-        }, controllerObject).connectedObjectIds
-    end
     for x = Storage.integer(position.x, 0) - Storage.HighlightRadius, Storage.integer(position.x, 0) + Storage.HighlightRadius do
         for y = Storage.integer(position.y, 0) - Storage.HighlightRadius, Storage.integer(position.y, 0) + Storage.HighlightRadius do
             local objects = Storage.squareObjects(Storage.getSquare(x, y, position.z))
             for i = 1, #objects do
                 local marker = Storage.getNetworkContainerMarker(objects[i])
                 if marker then
-                    cacheMarker(objects[i], marker,
-                        connected and connected[tostring(marker.objectId or "")] == true)
+                    cacheMarker(objects[i], marker)
                 end
             end
         end
@@ -198,14 +170,18 @@ function Context.toggleConnectMode()
     Context.setConnectMode(not Context.connectMode)
 end
 
-function Context.openController(_, payload)
-    if not payload or not payload.identity or not payload.position then return end
-    Client.open(payload.identity, payload.position.x, payload.position.y, payload.position.z, payload.object)
+function Context.openCoreHost(_, payload)
+    if not payload or not payload.position then return end
+    Client.open(payload.position.x, payload.position.y, payload.position.z, payload.object)
 end
 
-function Context.reclaimController(_, payload)
-    if not payload or not payload.identity or not payload.position then return end
-    Client.reclaim(payload.identity, payload.position.x, payload.position.y, payload.position.z, payload.object)
+function Context.retrieveCore(_, payload)
+    if not payload or not payload.position then return end
+    Client.retrieveCore(payload.position.x, payload.position.y, payload.position.z, payload.object)
+end
+
+function Context.installCore(_, payload)
+    if payload then Client.installCore(payload) end
 end
 
 function Context.setNetworkContainer(_, payload)
@@ -213,19 +189,15 @@ function Context.setNetworkContainer(_, payload)
     Client.setNetworkContainer(payload)
 end
 
-local function addControllerOption(context, object)
-    local item = worldItem(object)
-    local identity = Storage.isController(object) and object or item
-    if not Storage.isController(identity) then return false end
-    local position = controllerPosition(object)
+local function addCoreHostOptions(context, object)
+    if not Storage.isCoreHost(object) then return false end
+    local position = objectPosition(object)
     if not position then return false end
-    context:addOption(text("Storage_Context_Open", "Open system storage"), Context, Context.openController, {
-        identity = identity,
+    context:addOption(text("Storage_Context_Open", "Open system storage"), Context, Context.openCoreHost, {
         position = position,
         object = object,
     })
-    context:addOption(text("Storage_Context_Reclaim", "Reclaim storage controller"), Context, Context.reclaimController, {
-        identity = identity,
+    context:addOption(text("Storage_Context_RetrieveCore", "Retrieve storage core"), Context, Context.retrieveCore, {
         position = position,
         object = object,
     })
@@ -237,7 +209,6 @@ local function addNetworkContainerOption(context, object)
     if not position then return false end
     local slots = Storage.getContainerSlots(object)
     if #slots <= 0 then return false end
-    if Storage.isController(object) or Storage.isInstalledController(object) then return false end
     local objectIndex = Storage.getObjectIndex(object)
     if objectIndex < 0 then return false end
     local marker = Storage.getNetworkContainerMarker(object)
@@ -248,6 +219,7 @@ local function addNetworkContainerOption(context, object)
         enabled = marker == nil,
         name = marker and marker.name or (slots[1].type ~= "" and slots[1].type or text("Storage_Container", "Container")),
     }
+    if marker and Storage.isCoreHost(object) then return false end
     local label = marker
         and text("Storage_Context_UnmarkNetwork", "Remove network container mark")
         or text("Storage_Context_MarkNetwork", "Mark as network container")
@@ -255,11 +227,28 @@ local function addNetworkContainerOption(context, object)
     return true
 end
 
+local function addInstallCoreOption(context, object)
+    if not Client.findCarriedCore or not Client.findCarriedCore() then return false end
+    local marker = Storage.getNetworkContainerMarker(object)
+    if not marker or Storage.isCoreHost(object) then return false end
+    if not Storage.coreHostIsEmpty(object) then return false end
+    local position = Storage.objectCoordinates(object)
+    local objectIndex = Storage.getObjectIndex(object)
+    if not position or objectIndex < 0 then return false end
+    context:addOption(text("Storage_Context_InstallCore", "Install storage core"), Context, Context.installCore, {
+        x = position.x, y = position.y, z = position.z,
+        objectIndex = objectIndex,
+        sprite = Storage.objectSpriteName(object),
+    })
+    return true
+end
+
 function Context.fillWorldMenu(playerNum, context, worldObjects, test)
     if test then return end
     local objects = collectWorldObjects(worldObjects)
     for i = 1, #objects do
-        addControllerOption(context, objects[i])
+        addCoreHostOptions(context, objects[i])
+        addInstallCoreOption(context, objects[i])
     end
     if not Context.connectMode then return end
     for i = 1, #objects do
@@ -268,12 +257,12 @@ function Context.fillWorldMenu(playerNum, context, worldObjects, test)
     end
 end
 
-local function controllerNearby(player)
-    local controller = Client.controller
-    if not player or not controller then return false end
+local function coreNearby(player)
+    local core = Client.core
+    if not player or not core then return false end
     local position = Storage.positionOfPlayer(player)
-    return position and Storage.integer(position.z, 0) == Storage.integer(controller.z, 0)
-        and Storage.distance2D(position, controller) <= Storage.ControllerUseDistance
+    return position and Storage.integer(position.z, 0) == Storage.integer(core.z, 0)
+        and Storage.distance2D(position, core) <= Storage.CoreUseDistance
 end
 
 local function isInPlayerInventory(player, item)
@@ -299,7 +288,7 @@ end
 function Context.fillInventoryMenu(playerNum, context, items)
     local p = playerByNumber(playerNum)
     local selected = collectInventoryItems(items)
-    if not controllerNearby(p) then return end
+    if not coreNearby(p) then return end
     local eligible = {}
     for i = 1, #selected do
         local allowed = Storage.isSafeDepositItem(p, selected[i])
@@ -314,6 +303,12 @@ end
 function Context.reset()
     Context.connectMode = false
     Context.clearHighlights()
+end
+
+function Context.onLoadGridSquare(square)
+    if not (isClient and isClient()) then
+        GodSystemStorageManager.calibrateLoadedSquare(square)
+    end
 end
 
 Events.OnFillWorldObjectContextMenu.Remove(Context.fillWorldMenu)
@@ -331,6 +326,10 @@ end
 if Events.OnMainMenuEnter then
     Events.OnMainMenuEnter.Remove(Context.reset)
     Events.OnMainMenuEnter.Add(Context.reset)
+end
+if Events.LoadGridsquare then
+    Events.LoadGridsquare.Remove(Context.onLoadGridSquare)
+    Events.LoadGridsquare.Add(Context.onLoadGridSquare)
 end
 
 return Context

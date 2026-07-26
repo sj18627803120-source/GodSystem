@@ -27,14 +27,14 @@ local function fail(player, command, reason, payload)
     })
 end
 
-local function controllerArgs(args)
+local function coreArgs(args)
     return {
-        x = args and args.controllerX,
-        y = args and args.controllerY,
-        z = args and args.controllerZ,
-        controllerItemId = args and args.controllerItemId,
-        controllerToken = args and args.controllerToken,
-        controllerObjectId = args and args.controllerObjectId,
+        x = args and args.coreX,
+        y = args and args.coreY,
+        z = args and args.coreZ,
+        coreItemId = args and args.coreItemId,
+        coreToken = args and args.coreToken,
+        coreObjectId = args and args.coreObjectId,
         networkId = args and args.networkId,
     }
 end
@@ -75,9 +75,9 @@ local function sendSnapshot(player, job, snapshot)
 end
 
 local function startIndex(player, args, allowRemote)
-    local resolvedController = controllerArgs(args)
-    resolvedController.allowRemote = allowRemote == true
-    local ok, reason, job = Manager.startIndex(player, resolvedController, function(completed, snapshot)
+    local resolvedCore = coreArgs(args)
+    resolvedCore.allowRemote = allowRemote == true
+    local ok, reason, job = Manager.startIndex(player, resolvedCore, function(completed, snapshot)
         sendSnapshot(player, completed, snapshot)
     end)
     if not ok then fail(player, "refresh", reason); return false end
@@ -94,12 +94,12 @@ local function fingerprint(command, args)
     local parts = {
         tostring(command or ""),
         tostring(args and args.networkId or ""),
-        tostring(args and args.controllerItemId or ""),
-        tostring(args and args.controllerToken or ""),
-        tostring(args and args.controllerObjectId or ""),
-        tostring(args and args.controllerX or ""),
-        tostring(args and args.controllerY or ""),
-        tostring(args and args.controllerZ or ""),
+        tostring(args and args.coreItemId or ""),
+        tostring(args and args.coreToken or ""),
+        tostring(args and args.coreObjectId or ""),
+        tostring(args and args.coreX or ""),
+        tostring(args and args.coreY or ""),
+        tostring(args and args.coreZ or ""),
         tostring(args and args.snapshotId or ""),
         tostring(args and args.groupKey or ""),
         tostring(args and args.count or ""),
@@ -164,20 +164,20 @@ end
 
 local Commands = {}
 
-local function sendControllerStatus(player)
-    local status, reason = Manager.controllerStatus(player)
-    if not status then fail(player, "controllerStatus", reason); return false end
-    send(player, "controllerStatus", status)
+local function sendCoreStatus(player)
+    local status, reason = Manager.coreStatus(player)
+    if not status then fail(player, "coreStatus", reason); return false end
+    send(player, "coreStatus", status)
     return true
 end
 
-function Commands.controllerStatus(player)
-    sendControllerStatus(player)
+function Commands.coreStatus(player)
+    sendCoreStatus(player)
 end
 
-function Commands.claimController(player, args)
-    operation(player, "claimController", args, function()
-        local ok, reason, payload = Manager.claimController(player, {
+function Commands.claimCore(player, args)
+    operation(player, "claimCore", args, function()
+        local ok, reason, payload = Manager.claimCore(player, {
             forceRecovery = args and args.forceRecovery == true,
             charge = function(cost)
                 if not GodSystemServer or not GodSystemServer.storageControllerCharge then
@@ -197,23 +197,23 @@ function Commands.claimController(player, args)
                 end
             end,
         })
-        if ok then notify(player, payload and payload.recovered and "controllerRecovered" or "controllerClaimed") end
+        if ok then notify(player, payload and payload.recovered and "coreRecovered" or "coreClaimed") end
         return ok, reason, payload
     end, false)
 end
 
-function Commands.installController(player, args)
-    operation(player, "installController", args, function()
-        local ok, reason, payload = Manager.installController(player, args)
-        if ok then notify(player, "controllerInstalled") end
+function Commands.installCore(player, args)
+    operation(player, "installCore", args, function()
+        local ok, reason, payload = Manager.installCore(player, args)
+        if ok then notify(player, "coreInstalled") end
         return ok, reason, payload
     end, false)
 end
 
-function Commands.reclaimController(player, args)
-    operation(player, "reclaimController", args, function()
-        local ok, reason, payload = Manager.reclaimController(player, controllerArgs(args))
-        if ok then notify(player, "controllerReclaimed") end
+function Commands.retrieveCore(player, args)
+    operation(player, "retrieveCore", args, function()
+        local ok, reason, payload = Manager.retrieveCore(player, coreArgs(args))
+        if ok then notify(player, "coreRetrieved") end
         return ok, reason, payload
     end, false)
 end
@@ -227,7 +227,7 @@ function Commands.refresh(player, args)
 end
 
 function Commands.details(player, args)
-    local network, _, _, reason = Manager.resolveController(player, controllerArgs(args))
+    local network, _, _, reason = Manager.resolveCoreHost(player, coreArgs(args))
     if not network then fail(player, "details", reason); return end
     local job = Manager.latestJob(network.networkId, args.snapshotId)
     if not job then fail(player, "details", "snapshotExpired"); return end
@@ -248,7 +248,7 @@ end
 
 function Commands.link(player, args)
     operation(player, "link", args, function()
-        return Manager.linkContainer(player, controllerArgs(args), {
+        return Manager.linkContainer(player, coreArgs(args), {
             x = args.x, y = args.y, z = args.z,
             objectIndex = args.objectIndex,
             slotIndex = args.slotIndex,
@@ -274,36 +274,36 @@ end
 
 function Commands.unlink(player, args)
     operation(player, "unlink", args, function()
-        return Manager.unlinkContainer(player, controllerArgs(args), args.linkId)
+        return Manager.unlinkContainer(player, coreArgs(args), args.linkId)
     end)
 end
 
 function Commands.updateLink(player, args)
     operation(player, "updateLink", args, function()
-        return Manager.updateLink(player, controllerArgs(args), args)
+        return Manager.updateLink(player, coreArgs(args), args)
     end)
 end
 
 function Commands.updateLimits(player, args)
     operation(player, "updateLimits", args, function()
-        return Manager.updateLimits(player, controllerArgs(args), args.radius, args.maxLinks)
+        return Manager.updateLimits(player, coreArgs(args), args.radius, args.maxLinks)
     end)
 end
 
 function Commands.deposit(player, args)
     operation(player, "deposit", args, function()
-        return Manager.deposit(player, controllerArgs(args), args)
+        return Manager.deposit(player, coreArgs(args), args)
     end)
 end
 
 function Commands.withdraw(player, args)
     operation(player, "withdraw", args, function()
-        return Manager.withdraw(player, controllerArgs(args), args)
+        return Manager.withdraw(player, coreArgs(args), args)
     end)
 end
 
 function Commands.takeOver(player, args)
-    local network, _, _, reason = Manager.resolveController(player, controllerArgs(args))
+    local network, _, _, reason = Manager.resolveCoreHost(player, coreArgs(args))
     if not network then fail(player, "takeOver", reason); return end
     if not Storage.isAdmin(player) then fail(player, "takeOver", "adminOnly"); return end
     network.owner = Storage.playerKey(player)
@@ -334,6 +334,10 @@ function Server.onInitGlobalModData()
     Manager.pruneOperations()
 end
 
+function Server.onLoadGridSquare(square)
+    Manager.calibrateLoadedSquare(square)
+end
+
 Events.OnClientCommand.Remove(Server.onClientCommand)
 Events.OnClientCommand.Add(Server.onClientCommand)
 Events.OnTick.Remove(Server.onTick)
@@ -341,6 +345,10 @@ Events.OnTick.Add(Server.onTick)
 if Events.OnInitGlobalModData then
     Events.OnInitGlobalModData.Remove(Server.onInitGlobalModData)
     Events.OnInitGlobalModData.Add(Server.onInitGlobalModData)
+end
+if Events.LoadGridsquare then
+    Events.LoadGridsquare.Remove(Server.onLoadGridSquare)
+    Events.LoadGridsquare.Add(Server.onLoadGridSquare)
 end
 
 return Server

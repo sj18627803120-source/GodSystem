@@ -659,7 +659,6 @@ end
 
 function GodSystemStorageWindow:close()
     ISCollapsableWindow.close(self)
-    if GodSystemStorageContext and GodSystemStorageContext.setConnectMode then GodSystemStorageContext.setConnectMode(false) end
     if UI.window == self then UI.window = nil end
 end
 
