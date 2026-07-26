@@ -16,5 +16,5 @@ ItemName_CH = {
     ItemName_GodSystem.SystemTerminalRelief = "系统内部减载核心",
 
     ItemName_GodSystem.StorageController = "系统仓库总控制器",
-    Tooltip_GodSystem_StorageController = "放置到地面后靠近右键打开。它不是储物容器，只负责连接、索引、筛选和搬运固定场景容器中的真实物品。找回控制器会让旧令牌失效，不会删除仓库物品。",
+    Tooltip_GodSystem_StorageController = "在背包中右键进入安装模式。安装后靠近右键打开或收回。它不是储物容器，只负责连接、索引、筛选和搬运固定场景容器中的真实物品。",
 }

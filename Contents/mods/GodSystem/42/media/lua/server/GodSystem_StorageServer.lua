@@ -34,6 +34,7 @@ local function controllerArgs(args)
         z = args and args.controllerZ,
         controllerItemId = args and args.controllerItemId,
         controllerToken = args and args.controllerToken,
+        controllerObjectId = args and args.controllerObjectId,
         networkId = args and args.networkId,
     }
 end
@@ -95,6 +96,7 @@ local function fingerprint(command, args)
         tostring(args and args.networkId or ""),
         tostring(args and args.controllerItemId or ""),
         tostring(args and args.controllerToken or ""),
+        tostring(args and args.controllerObjectId or ""),
         tostring(args and args.controllerX or ""),
         tostring(args and args.controllerY or ""),
         tostring(args and args.controllerZ or ""),
@@ -116,6 +118,7 @@ local function fingerprint(command, args)
         tostring(args and args.itemId or ""),
         tostring(args and args.radius or ""),
         tostring(args and args.maxLinks or ""),
+        tostring(args and args.forceRecovery == true),
     }
     for i = 1, #((args and args.itemIds) or {}) do parts[#parts + 1] = tostring(args.itemIds[i]) end
     for i = 1, #Storage.Categories do
@@ -126,7 +129,7 @@ local function fingerprint(command, args)
     return table.concat(parts, "|")
 end
 
-local function operation(player, command, args, fn)
+local function operation(player, command, args, fn, refreshAfter)
     local opId = tostring(args and args.opId or "")
     local fp = fingerprint(command, args)
     local row, status = Manager.beginOperation(player, opId, fp)
@@ -155,17 +158,63 @@ local function operation(player, command, args, fn)
         reason = reason,
         payload = payload,
     })
-    if ok then startIndex(player, args, command == "link") end
+    if ok and refreshAfter ~= false then startIndex(player, args, command == "link") end
 end
 
 local Commands = {}
 
-function Commands.claimController(player)
-    local ok, reason, payload = Manager.claimController(player)
-    if not ok then fail(player, "claimController", reason); return end
-    send(player, "claimResult", payload)
-    if sendServerCommand then pcall(sendServerCommand, player, "ui", "DirtyUI", {}) end
-    notify(player, "controllerClaimed")
+local function sendControllerStatus(player)
+    local status, reason = Manager.controllerStatus(player)
+    if not status then fail(player, "controllerStatus", reason); return false end
+    send(player, "controllerStatus", status)
+    return true
+end
+
+function Commands.controllerStatus(player)
+    sendControllerStatus(player)
+end
+
+function Commands.claimController(player, args)
+    operation(player, "claimController", args, function()
+        local ok, reason, payload = Manager.claimController(player, {
+            forceRecovery = args and args.forceRecovery == true,
+            charge = function(cost)
+                if not GodSystemServer or not GodSystemServer.storageControllerCharge then
+                    return false, nil
+                end
+                return GodSystemServer.storageControllerCharge(player, cost)
+            end,
+            refund = function(receipt)
+                if GodSystemServer and GodSystemServer.storageControllerRefund then
+                    return GodSystemServer.storageControllerRefund(player, receipt)
+                end
+                return false
+            end,
+            onCommit = function(cost, recovered, receipt)
+                if GodSystemServer and GodSystemServer.storageControllerCommit then
+                    GodSystemServer.storageControllerCommit(player, cost, recovered, receipt)
+                end
+            end,
+        })
+        if ok then notify(player, payload and payload.recovered and "controllerRecovered" or "controllerClaimed") end
+        return ok, reason, payload
+    end, false)
+end
+
+function Commands.installController(player, args)
+    operation(player, "installController", args, function()
+        local ok, reason, payload = Manager.installController(player, args)
+        if ok then notify(player, "controllerInstalled") end
+        return ok, reason, payload
+    end, false)
+end
+
+function Commands.reclaimController(player, args)
+    operation(player, "reclaimController", args, function()
+        local ok, reason, payload = Manager.reclaimController(player, controllerArgs(args))
+        if ok then notify(player, "controllerReclaimed") end
+        return ok, reason, payload
+    end, false)
 end
 
 function Commands.open(player, args)

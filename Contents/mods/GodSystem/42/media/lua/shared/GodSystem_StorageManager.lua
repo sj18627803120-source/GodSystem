@@ -154,34 +154,408 @@ local function inventoryAddController(player, network, token)
     return item, nil
 end
 
-function Manager.claimController(player)
+local function removeInventoryItem(container, item)
+    if not container or not item then return false end
+    local ok = pcall(function() container:Remove(item) end)
+    if not ok or Storage.containerContains(container, item) then return false end
+    Storage.syncRemove(container, item)
+    return true
+end
+
+local function collectControllerItems(player)
+    local root = safeCall(player, "getInventory", nil)
+    local result, seenContainers = {}, {}
+    local function visit(container, depth)
+        if not container or seenContainers[container] or depth > Storage.MaxDepth then return end
+        seenContainers[container] = true
+        local items = safeCall(container, "getItems", nil)
+        local size = Storage.integer(safeCall(items, "size", 0), 0)
+        for i = 0, size - 1 do
+            local item = safeCall(items, "get", nil, i)
+            if Storage.isController(item) then
+                result[#result + 1] = { item = item, container = container }
+            end
+            visit(safeCall(item, "getInventory", nil), depth + 1)
+        end
+    end
+    visit(root, 0)
+    return result
+end
+
+local function findInventoryController(player, networkId, token)
+    local rows = collectControllerItems(player)
+    for i = 1, #rows do
+        local itemNetworkId, itemToken = Storage.getControllerIdentity(rows[i].item)
+        if tostring(itemNetworkId or "") == tostring(networkId or "")
+            and tostring(itemToken or "") == tostring(token or "") then
+            return rows[i].item, rows[i].container
+        end
+    end
+    return nil, nil
+end
+
+local function cleanupInventoryControllers(player, networkId, keepItem)
+    local removed = 0
+    local rows = collectControllerItems(player)
+    for i = 1, #rows do
+        local itemNetworkId = Storage.getControllerIdentity(rows[i].item)
+        if rows[i].item ~= keepItem and tostring(itemNetworkId or "") == tostring(networkId or "")
+            and removeInventoryItem(rows[i].container, rows[i].item) then
+            removed = removed + 1
+        end
+    end
+    return removed
+end
+
+local function removeWorldController(object)
+    local square = safeCall(object, "getSquare", nil)
+    if not square or not object then return false end
+    if square.transmitRemoveItemFromSquare then
+        local ok = pcall(function() square:transmitRemoveItemFromSquare(object) end)
+        if not ok then return false end
+    else
+        if object.removeFromWorld then pcall(function() object:removeFromWorld() end) end
+        if object.removeFromSquare then pcall(function() object:removeFromSquare() end) end
+    end
+    return Storage.integer(safeCall(object, "getObjectIndex", -1), -1) < 0
+end
+
+local function normalizeControllerFields(network)
+    local changed = false
+    local token = tostring(network.controllerToken or "")
+    if network.controllerClaimedOnce == nil then
+        network.controllerClaimedOnce = token ~= ""
+        changed = true
+    end
+    if token == "" and tostring(network.controllerState or "") ~= "unclaimed" then
+        network.controllerState = "unclaimed"
+        network.controllerItemId = nil
+        changed = true
+    elseif token ~= "" and tostring(network.controllerState or "") == "" then
+        network.controllerState = "missing"
+        changed = true
+    end
+    return changed
+end
+
+local function setControllerState(network, state, itemId, controller)
+    local changed = tostring(network.controllerState or "") ~= tostring(state or "")
+        or tostring(network.controllerItemId or "") ~= tostring(itemId or "")
+        or network.controller ~= controller
+    network.controllerState = tostring(state or "missing")
+    network.controllerItemId = itemId and tostring(itemId) or nil
+    network.controller = controller
+    if changed then
+        network.revision = Storage.integer(network.revision, 0) + 1
+        network.updatedAtMs = Storage.nowMs()
+    end
+    return changed
+end
+
+function Manager.controllerStatus(player)
+    local position = Storage.positionOfPlayer(player)
+    if not position then return nil, "playerMissing" end
+    local _, scopeKey = Manager.scopeForPosition(player, position)
+    local network = Manager.getNetworkByScope(scopeKey)
+    if not network then
+        return {
+            state = "unclaimed",
+            claimedOnce = false,
+            recoveryCost = Storage.ControllerRecoveryCost,
+            nextCost = 0,
+            canClaim = true,
+        }
+    end
+    if not Manager.canUse(player, network) then return nil, "notAllowed" end
+
+    local changed = normalizeControllerFields(network)
+    local token = tostring(network.controllerToken or "")
+    local state = tostring(network.controllerState or "missing")
+    local itemId = network.controllerItemId
+    local controller = network.controller
+    if token ~= "" then
+        local item = findInventoryController(player, network.networkId, token)
+        if item then
+            itemId = Storage.itemId(item)
+            controller = nil
+            state = "kit"
+        elseif type(controller) == "table" then
+            local square = Storage.getSquare(controller.x, controller.y, controller.z)
+            local object, worldItem = Storage.findWorldController(
+                controller.x, controller.y, controller.z,
+                controller.itemId, token, controller.objectId
+            )
+            if object and worldItem then
+                state = Storage.isInstalledController(object) and "installed" or "legacyGround"
+                itemId = Storage.itemId(worldItem)
+            elseif square then
+                state = "missing"
+                controller = nil
+                itemId = nil
+            elseif state ~= "installed" then
+                state = "missing"
+                controller = nil
+                itemId = nil
+            end
+        else
+            state = "missing"
+            itemId = nil
+        end
+    else
+        state = "unclaimed"
+        itemId = nil
+        controller = nil
+    end
+    if setControllerState(network, state, itemId, controller) then changed = true end
+    if changed then transmitStore() end
+
+    local claimedOnce = network.controllerClaimedOnce == true
+    return {
+        networkId = network.networkId,
+        state = state,
+        claimedOnce = claimedOnce,
+        recoveryCost = Storage.ControllerRecoveryCost,
+        nextCost = claimedOnce and Storage.ControllerRecoveryCost or 0,
+        canClaim = state == "unclaimed" or state == "missing",
+        canForceRecover = state == "installed" or state == "legacyGround",
+        controllerItemId = itemId,
+        controller = controller,
+        revision = Storage.integer(network.revision, 0),
+    }
+end
+
+local function removeRecordedController(network, expectedToken, recordedController)
+    local controller = type(recordedController) == "table" and recordedController
+        or (type(network.controller) == "table" and network.controller or nil)
+    if not controller then return false end
+    local object = Storage.findWorldController(
+        controller.x, controller.y, controller.z,
+        controller.itemId, expectedToken, controller.objectId
+    )
+    if not object then return false end
+    return removeWorldController(object)
+end
+
+function Manager.claimController(player, options)
+    options = type(options) == "table" and options or {}
     local network, reason, created = Manager.getOrCreateNetwork(player)
     if not network then return false, reason end
     if not Manager.canUse(player, network) then return false, "notAllowed" end
     if not created and not Manager.canManage(player, network) then return false, "manageDenied" end
+    normalizeControllerFields(network)
+
+    local status, statusReason = Manager.controllerStatus(player)
+    if not status then return false, statusReason end
+    local state = tostring(status.state or "missing")
+    local forceRecovery = options.forceRecovery == true
+    if state == "kit" then return false, "controllerOwned" end
+    if (state == "installed" or state == "legacyGround") and not forceRecovery then
+        return false, "controllerInstalled"
+    end
+
+    local recovered = network.controllerClaimedOnce == true
+    local cost = recovered and Storage.ControllerRecoveryCost or 0
     local oldToken = tostring(network.controllerToken or "")
+    local oldController = network.controller
     local token = Storage.newId("controller", network.networkId)
-    network.controllerToken = token
-    network.revision = Storage.integer(network.revision, 0) + 1
-    network.updatedAtMs = Storage.nowMs()
+
+    local receipt
+    if cost > 0 then
+        if type(options.charge) ~= "function" then
+            return false, "economyUnavailable"
+        end
+        local paid
+        paid, receipt = options.charge(cost)
+        if paid ~= true then
+            return false, "currencyNotEnough"
+        end
+    end
     local item, createReason = inventoryAddController(player, network, token)
     if not item then
-        network.controllerToken = oldToken
-        network.revision = math.max(1, Storage.integer(network.revision, 1) - 1)
+        if cost > 0 and type(options.refund) == "function" then
+            pcall(options.refund, receipt)
+        end
         return false, createReason
     end
+
+    network.controllerToken = token
+    network.controllerClaimedOnce = true
+    setControllerState(network, "kit", Storage.itemId(item), nil)
+    local removedDuplicates = cleanupInventoryControllers(player, network.networkId, item)
+    if oldToken ~= "" then removeRecordedController(network, oldToken, oldController) end
     transmitStore()
+    if type(options.onCommit) == "function" then
+        pcall(options.onCommit, cost, recovered, receipt)
+    end
     return true, nil, {
         networkId = network.networkId,
         controllerItemId = Storage.itemId(item),
         token = token,
-        recovered = oldToken ~= "",
+        recovered = recovered,
+        cost = cost,
+        removedDuplicates = removedDuplicates,
+        state = "kit",
+    }
+end
+
+local function controllerPlacementAllowed(player, network, square)
+    if not player or not network or not square then return false, "placementInvalid" end
+    local playerPosition = Storage.positionOfPlayer(player)
+    local position = Storage.objectCoordinates(square) or {
+        x = safeCall(square, "getX", nil),
+        y = safeCall(square, "getY", nil),
+        z = safeCall(square, "getZ", nil),
+    }
+    if not playerPosition or position.x == nil or position.y == nil or position.z == nil then
+        return false, "placementInvalid"
+    end
+    if Storage.integer(playerPosition.z, -1) ~= Storage.integer(position.z, -2)
+        or Storage.distance2D(playerPosition, position) > Storage.ControllerPlacementDistance then
+        return false, "targetTooFar"
+    end
+    if safeCall(square, "isVehicleIntersecting", false) == true then return false, "placementBlocked" end
+    if not safeCall(square, "getFloor", nil) then return false, "placementBlocked" end
+    local objects = Storage.squareObjects(square)
+    for i = 1, #objects do
+        local object = objects[i]
+        local item = safeCall(object, "getItem", nil)
+        if Storage.isController(item) or Storage.isInstalledController(object) then
+            return false, "controllerOverlap"
+        end
+    end
+
+    local scope, scopeKey, safehouse = Manager.scopeForPosition(player, position)
+    if network.scope == "safehouse" then
+        if scope ~= "safehouse" or scopeKey ~= tostring(network.safehouse or "") then
+            if Storage.playerKey(player) ~= tostring(network.creator or "") and not Storage.isAdmin(player) then
+                return false, "notAllowed"
+            end
+        elseif not (Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)) then
+            return false, "notAllowed"
+        end
+    elseif scope == "safehouse" then
+        local existing = Manager.getNetworkByScope(scopeKey)
+        if existing and existing ~= network then return false, "safehouseHasNetwork" end
+        if not (Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)) then
+            return false, "notAllowed"
+        end
+    end
+    return true, nil, position, scope, scopeKey
+end
+
+local function updateNetworkScopeForPlacement(network, scope, scopeKey)
+    if network.scope ~= "personal" or scope ~= "safehouse" then return false end
+    local store = Manager.getStore()
+    if store.scopeIndex[network.scopeKey] == network.networkId then
+        store.scopeIndex[network.scopeKey] = nil
+    end
+    network.scope = "safehouse"
+    network.scopeKey = scopeKey
+    network.safehouse = scopeKey
+    store.scopeIndex[scopeKey] = network.networkId
+    return true
+end
+
+function Manager.installController(player, args)
+    args = type(args) == "table" and args or {}
+    local itemId = tostring(args.controllerItemId or "")
+    local inventory = safeCall(player, "getInventory", nil)
+    local item, source = Storage.findItemRecursive(inventory, itemId, Storage.MaxDepth)
+    if not item or not source or not Storage.isController(item) then return false, "controllerMissing" end
+    local networkId, token = Storage.getControllerIdentity(item)
+    if networkId == "" or token == "" then return false, "controllerInvalid" end
+    if tostring(args.networkId or networkId) ~= networkId or tostring(args.controllerToken or token) ~= token then
+        return false, "controllerChanged"
+    end
+    local network = Manager.getNetwork(networkId)
+    if not network or tostring(network.controllerToken or "") ~= token then return false, "controllerExpired" end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    local status = Manager.controllerStatus(player)
+    if not status or status.state ~= "kit" or tostring(status.controllerItemId or "") ~= itemId then
+        return false, "controllerChanged"
+    end
+
+    local square = Storage.getSquare(args.x, args.y, args.z)
+    local allowed, reason, position, scope, scopeKey = controllerPlacementAllowed(player, network, square)
+    if not allowed then return false, reason end
+    if not IsoCarBatteryCharger or not IsoCarBatteryCharger.new then return false, "placementUnsupported" end
+
+    local okCreate, object = pcall(function()
+        return IsoCarBatteryCharger.new(item, getCell(), square)
+    end)
+    if not okCreate or not object then return false, "placementFailed" end
+    local objectId = Storage.newId("controller-object", network.networkId)
+    if not Storage.markInstalledController(object, network.networkId, token, objectId) then
+        return false, "placementFailed"
+    end
+    local okAdd = pcall(function() square:AddSpecialObject(object) end)
+    if not okAdd or Storage.integer(safeCall(object, "getObjectIndex", -1), -1) < 0 then
+        if okAdd then removeWorldController(object) end
+        return false, "placementFailed"
+    end
+    if not removeInventoryItem(source, item) then
+        removeWorldController(object)
+        return false, "controllerChanged"
+    end
+    local removedDuplicates = cleanupInventoryControllers(player, network.networkId, nil)
+    if object.transmitCompleteItemToClients then
+        pcall(function() object:transmitCompleteItemToClients() end)
+    elseif object.transmitCompleteItemToServer then
+        pcall(function() object:transmitCompleteItemToServer() end)
+    end
+
+    updateNetworkScopeForPlacement(network, scope, scopeKey)
+    local controller = {
+        x = Storage.integer(position.x, 0),
+        y = Storage.integer(position.y, 0),
+        z = Storage.integer(position.z, 0),
+        itemId = Storage.itemId(item),
+        objectId = objectId,
+    }
+    setControllerState(network, "installed", Storage.itemId(item), controller)
+    transmitStore()
+    return true, nil, {
+        networkId = network.networkId,
+        controllerItemId = Storage.itemId(item),
+        controllerToken = token,
+        controller = controller,
+        state = "installed",
+        removedDuplicates = removedDuplicates,
+    }
+end
+
+function Manager.reclaimController(player, args)
+    local network, worldObject, item, reason = Manager.resolveController(player, args)
+    if not network then return false, reason end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    if not Storage.isInstalledController(worldObject) then return false, "controllerNotInstalled" end
+    local inventory = safeCall(player, "getInventory", nil)
+    if not inventory or not item then return false, "inventoryMissing" end
+
+    local okAdd = pcall(function() inventory:AddItem(item) end)
+    if not okAdd or not Storage.containerContains(inventory, item) then return false, "createFailed" end
+    Storage.syncAdd(inventory, item)
+    if not removeWorldController(worldObject) then
+        removeInventoryItem(inventory, item)
+        return false, "reclaimFailed"
+    end
+    local removedDuplicates = cleanupInventoryControllers(player, network.networkId, item)
+    setControllerState(network, "kit", Storage.itemId(item), nil)
+    transmitStore()
+    return true, nil, {
+        networkId = network.networkId,
+        controllerItemId = Storage.itemId(item),
+        token = tostring(network.controllerToken or ""),
+        state = "kit",
+        removedDuplicates = removedDuplicates,
     }
 end
 
 function Manager.resolveController(player, args)
     args = type(args) == "table" and args or {}
-    local worldObject, item = Storage.findWorldController(args.x, args.y, args.z, args.controllerItemId, args.controllerToken)
+    local worldObject, item = Storage.findWorldController(
+        args.x, args.y, args.z, args.controllerItemId, args.controllerToken, args.controllerObjectId
+    )
     if not item then return nil, nil, nil, "controllerMissing" end
     local networkId, token = Storage.getControllerIdentity(item)
     if networkId == "" or token == "" then return nil, nil, nil, "controllerInvalid" end
@@ -221,17 +595,24 @@ function Manager.resolveController(player, args)
         allowedAtCurrentPosition = Manager.canUse(player, network)
     end
     if not allowedAtCurrentPosition then return nil, nil, nil, "notAllowed" end
+    local _, _, objectId = Storage.getInstalledControllerIdentity(worldObject)
+    local resolvedState = Storage.isInstalledController(worldObject) and "installed" or "legacyGround"
     local changed = type(network.controller) ~= "table"
         or Storage.integer(network.controller.x, -1) ~= Storage.integer(controllerPosition.x, 0)
         or Storage.integer(network.controller.y, -1) ~= Storage.integer(controllerPosition.y, 0)
         or Storage.integer(network.controller.z, -1) ~= Storage.integer(controllerPosition.z, 0)
         or tostring(network.controller.itemId or "") ~= tostring(Storage.itemId(item) or "")
+        or tostring(network.controller.objectId or "") ~= tostring(objectId or "")
+        or tostring(network.controllerState or "") ~= resolvedState
     network.controller = {
         x = Storage.integer(controllerPosition.x, 0),
         y = Storage.integer(controllerPosition.y, 0),
         z = Storage.integer(controllerPosition.z, 0),
         itemId = Storage.itemId(item),
+        objectId = objectId ~= "" and objectId or nil,
     }
+    network.controllerState = resolvedState
+    network.controllerItemId = Storage.itemId(item)
     if changed then
         network.revision = Storage.integer(network.revision, 0) + 1
         network.updatedAtMs = Storage.nowMs()

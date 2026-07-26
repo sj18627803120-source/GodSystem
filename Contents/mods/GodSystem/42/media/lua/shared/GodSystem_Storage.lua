@@ -10,8 +10,12 @@ Storage.StoreKey = (GodSystemConfig.DataKey or "GodSystem_CN_Data") .. "_Storage
 Storage.ControllerFullType = "GodSystem.StorageController"
 Storage.ControllerTokenKey = "GodSystemStorageControllerToken"
 Storage.ControllerNetworkKey = "GodSystemStorageNetworkId"
+Storage.ControllerInstalledKey = "GodSystemStorageControllerInstalled"
+Storage.ControllerObjectIdKey = "GodSystemStorageControllerObjectId"
 Storage.ObjectIdKey = "GodSystemStorageObjectId"
 Storage.ObjectLinksKey = "GodSystemStorageLinks"
+Storage.ControllerRecoveryCost = 2000
+Storage.ControllerPlacementDistance = 4.5
 Storage.DefaultRadius = 30
 Storage.DefaultMaxLinks = 64
 Storage.MinRadius = 1
@@ -129,6 +133,35 @@ function Storage.setControllerIdentity(item, networkId, token)
     data[Storage.ControllerTokenKey] = tostring(token or "")
     if item.transmitModData then pcall(item.transmitModData, item) end
     return true
+end
+
+function Storage.getInstalledControllerIdentity(object)
+    if not object then return nil, nil, nil, nil end
+    local data = safeCall(object, "getModData", nil)
+    if type(data) ~= "table" or data[Storage.ControllerInstalledKey] ~= true then
+        return nil, nil, nil, nil
+    end
+    local item = safeCall(object, "getItem", nil)
+    local networkId, token = Storage.getControllerIdentity(item)
+    if not networkId or networkId == "" then networkId = tostring(data[Storage.ControllerNetworkKey] or "") end
+    if not token or token == "" then token = tostring(data[Storage.ControllerTokenKey] or "") end
+    return networkId, token, tostring(data[Storage.ControllerObjectIdKey] or ""), item
+end
+
+function Storage.markInstalledController(object, networkId, token, objectId)
+    local data = safeCall(object, "getModData", nil)
+    if type(data) ~= "table" then return false end
+    data[Storage.ControllerInstalledKey] = true
+    data[Storage.ControllerNetworkKey] = tostring(networkId or "")
+    data[Storage.ControllerTokenKey] = tostring(token or "")
+    data[Storage.ControllerObjectIdKey] = tostring(objectId or "")
+    if object.transmitModData then pcall(object.transmitModData, object) end
+    return true
+end
+
+function Storage.isInstalledController(object)
+    local networkId, token = Storage.getInstalledControllerIdentity(object)
+    return networkId ~= nil and networkId ~= "" and token ~= nil and token ~= ""
 end
 
 function Storage.getItemContainer(item)
@@ -319,17 +352,43 @@ function Storage.resolveLink(link)
     return nil, nil, "objectMissing"
 end
 
-function Storage.findWorldController(x, y, z, itemId, token)
-    local square = Storage.getSquare(x, y, z)
-    local worldObjects = safeCall(square, "getWorldObjects", nil)
-    local size = integer(safeCall(worldObjects, "size", 0), 0)
+local function appendSquareObjects(result, seen, list)
+    local size = integer(safeCall(list, "size", 0), 0)
     for i = 0, size - 1 do
-        local worldObject = safeCall(worldObjects, "get", nil, i)
+        local object = safeCall(list, "get", nil, i)
+        if object and not seen[object] then
+            seen[object] = true
+            result[#result + 1] = object
+        end
+    end
+end
+
+function Storage.squareObjects(square)
+    local result, seen = {}, {}
+    if not square then return result end
+    appendSquareObjects(result, seen, safeCall(square, "getSpecialObjects", nil))
+    appendSquareObjects(result, seen, safeCall(square, "getWorldObjects", nil))
+    appendSquareObjects(result, seen, safeCall(square, "getObjects", nil))
+    return result
+end
+
+function Storage.findWorldController(x, y, z, itemId, token, objectId)
+    local square = Storage.getSquare(x, y, z)
+    local objects = Storage.squareObjects(square)
+    for i = 1, #objects do
+        local worldObject = objects[i]
         local item = safeCall(worldObject, "getItem", nil)
-        local _, itemToken = Storage.getControllerIdentity(item)
+        local networkId, itemToken = Storage.getControllerIdentity(item)
+        local installedNetworkId, installedToken, installedObjectId, installedItem = Storage.getInstalledControllerIdentity(worldObject)
+        if installedItem then
+            item = installedItem
+            networkId = installedNetworkId
+            itemToken = installedToken
+        end
         if Storage.isController(item)
             and (not itemId or tostring(itemId) == "" or Storage.itemId(item) == tostring(itemId))
-            and (not token or tostring(token) == "" or itemToken == tostring(token)) then
+            and (not token or tostring(token) == "" or itemToken == tostring(token))
+            and (not objectId or tostring(objectId) == "" or installedObjectId == tostring(objectId)) then
             return worldObject, item
         end
     end

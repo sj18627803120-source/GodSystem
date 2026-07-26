@@ -1283,6 +1283,22 @@ function GodSystem.refundCurrencySources(fromBank, fromCash)
     return false
 end
 
+function GodSystem.recordStorageControllerClaim(cost, recovered)
+    local data = GodSystem.getData()
+    cost = math.max(0, math.floor(tonumber(cost) or 0))
+    data.stats = data.stats or {}
+    if cost > 0 then
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+    end
+    local key = recovered and "History_StorageControllerRecovered" or "History_StorageControllerClaimed"
+    local fallback = recovered and "Storage controller recovered" or "Storage controller claimed"
+    local suffix = cost > 0 and (" -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins")) or ""
+    gsAppendHistory(data, {
+        kind = "storage",
+        text = GodSystem.text(key, fallback) .. suffix,
+    })
+end
+
 function GodSystem.restoreRemovedCurrencyOrBank(removed)
     local ok, failedValue = gsRestoreRemovedCurrency(removed)
     if failedValue > 0 then

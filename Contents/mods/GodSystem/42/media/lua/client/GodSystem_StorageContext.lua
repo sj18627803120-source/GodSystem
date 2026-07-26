@@ -1,5 +1,7 @@
 require "GodSystem_StorageUI"
+require "GodSystem_StoragePlacement"
 require "ISUI/ISInventoryPaneContextMenu"
+require "ISUI/ISWorldObjectContextMenu"
 
 GodSystemStorageContext = GodSystemStorageContext or {}
 
@@ -102,7 +104,17 @@ end
 
 function Context.openController(_, payload)
     if not payload or not payload.item or not payload.position then return end
-    Client.open(payload.item, payload.position.x, payload.position.y, payload.position.z)
+    Client.open(payload.item, payload.position.x, payload.position.y, payload.position.z, payload.object)
+end
+
+function Context.reclaimController(_, payload)
+    if not payload or not payload.item or not payload.position then return end
+    Client.reclaim(payload.item, payload.position.x, payload.position.y, payload.position.z, payload.object)
+end
+
+function Context.installController(_, payload)
+    if not payload or not payload.item then return end
+    GodSystemStoragePlacement.start(payload.playerNum or 0, payload.item)
 end
 
 function Context.linkContainer(_, payload)
@@ -119,8 +131,29 @@ local function addControllerOption(context, object)
     context:addOption(text("Storage_Context_Open", "Open system storage"), Context, Context.openController, {
         item = item,
         position = position,
+        object = object,
     })
+    if Storage.isInstalledController(object) then
+        context:addOption(text("Storage_Context_Reclaim", "Reclaim storage controller"), Context, Context.reclaimController, {
+            item = item,
+            position = position,
+            object = object,
+        })
+    end
     return true
+end
+
+local function removeNativeChargerOption(context, object)
+    if not context or not object or not Storage.isInstalledController(object) then return end
+    if not instanceof then return end
+    local ok, isCharger = pcall(instanceof, object, "IsoCarBatteryCharger")
+    if not ok or not isCharger then return end
+    local fetched = ISWorldObjectContextMenu and ISWorldObjectContextMenu.fetchVars
+        and ISWorldObjectContextMenu.fetchVars.carBatteryCharger or nil
+    if fetched and fetched ~= object then return end
+    if context.removeOptionByName and getText then
+        pcall(function() context:removeOptionByName(getText("ContextMenu_CarBatteryCharger")) end)
+    end
 end
 
 local function addLinkOptions(context, object)
@@ -166,6 +199,7 @@ function Context.fillWorldMenu(playerNum, context, worldObjects, test)
     local objects = collectWorldObjects(worldObjects)
     local sawController = false
     for i = 1, #objects do
+        removeNativeChargerOption(context, objects[i])
         if addControllerOption(context, objects[i]) then sawController = true end
     end
     if not Context.connectMode or not Client.controller then return end
@@ -208,8 +242,17 @@ end
 
 function Context.fillInventoryMenu(playerNum, context, items)
     local p = playerByNumber(playerNum)
-    if not controllerNearby(p) then return end
     local selected = collectInventoryItems(items)
+    for i = 1, #selected do
+        if Storage.isController(selected[i]) then
+            context:addOption(text("Storage_Context_Install", "Install storage controller"), Context, Context.installController, {
+                playerNum = playerNum,
+                item = selected[i],
+            })
+            break
+        end
+    end
+    if not controllerNearby(p) then return end
     local eligible = {}
     for i = 1, #selected do
         local allowed = Storage.isSafeDepositItem(p, selected[i])

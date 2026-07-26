@@ -11,7 +11,6 @@ require "GodSystem_CarryCapacity"
 require "GodSystem_TransactionOps"
 require "GodSystem_TerminalUpgrades"
 require "GodSystem_ShopVariants"
-require "GodSystem_StorageServer"
 
 if not (isServer and isServer()) then return end
 
@@ -4781,5 +4780,39 @@ Events.OnClientCommand.Add(function(module, command, player, args)
         sendState(player)
     end
 end)
+
+function GodSystemServer.storageControllerCharge(player, cost)
+    local data = playerData(player)
+    local paid, fromBank, fromCash = spendCurrency(player, data, cost)
+    if not paid then return false, nil end
+    return true, {
+        data = data,
+        fromBank = fromBank,
+        fromCash = fromCash,
+    }
+end
+
+function GodSystemServer.storageControllerRefund(player, receipt)
+    receipt = type(receipt) == "table" and receipt or {}
+    return GodSystemServer.refundCurrencySources(
+        player,
+        receipt.data or playerData(player),
+        receipt.fromBank or 0,
+        receipt.fromCash or 0
+    )
+end
+
+function GodSystemServer.storageControllerCommit(player, cost, recovered, receipt)
+    local data = type(receipt) == "table" and receipt.data or playerData(player)
+    cost = math.max(0, floor(cost, 0))
+    if cost > 0 then
+        data.stats = data.stats or {}
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+    end
+    appendHistory(data, historyEntry("storage", recovered and "StorageControllerRecovered" or "StorageControllerClaimed", { cost }))
+    sendState(player)
+end
+
+require "GodSystem_StorageServer"
 
 return Commands

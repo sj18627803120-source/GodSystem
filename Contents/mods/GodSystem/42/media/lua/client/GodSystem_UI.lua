@@ -3544,20 +3544,76 @@ function GodSystemWindow:populateWaistSpace()
 end
 
 function GodSystemWindow:populateStorageNetwork()
-    gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ClaimOrRecover", "Claim / recover controller"))
+    local status = GodSystemStorageClient and GodSystemStorageClient.requestControllerStatus(false) or nil
+    self.storagePrimaryAction = nil
+    self.storageSecondaryAction = nil
+    self.primaryButton.enable = false
+    self.secondaryButton.enable = false
     self.secondaryButton:setVisible(false)
+    if not status then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ControllerSyncing", "Controller status syncing"))
+    elseif status.state == "unclaimed" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ClaimFree", "Claim controller for free"))
+        self.primaryButton.enable = true
+        self.storagePrimaryAction = "claim"
+    elseif status.state == "kit" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ControllerOwned", "Controller already claimed"))
+    elseif status.state == "installed" or status.state == "legacyGround" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ControllerInstalled", "Controller already installed"))
+        gsSetButtonTitle(self.secondaryButton, gsFormatTemplate(
+            GodSystem.text("Storage_ForceRecover", "Force recover ({1})"),
+            { status.recoveryCost or 2000 }
+        ))
+        self.secondaryButton:setVisible(true)
+        self.secondaryButton.enable = true
+        self.storageSecondaryAction = "forceRecover"
+    else
+        gsSetButtonTitle(self.primaryButton, gsFormatTemplate(
+            GodSystem.text("Storage_RecoverPaid", "Recover controller ({1})"),
+            { status.recoveryCost or 2000 }
+        ))
+        self.primaryButton.enable = true
+        self.storagePrimaryAction = "recover"
+    end
+    if GodSystemStorageClient and GodSystemStorageClient.pending then
+        for _, pending in pairs(GodSystemStorageClient.pending) do
+            if pending.command == "claimController" then
+                self.primaryButton.enable = false
+                self.secondaryButton.enable = false
+                gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ControllerProcessing", "Processing controller request"))
+                break
+            end
+        end
+    end
     self.thirdButton:setVisible(false)
     self.fourthButton:setVisible(false)
     self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(false)
     self.seventhButton:setVisible(false)
+    self:setActionBar({
+        { id = "primary", width = 210 },
+        { id = "secondary", width = 210 },
+    })
+    if status then
+        local stateKey = "Storage_ControllerState_" .. tostring(status.state or "missing")
+        local stateText = GodSystem.text(stateKey, tostring(status.state or "missing"))
+        self:addListItem(gsFormatTemplate(
+            GodSystem.text("Storage_ControllerStatus", "Controller status: {1}"),
+            { stateText }
+        ), {
+            kind = "storageInfo",
+            detail = status.claimedOnce
+                and gsFormatTemplate(GodSystem.text("Storage_RecoveryRule", "Future recovery costs {1} system coins."), { status.recoveryCost or 2000 })
+                or GodSystem.text("Storage_FirstClaimRule", "The first controller is free."),
+        })
+    end
     self:addListItem(GodSystem.text("Storage_Main_Separate", "The storage network is independent from the wearable system space terminal."), {
         kind = "storageInfo",
         detail = GodSystem.text("Storage_Main_SeparateDetail", "Items remain inside real crates, cabinets, shelves, refrigerators and freezers. The controller only indexes, filters and moves them."),
     })
-    self:addListItem(GodSystem.text("Storage_Main_Place", "Place the controller on the ground, move close, then right-click it to open."), {
+    self:addListItem(GodSystem.text("Storage_Main_Place", "Right-click the controller kit in inventory and select Install."), {
         kind = "storageInfo",
-        detail = GodSystem.text("Storage_Main_PlaceDetail", "Recovering creates a new token and invalidates older controllers, but does not delete stored items or connection records."),
+        detail = GodSystem.text("Storage_Main_PlaceDetail", "Installed controllers are fixed devices. Reclaim them from the world context menu before moving them."),
     })
     self:addListItem(GodSystem.text("Storage_Main_Link", "Enable connection mode in container management, then right-click a nearby fixed container."), {
         kind = "storageInfo",
@@ -3567,6 +3623,36 @@ function GodSystemWindow:populateStorageNetwork()
         kind = "storageInfo",
         detail = GodSystem.text("Storage_Main_SafetyDetail", "The game handles items from destroyed furniture. The storage network never recreates items from an old index snapshot."),
     })
+end
+
+function GodSystemWindow:confirmStorageRecovery(forceRecovery)
+    local status = GodSystemStorageClient and GodSystemStorageClient.claimState or nil
+    local cost = status and status.recoveryCost or 2000
+    local message = gsFormatTemplate(
+        GodSystem.text("Storage_ConfirmRecovery", "Spend {1} system coins to recover the controller?\nThe previous controller will immediately expire. Storage links and items are not deleted."),
+        { cost }
+    )
+    if ISModalDialog then
+        local x = math.max(80, (getCore():getScreenWidth() / 2) - 260)
+        local y = math.max(80, (getCore():getScreenHeight() / 2) - 140)
+        local player = getPlayer()
+        local playerNum = player and player:getPlayerNum() or 0
+        local modal = ISModalDialog:new(x, y, 520, 280, message, true, self, self.onStorageRecoveryConfirm, playerNum, {
+            forceRecovery = forceRecovery == true,
+        })
+        modal:initialise()
+        modal:addToUIManager()
+    else
+        self:onStorageRecoveryConfirm({ internal = "YES" }, { forceRecovery = forceRecovery == true })
+    end
+end
+
+function GodSystemWindow:onStorageRecoveryConfirm(button, payload)
+    if not button or button.internal ~= "YES" then return end
+    if GodSystemStorageClient then
+        GodSystemStorageClient.claimController(payload and payload.forceRecovery == true)
+    end
+    self:requestDeferredPopulate(1)
 end
 
 function GodSystemWindow:populateBank()
@@ -5249,8 +5335,10 @@ function GodSystemWindow:onPrimaryAction()
         return
     end
     if self.mode == "storage" then
-        if GodSystemStorageClient then
-            GodSystemStorageClient.claimController()
+        if self.storagePrimaryAction == "claim" and GodSystemStorageClient then
+            GodSystemStorageClient.claimController(false)
+        elseif self.storagePrimaryAction == "recover" then
+            self:confirmStorageRecovery(false)
         end
         self:requestDeferredPopulate(1)
         return
@@ -5464,6 +5552,12 @@ function GodSystemWindow:onListRightMouseUp(x, y)
 end
 
 function GodSystemWindow:onSecondaryAction()
+    if self.mode == "storage" then
+        if self.storageSecondaryAction == "forceRecover" then
+            self:confirmStorageRecovery(true)
+        end
+        return
+    end
     if self.mode == "attribute" then
         self:showAttributeNextLevelConfirm(self:getSelectedPayload())
         return
