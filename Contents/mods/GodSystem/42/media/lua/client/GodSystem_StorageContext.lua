@@ -1,5 +1,5 @@
 require "GodSystem_StorageUI"
-require "GodSystem_StoragePlacement"
+require "BuildingObjects/ISBuildingObject"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISWorldObjectContextMenu"
 
@@ -19,6 +19,85 @@ end
 
 local function playerByNumber(playerNum)
     return getSpecificPlayer and getSpecificPlayer(playerNum) or getPlayer()
+end
+
+local ControllerPlacement = ISBuildingObject:derive("GodSystemStorageControllerPlacement")
+
+function ControllerPlacement:isValid(square)
+    local player = playerByNumber(self.player)
+    if not square or not player or not self.item then return false end
+    if Storage.itemId(self.item) ~= tostring(self.itemId or "") then return false end
+    local networkId, token = Storage.getControllerIdentity(self.item)
+    if networkId == "" or token == "" then return false end
+    local position = {
+        x = Storage.integer(Storage.safeCall(square, "getX", 0), 0),
+        y = Storage.integer(Storage.safeCall(square, "getY", 0), 0),
+        z = Storage.integer(Storage.safeCall(square, "getZ", 0), 0),
+    }
+    local playerPosition = Storage.positionOfPlayer(player)
+    if not playerPosition
+        or Storage.integer(playerPosition.z, -1) ~= position.z
+        or Storage.distance2D(playerPosition, position) > Storage.ControllerPlacementDistance then
+        return false
+    end
+    if Storage.safeCall(square, "isVehicleIntersecting", false) == true then return false end
+    if not Storage.safeCall(square, "getFloor", nil) then return false end
+    local objects = Storage.squareObjects(square)
+    for i = 1, #objects do
+        local object = objects[i]
+        if Storage.isInstalledController(object)
+            or Storage.isController(Storage.safeCall(object, "getItem", nil)) then
+            return false
+        end
+    end
+    return true
+end
+
+function ControllerPlacement:render(x, y, z, square)
+    local cursor = self:getFloorCursorSprite()
+    if self:isValid(square) then
+        cursor:RenderGhostTileColor(x, y, z, 0, 0, 0.12, 0.72, 0.95, 0.75)
+    else
+        cursor:RenderGhostTileColor(x, y, z, 0, 0, 0.85, 0.12, 0.12, 0.75)
+    end
+end
+
+function ControllerPlacement:create(x, y, z)
+    getCell():setDrag(nil, self.player)
+    Client.installController(self.item, x, y, z)
+end
+
+function ControllerPlacement:tryBuild(x, y, z)
+    local square = getCell():getGridSquare(x, y, z)
+    if not self:isValid(square) then return nil end
+    self:create(x, y, z)
+    return nil
+end
+
+function ControllerPlacement:new(playerNum, item)
+    local o = {}
+    setmetatable(o, self)
+    self.__index = self
+    o:init()
+    o.player = playerNum or 0
+    o.character = playerByNumber(o.player)
+    o.item = item
+    o.itemId = Storage.itemId(item)
+    o.name = "GodSystem Storage Controller"
+    o.noNeedHammer = true
+    o.skipBuildAction = true
+    o.dragNilAfterPlace = true
+    o.canBeAlwaysPlaced = true
+    o.blockAllTheSquare = false
+    o.canPassThrough = true
+    o:setSprite("carpentry_02_56")
+    o:setNorthSprite("carpentry_02_56")
+    return o
+end
+
+function ControllerPlacement.start(playerNum, item)
+    local cursor = ControllerPlacement:new(playerNum, item)
+    getCell():setDrag(cursor, playerNum or 0)
 end
 
 local function isInventoryItem(value)
@@ -114,7 +193,7 @@ end
 
 function Context.installController(_, payload)
     if not payload or not payload.item then return end
-    GodSystemStoragePlacement.start(payload.playerNum or 0, payload.item)
+    ControllerPlacement.start(payload.playerNum or 0, payload.item)
 end
 
 function Context.linkContainer(_, payload)

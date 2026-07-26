@@ -3590,10 +3590,13 @@ function GodSystemWindow:populateStorageNetwork()
     self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(false)
     self.seventhButton:setVisible(false)
-    self:setActionBar({
+    local storageActions = {
         { id = "primary", width = 210 },
-        { id = "secondary", width = 210 },
-    })
+    }
+    if self.storageSecondaryAction then
+        storageActions[#storageActions + 1] = { id = "secondary", width = 210 }
+    end
+    self:setActionBar(storageActions)
     if status then
         local stateKey = "Storage_ControllerState_" .. tostring(status.state or "missing")
         local stateText = GodSystem.text(stateKey, tostring(status.state or "missing"))
