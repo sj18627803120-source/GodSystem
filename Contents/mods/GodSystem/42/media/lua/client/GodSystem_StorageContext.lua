@@ -10,6 +10,8 @@ local Client = GodSystemStorageClient
 
 Context.connectMode = Context.connectMode == true
 Context.highlighted = Context.highlighted or {}
+Context.markers = Context.markers or {}
+Context.lineTexture = Context.lineTexture or nil
 
 local function text(key, fallback)
     if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
@@ -78,13 +80,58 @@ function Context.clearHighlights()
         if object and object.setHighlighted then object:setHighlighted(false) end
     end
     Context.highlighted = {}
+    Context.markers = {}
 end
 
-function Context.highlight(object, r, g, b)
-    if not object then return end
-    if object.setHighlightColor then object:setHighlightColor(r or 0.1, g or 0.65, b or 0.9, 1) end
-    if object.setHighlighted then object:setHighlighted(true) end
-    Context.highlighted[object] = true
+local function cacheMarker(object, marker, connected)
+    local position = Storage.objectCoordinates(object)
+    local objectId = marker and tostring(marker.objectId or "") or ""
+    if not position or objectId == "" then return end
+    Context.markers[objectId] = {
+        x = position.x,
+        y = position.y,
+        z = position.z,
+        connected = connected == true,
+    }
+end
+
+local function screenPoint(x, y, z)
+    if not ISCoordConversion or not ISCoordConversion.ToScreen then return nil, nil, nil end
+    local sx, sy = ISCoordConversion.ToScreen(x, y, z)
+    local zoom = getCore():getZoom(0)
+    return sx / zoom, sy / zoom, zoom
+end
+
+local function drawLine(renderer, texture, x1, y1, x2, y2, red, green, blue)
+    if math.floor(x1) == math.floor(x2) then x2 = x2 + 1 end
+    renderer:renderline(texture, math.floor(x1), math.floor(y1), math.floor(x2), math.floor(y2),
+        red, green, blue, 0.95)
+end
+
+function Context.renderMarkers()
+    if not Context.connectMode or not next(Context.markers) then return end
+    if not isIngameState or not isIngameState() then return end
+    local renderer = getRenderer and getRenderer() or nil
+    if not renderer then return end
+    if not Context.lineTexture then
+        Context.lineTexture = getTexture and getTexture("media/textures/mask_white.png") or nil
+    end
+    if not Context.lineTexture then return end
+    for _, marker in pairs(Context.markers) do
+        local sx, sy, zoom = screenPoint(marker.x + 0.5, marker.y + 0.5, marker.z)
+        if sx and sy and zoom then
+            local size = math.max(6, 10 / zoom)
+            local stem = math.max(4, 7 / zoom)
+            local cy = sy - math.max(20, 34 / zoom)
+            local red, green, blue = 0.12, 0.48, 0.92
+            if marker.connected then red, green, blue = 0.12, 0.82, 0.42 end
+            drawLine(renderer, Context.lineTexture, sx, cy - size, sx + size, cy, red, green, blue)
+            drawLine(renderer, Context.lineTexture, sx + size, cy, sx, cy + size, red, green, blue)
+            drawLine(renderer, Context.lineTexture, sx, cy + size, sx - size, cy, red, green, blue)
+            drawLine(renderer, Context.lineTexture, sx - size, cy, sx, cy - size, red, green, blue)
+            drawLine(renderer, Context.lineTexture, sx, cy + size, sx, cy + size + stem, red, green, blue)
+        end
+    end
 end
 
 function Context.refreshHighlights()
@@ -122,11 +169,8 @@ function Context.refreshHighlights()
             for i = 1, #objects do
                 local marker = Storage.getNetworkContainerMarker(objects[i])
                 if marker then
-                    if connected and connected[tostring(marker.objectId or "")] == true then
-                        Context.highlight(objects[i], 0.12, 0.82, 0.42)
-                    else
-                        Context.highlight(objects[i], 0.12, 0.48, 0.92)
-                    end
+                    cacheMarker(objects[i], marker,
+                        connected and connected[tostring(marker.objectId or "")] == true)
                 end
             end
         end
@@ -271,6 +315,10 @@ Events.OnFillWorldObjectContextMenu.Remove(Context.fillWorldMenu)
 Events.OnFillWorldObjectContextMenu.Add(Context.fillWorldMenu)
 Events.OnFillInventoryObjectContextMenu.Remove(Context.fillInventoryMenu)
 Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)
+if Events.OnPreUIDraw then
+    Events.OnPreUIDraw.Remove(Context.renderMarkers)
+    Events.OnPreUIDraw.Add(Context.renderMarkers)
+end
 if Events.OnDisconnect then
     Events.OnDisconnect.Remove(Context.reset)
     Events.OnDisconnect.Add(Context.reset)

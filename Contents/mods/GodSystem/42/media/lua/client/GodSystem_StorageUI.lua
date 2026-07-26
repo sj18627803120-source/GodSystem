@@ -415,7 +415,7 @@ function GodSystemStorageWindow:rebuild()
                     subtext = tostring(group.category or "other") .. " | " .. tostring(group.fullType or "") .. " | " .. formatNumber(group.totalWeight) .. " kg",
                 }
             )
-            if tostring(group.key) == tostring(previous) then self.mainList.selected = item.index end
+            if tostring(group.key) == tostring(previous) then self.mainList.selected = i end
         end
     else
         local rows = {}
@@ -445,7 +445,7 @@ function GodSystemStorageWindow:rebuild()
                     ),
                 }
             )
-            if tostring(row.linkId) == tostring(previous) then self.mainList.selected = item.index end
+            if tostring(row.linkId) == tostring(previous) then self.mainList.selected = i end
         end
     end
     self:updateLabels()

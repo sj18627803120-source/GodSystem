@@ -83,9 +83,9 @@ module GodSystem
     {
         DisplayName = System Storage Controller,
         DisplayCategory = Electronics,
-        ItemType = base:moveable,
+        ItemType = base:normal,
         Icon = SystemSpaceTerminal,
-        WorldObjectSprite = recreational_01_16,
+        WorldStaticModel = CarBatteryCharger,
         Weight = 2.0,
         Tooltip = Tooltip_GodSystem_StorageController,
     }

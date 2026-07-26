@@ -81,6 +81,9 @@ end
 function Client.controllerArgs()
     local current = Client.controller or {}
     return {
+        x = current.x,
+        y = current.y,
+        z = current.z,
         controllerX = current.x,
         controllerY = current.y,
         controllerZ = current.z,

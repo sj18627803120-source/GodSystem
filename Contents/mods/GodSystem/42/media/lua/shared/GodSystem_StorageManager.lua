@@ -463,8 +463,12 @@ end
 
 function Manager.resolveController(player, args)
     args = type(args) == "table" and args or {}
+    local controllerX = args.x ~= nil and args.x or args.controllerX
+    local controllerY = args.y ~= nil and args.y or args.controllerY
+    local controllerZ = args.z ~= nil and args.z or args.controllerZ
     local worldObject, item = Storage.findWorldController(
-        args.x, args.y, args.z, args.controllerItemId, args.controllerToken, args.controllerObjectId
+        controllerX, controllerY, controllerZ,
+        args.controllerItemId, args.controllerToken, args.controllerObjectId
     )
     if not worldObject then return nil, nil, nil, "controllerMissing" end
     local networkId, token = Storage.getInstalledControllerIdentity(worldObject)
@@ -478,7 +482,11 @@ function Manager.resolveController(player, args)
         return nil, nil, nil, "controllerExpired"
     end
     local playerPosition = Storage.positionOfPlayer(player)
-    local controllerPosition = { x = Storage.number(args.x, 0), y = Storage.number(args.y, 0), z = Storage.integer(args.z, 0) }
+    local controllerPosition = {
+        x = Storage.number(controllerX, 0),
+        y = Storage.number(controllerY, 0),
+        z = Storage.integer(controllerZ, 0),
+    }
     if args.allowRemote ~= true and (not playerPosition or Storage.distance2D(playerPosition, controllerPosition) > Storage.ControllerUseDistance
         or Storage.integer(playerPosition.z, 0) ~= Storage.integer(controllerPosition.z, 0)) then
         return nil, nil, nil, "tooFar"

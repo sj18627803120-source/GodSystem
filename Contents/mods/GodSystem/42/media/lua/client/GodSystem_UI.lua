@@ -4548,7 +4548,7 @@ function GodSystemWindow:updateDetail()
             GodSystem.text("Price_Buy", "Buy ") .. tostring(item.buyPrice or 0) .. GodSystem.text("Unit_CoinShort", "c"))
     elseif payload.kind == "lotteryResult" then
         self:setDetailText(self:formatLotteryResultDetail(payload.data))
-    elseif payload.kind == "lotteryInfo" or payload.kind == "lotteryHeader" then
+    elseif payload.kind == "lotteryInfo" or payload.kind == "lotteryHeader" or payload.kind == "storageInfo" then
         self:setDetailText(payload.detail or "")
     elseif payload.kind == "recycle" then
         local group = payload.data
