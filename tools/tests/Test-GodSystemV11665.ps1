@@ -1,5 +1,6 @@
 param(
     [string]$Root = "",
+    [string]$ExpectedVersion = "1.16.65",
     [switch]$SkipRuntime
 )
 
@@ -28,7 +29,13 @@ $server = Read-Utf8 (Join-Path $Lua 'server\GodSystem_StorageServer.lua')
 $serverMain = Read-Utf8 (Join-Path $Lua 'server\GodSystem_Server.lua')
 $client = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageClient.lua')
 $context = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageContext.lua')
-$placement = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StoragePlacement.lua')
+$placementPath = Join-Path $Lua 'client\GodSystem_StoragePlacement.lua'
+$placement = if (Test-Path -LiteralPath $placementPath) {
+    Read-Utf8 $placementPath
+}
+else {
+    $context
+}
 $mainUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_UI.lua')
 $localization = Read-Utf8 (Join-Path $Root 'tools\localization\godsystem_v11645_localization.yml')
 $fallback = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Localization_Override.lua')
@@ -38,10 +45,11 @@ $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $workshop = Read-Utf8 (Join-Path $Root 'workshop.txt')
 
-Require-Text $config 'GodSystemConfig\.Version\s*=\s*"1\.16\.65"' 'Config version must be 1.16.65'
-Require-Text $rootInfo '(?m)^modversion=1\.16\.65\r?$' 'Root mod.info version must be 1.16.65'
-Require-Text $b42Info '(?m)^modversion=1\.16\.65\r?$' 'B42 mod.info version must be 1.16.65'
-Require-Text $workshop '(?m)^description=v1\.16\.65\r?$' 'Workshop metadata must mention v1.16.65'
+$escapedVersion = [regex]::Escape($ExpectedVersion)
+Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $escapedVersion + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo ('(?m)^modversion=' + $escapedVersion + '\r?$') "Root mod.info version must be $ExpectedVersion"
+Require-Text $b42Info ('(?m)^modversion=' + $escapedVersion + '\r?$') "B42 mod.info version must be $ExpectedVersion"
+Require-Text $workshop ('(?m)^description=v' + $escapedVersion + '\r?$') "Workshop metadata must mention v$ExpectedVersion"
 
 Require-Text $storage 'ControllerRecoveryCost\s*=\s*2000' 'Controller recovery cost must be 2000'
 Require-Text $storage 'ControllerInstalledKey' 'Installed controller marker is missing'
@@ -63,10 +71,10 @@ Require-Text $manager 'setControllerState\(network,\s*"installed"' 'Install stat
 Require-Text $manager 'setControllerState\(network,\s*"kit"' 'Reclaim state persistence is missing'
 Reject-Text $manager 'getCell\(\):getGridSquare[\s\S]{0,600}for\s+x\s*=' 'Controller cleanup must not scan the whole world'
 
-Require-Text $placement 'ISBuildingObject:derive\("GodSystemStoragePlacement"\)' 'Furniture-style placement cursor is missing'
+Require-Text $placement 'ISBuildingObject:derive\("GodSystemStorage(?:Controller)?Placement"\)' 'Furniture-style placement cursor is missing'
 Require-Text $placement 'RenderGhostTileColor' 'Placement cursor must show a valid/invalid preview'
 Require-Text $placement 'ControllerPlacementDistance' 'Client placement distance check is missing'
-Require-Text $placement 'Client\.installController' 'Placement cursor must use the storage transaction'
+Require-Text $placement '(?:Client|GodSystemStorageClient)\.installController' 'Placement cursor must use the storage transaction'
 
 Require-Text $context 'Storage_Context_Install' 'Inventory install context option is missing'
 Require-Text $context 'Storage_Context_Reclaim' 'World reclaim context option is missing'

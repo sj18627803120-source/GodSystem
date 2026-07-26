@@ -1,19 +1,20 @@
-# 神级系统 v1.16.65 Workshop 上传包说明
+# 神级系统 v1.16.66 Workshop 上传包说明
 
 上传时选择本目录，也就是包含 `workshop.txt`、`preview.png`、`Contents` 的这一层。
 
 正确结构：
 
 ```text
-GodSystemWorkshopUpload_v1.16.65\workshop.txt
-GodSystemWorkshopUpload_v1.16.65\preview.png
-GodSystemWorkshopUpload_v1.16.65\Contents\mods\GodSystem\mod.info
-GodSystemWorkshopUpload_v1.16.65\Contents\mods\GodSystem\42\mod.info
-GodSystemWorkshopUpload_v1.16.65\Contents\mods\GodSystem\42\media\...
+GodSystemWorkshopUpload_v1.16.66\workshop.txt
+GodSystemWorkshopUpload_v1.16.66\preview.png
+GodSystemWorkshopUpload_v1.16.66\Contents\mods\GodSystem\mod.info
+GodSystemWorkshopUpload_v1.16.66\Contents\mods\GodSystem\42\mod.info
+GodSystemWorkshopUpload_v1.16.66\Contents\mods\GodSystem\42\media\...
 ```
 
 ## 本次更新
 
+- v1.16.66：修复背包右键安装系统仓库控制器时放置模块为 `nil` 的红字；安装光标改为右键模块内局部类，不再依赖独立全局文件。仓库页只在强制找回可用时显示第二个按钮，不再残留空间终端的“一键出售全部”。
 - v1.16.65：系统仓库控制器改为背包右键安装的固定设备，安装后可右键打开或收回；同格禁止重叠。每套网络首次免费领取，有效安装包存在时不能重复领取，遗失或强制找回收费2000系统币并让旧控制器失效。该功能仍需完成 B42.19 单人和多人实机后才能作为稳定版发布。
 - v1.16.55：系统空间终端改用原版项链槽；左侧导航改为自适应紧凑分页；悬浮入口改为黑金图标；同伴降低移动速度、增加停顿并允许在不可见区域继续活动，同时扩大灵视范围、缩短守护冷却；同伴和属性升级后保留选中项；车辆修复模块价格修正为5000，并统一走服务端修复流程。
 - v1.16.54：修复系统空间终端独立穿戴位置，终端最高 Lv.8、容量49；统一终端页面、商城与快捷操作名称；属性页增加“升到下一级”确认；分类和说明行不再可选；左侧导航均衡分页；守护与过载爆裂增加可见特效。保留 v1.16.53 的属性经验、车辆修复模块和同伴攻击特效。
