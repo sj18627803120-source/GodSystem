@@ -19,12 +19,16 @@ function Read-Utf8([string]$Path) {
 function Require-Text([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
 }
+function Reject-Text([string]$Text, [string]$Pattern, [string]$Message) {
+    if ($Text -match $Pattern) { throw $Message }
+}
 
 $shared = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_AutoLoader.lua')
 $server = Read-Utf8 (Join-Path $Lua 'server\GodSystem_AutoLoaderServer.lua')
 $client = Read-Utf8 (Join-Path $Lua 'client\GodSystem_AutoLoaderClient.lua')
 $context = Read-Utf8 (Join-Path $Lua 'client\GodSystem_AutoLoaderContext.lua')
 $ui = Read-Utf8 (Join-Path $Lua 'client\GodSystem_AutoLoaderUI.lua')
+$storageUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageUI.lua')
 $shopUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_UI.lua')
 $core = Read-Utf8 (Join-Path $Lua 'client\GodSystem_Core.lua')
 $mainServer = Read-Utf8 (Join-Path $Lua 'server\GodSystem_Server.lua')
@@ -107,6 +111,13 @@ Require-Text $ui 'Client\.codeKey' 'Auto-loader UI must resolve result codes thr
 Require-Text $shopUi 'featureKey[\s\S]{0,180}isFeatureEnabled' 'Shop display must honor per-listing feature switches'
 Require-Text $core 'shopItem\.featureKey[\s\S]{0,180}isFeatureEnabled' 'SP purchases must honor per-listing feature switches'
 Require-Text $mainServer 'row\.featureKey[\s\S]{0,180}isFeatureEnabled' 'Server purchases must honor per-listing feature switches'
+Reject-Text $core 'GodSystemStorage\.isController' 'Client recycle paths must not call the retired storage-controller interface'
+Reject-Text $mainServer 'GodSystemStorage\.isController' 'Server recycle paths must not call the retired storage-controller interface'
+Require-Text $core 'GodSystemStorage\.isProtected\(item\)' 'Client recycle paths must use the current storage protection interface'
+Require-Text $mainServer 'GodSystemStorage\.isProtected\(item\)' 'Server recycle paths must use the current storage protection interface'
+Require-Text $storageUi 'function\s+UI\.listRowClip' 'Custom storage rows need explicit viewport clipping'
+Require-Text $storageUi 'rowTop\s*=\s*Storage\.number\(y,\s*0\)\s*\+\s*scrollY' 'Storage row clipping must include the active list scroll offset'
+Require-Text $storageUi 'setStencilRect\(0,\s*clipY' 'Storage rows must apply their computed visible stencil'
 
 $keys = @(
     'AutoLoader_Title', 'AutoLoader_Context', 'AutoLoader_DepositAll', 'AutoLoader_FillAll',
@@ -142,5 +153,9 @@ if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 auto-loader runtime test failed' }
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 auto-loader server runtime test failed' }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672ClientRuntime.lua') $Lua
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 auto-loader client runtime test failed' }
+& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672ContextRuntime.lua') $Lua
+if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 inventory context-chain runtime test failed' }
+& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672UIRuntime.lua') $Lua
+if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 storage UI clipping runtime test failed' }
 
 Write-Output 'Test-GodSystemV11672 passed'

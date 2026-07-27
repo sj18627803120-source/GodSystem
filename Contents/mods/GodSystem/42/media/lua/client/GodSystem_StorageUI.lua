@@ -105,20 +105,40 @@ local function textureForItem(item)
         or textureForType(Storage.itemFullType(item))
 end
 
-local function drawListRow(list, y, row, alternate, selectedSet, forceSelected)
+function UI.listRowClip(list, y, row)
+    local rowHeight = Storage.number(row and row.height, Storage.number(list and list.itemheight, 0))
+    if rowHeight <= 0 then return nil, nil, rowHeight end
+    local scrollY = Storage.number(Storage.safeCall(list, "getYScroll", 0), 0)
+    local viewportHeight = Storage.number(Storage.safeCall(list, "getHeight", list and list.height or 0), 0)
+    local rowTop = Storage.number(y, 0) + scrollY
+    local rowBottom = rowTop + rowHeight
+    if rowBottom <= 0 or rowTop >= viewportHeight then return nil, nil, rowHeight end
+    return math.max(0, rowTop), math.min(viewportHeight, rowBottom), rowHeight
+end
+
+local function restoreListStencil(list)
+    local height = Storage.number(Storage.safeCall(list, "getHeight", list and list.height or 0), 0)
+    list:setStencilRect(0, 0, list.width, height)
+end
+
+function UI.drawListRow(list, y, row, alternate, selectedSet, forceSelected)
     if not row then return y end
+    local clipY, clipY2, rowHeight = UI.listRowClip(list, y, row)
+    if clipY == nil then return y + rowHeight end
+    list:setStencilRect(0, clipY, list.width, clipY2 - clipY)
     local payload = row.item or {}
     local selected = forceSelected == true or (payload.key and selectedSet and selectedSet[payload.key] == true)
     if payload.kind == "divider" then
-        list:drawRect(0, y, list.width, row.height, 0.82, 0.035, 0.055, 0.065)
+        list:drawRect(0, y, list.width, rowHeight, 0.82, 0.035, 0.055, 0.065)
         list:drawText(tostring(payload.label or row.text or ""), 7, y + 6, 0.67, 0.76, 0.80, 1, UIFont.Small)
-        return y + row.height
+        restoreListStencil(list)
+        return y + rowHeight
     end
     if selected then
-        list:drawRect(0, y, list.width, row.height, 0.88, 0.06, 0.28, 0.35)
-        list:drawRect(0, y, 3, row.height, 1, 0.22, 0.68, 0.82)
+        list:drawRect(0, y, list.width, rowHeight, 0.88, 0.06, 0.28, 0.35)
+        list:drawRect(0, y, 3, rowHeight, 1, 0.22, 0.68, 0.82)
     elseif alternate then
-        list:drawRect(0, y, list.width, row.height, 0.28, 0.08, 0.12, 0.14)
+        list:drawRect(0, y, list.width, rowHeight, 0.28, 0.08, 0.12, 0.14)
     end
     local textX = 8
     if payload.texture then
@@ -130,8 +150,11 @@ local function drawListRow(list, y, row, alternate, selectedSet, forceSelected)
     if payload.count and payload.count > 1 then
         list:drawTextRight("x" .. tostring(payload.count), list.width - 20, y + 7, 0.35, 0.80, 0.92, 1, UIFont.Small)
     end
-    return y + row.height
+    restoreListStencil(list)
+    return y + rowHeight
 end
+
+local drawListRow = UI.drawListRow
 
 local function listItemAt(list, x, y)
     if not list or not list.rowAt then return nil, nil end

@@ -6103,7 +6103,7 @@ local function gsGetRecycleValue(item, allowContainers)
         return 0
     end
     local fullType = item:getFullType()
-    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isController(item) then
+    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then
         return 0
     end
     if GodSystemConfig.RecycleBlacklist[fullType] then
@@ -6154,7 +6154,7 @@ end
 function GodSystem.canContextRecycleItem(item)
     if not item or not item.getFullType then return false, "invalid" end
     local fullType = item:getFullType()
-    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isController(item) then return false, "protected" end
+    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then return false, "protected" end
     if (GodSystemConfig.RecycleBlacklist or {})[fullType] or gsIsKeyItem(item) then return false, "protected" end
     if GodSystem.isEconomicItemAllowed and GodSystem.isEconomicItemAllowed(fullType, "recycle") == false then
         return false, "invalid"
@@ -6197,7 +6197,7 @@ function GodSystem.canAutoRecycleItem(item)
         return false
     end
     local fullType = item:getFullType()
-    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isController(item) then
+    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then
         return false
     end
     if GodSystemConfig.RecycleBlacklist[fullType] then

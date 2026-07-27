@@ -1838,7 +1838,7 @@ end
 local function recycleValue(item, allowContainers)
     if not item or not item.getFullType then return 0 end
     local fullType = item:getFullType()
-    if isAutoRecyclerContainer(item) or GodSystemStorage.isController(item)
+    if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item)
         or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return 0 end
     if GodSystemAdminConfig.isRecycleItemEnabled(fullType, true) == false then return 0 end
     if allowContainers ~= true and GodSystemConfig.AllowRecycleContainers ~= true and itemHasInventory(item) then return 0 end
@@ -1881,7 +1881,7 @@ end
 local function canContextRecycleItem(item)
     if not item or not item.getFullType then return false, "invalid" end
     local fullType = item:getFullType()
-    if isAutoRecyclerContainer(item) or GodSystemStorage.isController(item) then return false, "protected" end
+    if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then return false, "protected" end
     if (GodSystemConfig.RecycleBlacklist or {})[fullType] or isKeyItem(item) then return false, "protected" end
     if GodSystem.isEconomicItemAllowed and GodSystem.isEconomicItemAllowed(fullType, "recycle") == false then
         return false, "invalid"
@@ -1910,7 +1910,7 @@ end
 local function canRecycleItem(item, waistOnly)
     if not item or not item.getFullType then return false end
     local fullType = item:getFullType()
-    if isAutoRecyclerContainer(item) or GodSystemStorage.isController(item)
+    if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item)
         or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return false end
     if item.isFavorite then
         local ok, favorite = pcall(item.isFavorite, item)
