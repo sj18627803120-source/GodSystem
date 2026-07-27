@@ -174,5 +174,7 @@ if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 inventory context-chain runtime test 
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 storage UI clipping runtime test failed' }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672StorageRefreshRuntime.lua') $Lua
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 storage connection refresh runtime test failed' }
+& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672StorageRoleRuntime.lua') $Lua
+if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 storage role routing runtime test failed' }
 
 Write-Output 'Test-GodSystemV11672 passed'

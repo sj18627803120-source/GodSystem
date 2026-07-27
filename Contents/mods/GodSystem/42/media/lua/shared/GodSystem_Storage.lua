@@ -988,7 +988,11 @@ function Storage.linkRoleAccepts(link, category)
     local denied = type(link.denyCategories) == "table" and link.denyCategories[category] == true
     if denied then return false end
     local allow = link.allowCategories
-    if type(allow) == "table" and next(allow) ~= nil and allow[category] ~= true then return false end
+    local hasAllowRules = false
+    if type(allow) == "table" then
+        for _ in pairs(allow) do hasAllowRules = true; break end
+    end
+    if hasAllowRules and allow[category] ~= true then return false end
     local role = tostring(link.role or "auto")
     if role == "auto" or role == "general" then return true end
     if role == "fridge" or role == "freezer" then return category == "food" or category == "perishable" or category == "drink" end
