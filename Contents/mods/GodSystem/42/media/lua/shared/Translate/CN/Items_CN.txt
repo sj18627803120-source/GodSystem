@@ -17,4 +17,7 @@ ItemName_CN = {
 
     ItemName_GodSystem.StorageController = "系统仓库核心",
     Tooltip_GodSystem_StorageController = "用于把一件已标记的固定网络家具设为系统仓库入口。家具无需清空，仍保留原容量、物品及正常网络储物能力。",
+
+    ItemName_GodSystem.SystemAutoLoader = "系统自动装填机",
+    Tooltip_GodSystem_SystemAutoLoader = "将随身未收藏的散装弹药转为数字存储，每种弹药按设置拥有独立容量；可为随身的同类型弹匣装填。",
 }

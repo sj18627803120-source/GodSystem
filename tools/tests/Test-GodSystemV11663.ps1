@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.63",
+    [int]$ExpectedAdminSettings = 71,
     [switch]$SkipRuntime
 )
 
@@ -64,7 +65,7 @@ foreach ($key in @('TerminalReliefUpgradeCost', 'TerminalReliefPerLevel', 'Termi
     Require-Text $sandbox ('GodSystem\.' + $key) "Sandbox option missing: $key"
 }
 $metaCount = ([regex]::Matches($admin, '\{\s*key\s*=\s*"')).Count
-if ($metaCount -ne 71) { throw "Expected 71 admin settings, found $metaCount" }
+if ($metaCount -ne $ExpectedAdminSettings) { throw "Expected $ExpectedAdminSettings admin settings, found $metaCount" }
 
 foreach ($name in @('getLevel', 'setLevel', 'getOffset', 'getMaxLevel', 'getUpgradeInfo', 'snapshot', 'restore', 'ensureTerminal', 'isReliefItem', 'removeEscapedFromPlayer')) {
     Require-Text $relief ('function\s+GodSystemTerminalRelief\.' + $name + '\s*\(') "Relief API missing: $name"

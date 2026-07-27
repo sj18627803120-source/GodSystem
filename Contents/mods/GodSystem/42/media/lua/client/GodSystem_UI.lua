@@ -3254,7 +3254,9 @@ function GodSystemWindow:populateShop()
     for i = 1, #GodSystemConfig.ShopItems do
         local item = GodSystemConfig.ShopItems[i]
         local available, reason, availableItems, missingItems = GodSystem.shopItemIsAvailable(item)
-        if available and (not missingItems or #missingItems == 0) then
+        local featureEnabled = not item.featureKey
+            or GodSystemAdminConfig.isFeatureEnabled(item.featureKey) ~= false
+        if featureEnabled and available and (not missingItems or #missingItems == 0) then
             table.insert(shopItems, item)
         end
     end

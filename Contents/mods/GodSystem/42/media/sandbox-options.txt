@@ -210,6 +210,16 @@ option GodSystem.TerminalReliefMaxOffset
     translation = GodSystem_TerminalReliefMaxOffset,
 }
 
+option GodSystem.AutoLoaderAmmoCapacity
+{
+    type = integer,
+    min = 100,
+    max = 10000,
+    default = 2000,
+    page = GodSystem_Base,
+    translation = GodSystem_AutoLoaderAmmoCapacity,
+}
+
 option GodSystem.ShopBuyPriceMultiplier
 {
     type = double,
@@ -684,4 +694,12 @@ option GodSystem.EnableAttributes
     default = true,
     page = GodSystem_Features,
     translation = GodSystem_EnableAttributes,
+}
+
+option GodSystem.EnableAutoLoaderShop
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnableAutoLoaderShop,
 }

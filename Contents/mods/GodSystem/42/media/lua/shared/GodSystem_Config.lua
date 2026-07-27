@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.71"
+GodSystemConfig.Version = "1.16.72"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -106,6 +106,8 @@ GodSystemConfig.AutoRecyclerFullType = "GodSystem.SystemSpaceTerminal"
 GodSystemConfig.AutoRecyclerFullTypes = {
     ["GodSystem.SystemSpaceTerminal"] = true,
 }
+GodSystemConfig.AutoLoaderFullType = "GodSystem.SystemAutoLoader"
+GodSystemConfig.AutoLoaderAmmoCapacity = 2000
 GodSystemConfig.TaskItemBlacklist = {
     ["GodSystem.StorageController"] = true,
 }
@@ -210,6 +212,7 @@ GodSystemConfig.LotteryBlacklist = {
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
     ["GodSystem.StorageController"] = true,
+    ["GodSystem.SystemAutoLoader"] = true,
 }
 GodSystemConfig.ModCategoryBuyPrices = {
     accessory = 180,
@@ -391,6 +394,7 @@ GodSystemConfig.AutoShopBlacklist = {
     ["GodSystem.SystemSpaceTerminal"] = true,
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.StorageController"] = true,
+    ["GodSystem.SystemAutoLoader"] = true,
 }
 
 GodSystemConfig.FloatingButton = {
@@ -409,6 +413,7 @@ GodSystemConfig.RecycleBlacklist = {
     ["GodSystem.SystemSpaceTerminal"] = true,
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.StorageController"] = true,
+    ["GodSystem.SystemAutoLoader"] = true,
 }
 
 GodSystemConfig.ShopItems = {
@@ -507,6 +512,13 @@ GodSystemConfig.ShopItems = {
         group = "vehicle",
         price = 5000,
         items = { { fullType = "GodSystem.SystemVehicleRepairModule", count = 1 } }
+    },
+    {
+        id = "system_auto_loader",
+        group = "tool",
+        price = 1000,
+        featureKey = "EnableAutoLoaderShop",
+        items = { { fullType = "GodSystem.SystemAutoLoader", count = 1 } }
     },
 }
 

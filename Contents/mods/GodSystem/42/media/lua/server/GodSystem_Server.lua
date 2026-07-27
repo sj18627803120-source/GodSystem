@@ -1734,6 +1734,9 @@ local function shopById(data, id)
     for i = 1, #(GodSystemConfig.ShopItems or {}) do
         local row = GodSystemConfig.ShopItems[i]
         if tostring(row.id or "") == id then
+            if row.featureKey and GodSystemAdminConfig.isFeatureEnabled(row.featureKey) == false then
+                return nil, "disabled"
+            end
             local items = row.items or {}
             for j = 1, #items do
                 if items[j].fullType and GodSystemAdminConfig.isShopItemEnabled(items[j].fullType, true) == false then

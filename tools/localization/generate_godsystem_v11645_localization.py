@@ -88,8 +88,8 @@ def parse_admin_meta() -> list[dict[str, str]]:
             continue
         fields["key"] = key
         rows.append(fields)
-    if len(rows) != 71:
-        raise ValueError(f"Expected 71 admin settings, found {len(rows)}")
+    if len(rows) != 73:
+        raise ValueError(f"Expected 73 admin settings, found {len(rows)}")
     return rows
 
 
@@ -254,7 +254,7 @@ def main() -> None:
     write_json(CH_TOOLTIP_JSON_PATH, tooltip_json)
     update_override(OVERRIDE_PATH, ui_entries)
     write_sandbox_files()
-    print(f"updated {len(ui_entries)} UI keys, {len(item_entries)} item keys, and 71 sandbox options")
+    print(f"updated {len(ui_entries)} UI keys, {len(item_entries)} item keys, and 73 sandbox options")
 
 
 if __name__ == "__main__":

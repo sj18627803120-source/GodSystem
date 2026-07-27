@@ -44,6 +44,8 @@
   "Sandbox_GodSystem_TerminalReliefPerLevel_tooltip": "每购买一级空间减载所增加的减载点数。修改后保留等级，并按新参数重新计算当前减载。",
   "Sandbox_GodSystem_TerminalReliefMaxOffset": "空间减载最大值",
   "Sandbox_GodSystem_TerminalReliefMaxOffset_tooltip": "空间减载允许达到的最大点数。设为0可停止继续升级；已有等级会按新上限夹紧。",
+  "Sandbox_GodSystem_AutoLoaderAmmoCapacity": "自动装填机单种弹药容量",
+  "Sandbox_GodSystem_AutoLoaderAmmoCapacity_tooltip": "每台自动装填机中每种弹药可保存的最大数量，范围 100 至 10000，默认 2000。",
   "Sandbox_GodSystem_ShopBuyPriceMultiplier": "商城购买价格倍率",
   "Sandbox_GodSystem_ShopBuyPriceMultiplier_tooltip": "所有商城购买价格统一乘以该倍率。",
   "Sandbox_GodSystem_RecycleSellPriceMultiplier": "回收价格倍率",
@@ -143,5 +145,7 @@
   "Sandbox_GodSystem_EnableCompanion": "启用浮游机器人同伴",
   "Sandbox_GodSystem_EnableCompanion_tooltip": "控制单人模式的浮游机器人页面、照明和能力是否可用。多人模式始终隐藏。",
   "Sandbox_GodSystem_EnableAttributes": "启用属性成长",
-  "Sandbox_GodSystem_EnableAttributes_tooltip": "控制使用系统币购买原版及标准MOD技能经验的属性页面是否可用。"
+  "Sandbox_GodSystem_EnableAttributes_tooltip": "控制使用系统币购买原版及标准MOD技能经验的属性页面是否可用。",
+  "Sandbox_GodSystem_EnableAutoLoaderShop": "商城出售自动装填机",
+  "Sandbox_GodSystem_EnableAutoLoaderShop_tooltip": "仅控制系统商城是否显示并出售自动装填机；不会禁用玩家已经持有的装填机。"
 }

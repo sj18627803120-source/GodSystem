@@ -6036,6 +6036,10 @@ function GodSystem.buyShopItem(shopItem, quantity)
     if not shopItem then
         return false
     end
+    if shopItem.featureKey and GodSystemAdminConfig.isFeatureEnabled(shopItem.featureKey) == false then
+        GodSystem.notify("Shop item disabled")
+        return false
+    end
     local data = GodSystem.getData()
     if shopItem.unlocked == true then
         local variantKey = shopItem.variantKey or GodSystemShopVariants.getKey(shopItem.fullType, shopItem.worldSprite)

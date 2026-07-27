@@ -89,6 +89,16 @@ module GodSystem
         Tooltip = Tooltip_GodSystem_StorageController,
     }
 
+    item SystemAutoLoader
+    {
+        DisplayName = System Auto Loader,
+        DisplayCategory = Electronics,
+        ItemType = base:normal,
+        Icon = SystemAutoLoader,
+        Weight = 0.5,
+        Tooltip = Tooltip_GodSystem_SystemAutoLoader,
+    }
+
     item SystemTerminalRelief
     {
         DisplayName = System Terminal Relief,
