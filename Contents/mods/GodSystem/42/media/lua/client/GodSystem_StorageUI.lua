@@ -5,6 +5,12 @@ require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISTextEntryBox"
 require "ISUI/ISContextMenu"
+require "TimedActions/ISTimedActionQueue"
+require "TimedActions/ISUnequipAction"
+require "TimedActions/ISWaitWhileGettingUp"
+require "TimedActions/ISWearClothing"
+require "TimedActions/ISEquipWeaponAction"
+require "TimedActions/ISAttachItemHotbar"
 
 GodSystemStorageUI = GodSystemStorageUI or {}
 
@@ -24,21 +30,14 @@ local function lower(value)
 end
 
 local function contains(value, query)
-    if query == "" then return true end
-    return string.find(lower(value), query, 1, true) ~= nil
+    return query == "" or string.find(lower(value), query, 1, true) ~= nil
 end
 
-local function listContains(list, value)
-    for i = 1, #(list or {}) do if tostring(list[i]) == tostring(value) then return true end end
-    return false
-end
-
-local function cycleValue(values, current, direction)
+local function cycleValue(values, current)
     local index = 1
     for i = 1, #values do if tostring(values[i]) == tostring(current) then index = i; break end end
-    index = index + (direction or 1)
+    index = index + 1
     if index > #values then index = 1 end
-    if index < 1 then index = #values end
     return values[index]
 end
 
@@ -48,17 +47,265 @@ local function formatNumber(value)
     return string.format("%.1f", value)
 end
 
-local function formatIndexTime(value)
-    local seconds = math.floor((tonumber(value) or 0) / 1000)
-    if seconds <= 0 or not os or not os.date then return "-" end
-    local ok, result = pcall(os.date, "%H:%M:%S", seconds)
-    return ok and tostring(result or "-") or "-"
+local function styleButton(button, accent)
+    button.backgroundColor = accent and { r = 0.06, g = 0.26, b = 0.34, a = 0.95 }
+        or { r = 0.08, g = 0.14, b = 0.17, a = 0.95 }
+    button.backgroundColorMouseOver = { r = 0.08, g = 0.32, b = 0.40, a = 0.98 }
+    button.borderColor = { r = 0.12, g = 0.58, b = 0.72, a = 0.9 }
 end
 
-local function styleButton(button, accent)
-    button.backgroundColor = accent and { r = 0.06, g = 0.26, b = 0.38, a = 0.9 } or { r = 0.08, g = 0.12, b = 0.17, a = 0.9 }
-    button.backgroundColorMouseOver = { r = 0.08, g = 0.34, b = 0.48, a = 0.95 }
-    button.borderColor = { r = 0.12, g = 0.62, b = 0.78, a = 0.85 }
+local function isControlDown()
+    return Keyboard and isKeyDown
+        and (isKeyDown(Keyboard.KEY_LCONTROL) or isKeyDown(Keyboard.KEY_RCONTROL))
+end
+
+local function isShiftDown()
+    return Keyboard and isKeyDown
+        and (isKeyDown(Keyboard.KEY_LSHIFT) or isKeyDown(Keyboard.KEY_RSHIFT))
+end
+
+local function clearSet(values)
+    for key in pairs(values) do values[key] = nil end
+end
+
+local function setCount(values)
+    local count = 0
+    for _ in pairs(values or {}) do count = count + 1 end
+    return count
+end
+
+local function resizeList(list, x, y, width, height)
+    if not list then return end
+    list:setX(x)
+    list:setY(y)
+    list:setWidth(math.max(40, width))
+    list:setHeight(math.max(40, height))
+    if list.vscroll then
+        list.vscroll:setX(math.max(0, list.width - 16))
+        list.vscroll:setHeight(list.height)
+    end
+end
+
+local function textureForType(fullType)
+    if not getScriptManager then return nil end
+    local ok, result = pcall(function()
+        local script = getScriptManager():FindItem(tostring(fullType or ""))
+        return script and script:getNormalTexture() or nil
+    end)
+    return ok and result or nil
+end
+
+local function textureForItem(item)
+    return Storage.safeCall(item, "getTex", nil)
+        or Storage.safeCall(item, "getTexture", nil)
+        or textureForType(Storage.itemFullType(item))
+end
+
+local function drawListRow(list, y, row, alternate, selectedSet)
+    if not row then return y end
+    local payload = row.item or {}
+    local selected = payload.key and selectedSet and selectedSet[payload.key] == true
+    if payload.kind == "divider" then
+        list:drawRect(0, y, list.width, row.height, 0.82, 0.035, 0.055, 0.065)
+        list:drawText(tostring(payload.label or row.text or ""), 7, y + 6, 0.67, 0.76, 0.80, 1, UIFont.Small)
+        return y + row.height
+    end
+    if selected then
+        list:drawRect(0, y, list.width, row.height, 0.88, 0.06, 0.28, 0.35)
+        list:drawRect(0, y, 3, row.height, 1, 0.22, 0.68, 0.82)
+    elseif alternate then
+        list:drawRect(0, y, list.width, row.height, 0.28, 0.08, 0.12, 0.14)
+    end
+    local textX = 8
+    if payload.texture then
+        list:drawTextureScaledAspect(payload.texture, 6, y + 6, 32, 32, 1, 1, 1, 1)
+        textX = 44
+    end
+    list:drawText(tostring(payload.displayText or row.text or ""), textX, y + 5, 0.86, 0.91, 0.93, 1, UIFont.Small)
+    if payload.subtext then list:drawText(tostring(payload.subtext), textX, y + 23, 0.50, 0.66, 0.72, 1, UIFont.Small) end
+    if payload.count and payload.count > 1 then
+        list:drawTextRight("x" .. tostring(payload.count), list.width - 20, y + 7, 0.35, 0.80, 0.92, 1, UIFont.Small)
+    end
+    return y + row.height
+end
+
+local function listItemAt(list, x, y)
+    if not list or not list.rowAt then return nil, nil end
+    local index = list:rowAt(x, y)
+    return index, index and list.items[index] and list.items[index].item or nil
+end
+
+local function sourceItemLabel(item)
+    return tostring(Storage.safeCall(item, "getDisplayName", Storage.itemFullType(item)) or Storage.itemFullType(item))
+end
+
+local function sourceIsKeyRing(item)
+    local fullType = lower(Storage.itemFullType(item))
+    return string.find(fullType, "keyring", 1, true) ~= nil or string.find(fullType, "key_ring", 1, true) ~= nil
+end
+
+local function inventorySources(player)
+    local result = {}
+    local root = Storage.safeCall(player, "getInventory", nil)
+    if not root then return result end
+    result[1] = {
+        key = "main",
+        itemId = nil,
+        item = nil,
+        container = root,
+        label = text("Storage_Target_Main", "Main inventory"),
+    }
+    local items = Storage.safeCall(root, "getItems", nil)
+    local size = Storage.integer(Storage.safeCall(items, "size", 0), 0)
+    for i = 0, size - 1 do
+        local item = Storage.safeCall(items, "get", nil, i)
+        local nested = Storage.safeCall(item, "getInventory", nil)
+        if nested and (Storage.isEquippedItem(player, item) or sourceIsKeyRing(item)) then
+            local id = Storage.itemId(item)
+            if id then
+                result[#result + 1] = {
+                    key = "item:" .. id,
+                    itemId = id,
+                    item = item,
+                    container = nested,
+                    label = sourceItemLabel(item),
+                    texture = textureForItem(item),
+                }
+            end
+        end
+    end
+    return result
+end
+
+local function findSource(sources, key)
+    for i = 1, #sources do if tostring(sources[i].key) == tostring(key) then return sources[i], i end end
+    return sources[1], 1
+end
+
+local function groupDirectItems(player, source)
+    local groups, order = {}, {}
+    local items = Storage.safeCall(source and source.container, "getItems", nil)
+    local size = Storage.integer(Storage.safeCall(items, "size", 0), 0)
+    for i = 0, size - 1 do
+        local item = Storage.safeCall(items, "get", nil, i)
+        if item then
+            local equipped = source.itemId == nil and Storage.isEquippedItem(player, item)
+            local section = equipped and "equipped" or "carried"
+            local groupKey = Storage.itemGroupKey(item)
+            local key = section .. ":" .. groupKey
+            local group = groups[key]
+            if not group then
+                group = {
+                    key = key,
+                    groupKey = groupKey,
+                    section = section,
+                    fullType = Storage.itemFullType(item),
+                    name = tostring(Storage.safeCall(item, "getDisplayName", Storage.itemFullType(item)) or ""),
+                    category = Storage.categoryOf(item),
+                    instances = {},
+                    texture = textureForItem(item),
+                    totalWeight = 0,
+                }
+                groups[key] = group
+                order[#order + 1] = key
+            end
+            group.instances[#group.instances + 1] = item
+            group.totalWeight = group.totalWeight + Storage.number(Storage.safeCall(item, "getActualWeight", 0), 0)
+        end
+    end
+    table.sort(order, function(a, b)
+        local ga, gb = groups[a], groups[b]
+        if ga.section ~= gb.section then return ga.section == "equipped" end
+        if lower(ga.name) ~= lower(gb.name) then return lower(ga.name) < lower(gb.name) end
+        return tostring(ga.key) < tostring(gb.key)
+    end)
+    return groups, order
+end
+
+local function selectedGroupsInOrder(rows, selected)
+    local result = {}
+    for i = 1, #rows do
+        local row = rows[i]
+        if row and row.key and selected[row.key] then result[#result + 1] = row end
+    end
+    return result
+end
+
+local function chooseFromGroup(group, mode)
+    local count = #(group and group.instances or {})
+    if mode == "one" then count = math.min(1, count)
+    elseif mode == "half" then count = math.ceil(count / 2) end
+    local result = {}
+    for i = 1, count do
+        local id = Storage.itemId(group.instances[i])
+        if id then result[#result + 1] = id end
+    end
+    return result
+end
+
+local function equipmentState(player, item)
+    if not Storage.isEquippedItem(player, item) then return nil end
+    local state = {
+        itemId = Storage.itemId(item),
+        primary = Storage.safeCall(player, "getPrimaryHandItem", nil) == item,
+        secondary = Storage.safeCall(player, "getSecondaryHandItem", nil) == item,
+    }
+    local worn = Storage.safeCall(player, "getWornItems", nil)
+    local size = Storage.integer(Storage.safeCall(worn, "size", 0), 0)
+    for i = 0, size - 1 do
+        local entry = Storage.safeCall(worn, "get", nil, i)
+        if Storage.safeCall(entry, "getItem", entry) == item then
+            state.wornLocation = tostring(Storage.safeCall(entry, "getLocation", Storage.safeCall(item, "getBodyLocation", "")) or "")
+            break
+        end
+    end
+    local hotbar = getPlayerHotbar and getPlayerHotbar(Storage.integer(Storage.safeCall(player, "getPlayerNum", 0), 0)) or nil
+    if hotbar and type(hotbar.attachedItems) == "table" then
+        for slotIndex, attached in pairs(hotbar.attachedItems) do
+            if attached == item then
+                local slotRow = type(hotbar.availableSlot) == "table" and hotbar.availableSlot[slotIndex] or nil
+                state.hotbar = {
+                    slotIndex = slotIndex,
+                    slot = Storage.safeCall(item, "getAttachedToModel", nil),
+                    slotDef = slotRow and slotRow.def or nil,
+                }
+                break
+            end
+        end
+    end
+    return state
+end
+
+local function queueRestoreState(player, state)
+    if not player or type(state) ~= "table" then return end
+    local root = Storage.safeCall(player, "getInventory", nil)
+    local item = root and Storage.findItemRecursive(root, state.itemId) or nil
+    if not item then return end
+    if state.wornLocation and state.wornLocation ~= "" then
+        local occupied = Storage.safeCall(player, "getWornItem", nil, state.wornLocation)
+        if not occupied then ISTimedActionQueue.add(ISWearClothing:new(player, item)) end
+    end
+    local primary = Storage.safeCall(player, "getPrimaryHandItem", nil)
+    local secondary = Storage.safeCall(player, "getSecondaryHandItem", nil)
+    if state.primary and state.secondary and not primary and not secondary then
+        ISTimedActionQueue.add(ISEquipWeaponAction:new(player, item, 50, true, true))
+    else
+        if state.primary and not primary then ISTimedActionQueue.add(ISEquipWeaponAction:new(player, item, 50, true, false)) end
+        if state.secondary and not secondary then ISTimedActionQueue.add(ISEquipWeaponAction:new(player, item, 50, false, false)) end
+    end
+    if state.hotbar then
+        local hotbar = getPlayerHotbar and getPlayerHotbar(Storage.integer(Storage.safeCall(player, "getPlayerNum", 0), 0)) or nil
+        local slotIndex = state.hotbar.slotIndex
+        local slotRow = hotbar and type(hotbar.availableSlot) == "table" and hotbar.availableSlot[slotIndex] or nil
+        if hotbar and slotRow and not hotbar.attachedItems[slotIndex] then
+            local slotDef = state.hotbar.slotDef or slotRow.def
+            local slot = state.hotbar.slot
+            if slotDef and slotDef.attachments and Storage.safeCall(item, "getAttachmentType", nil) then
+                slot = slotDef.attachments[Storage.safeCall(item, "getAttachmentType", nil)] or slot
+            end
+            if slot and slotDef then ISTimedActionQueue.add(ISAttachItemHotbar:new(player, item, slot, slotIndex, slotDef)) end
+        end
+    end
 end
 
 GodSystemStorageWindow = ISCollapsableWindow:derive("GodSystemStorageWindow")
@@ -66,21 +313,26 @@ GodSystemStorageWindow = ISCollapsableWindow:derive("GodSystemStorageWindow")
 function GodSystemStorageWindow:new(x, y, width, height)
     local o = ISCollapsableWindow.new(self, x, y, width, height)
     o.resizable = true
-    o.minimumWidth = 900
-    o.minimumHeight = 560
+    o.minimumWidth = 1120
+    o.minimumHeight = 650
     o.page = "storage"
     o.category = "all"
     o.state = "all"
-    o.source = "all"
+    o.sourceFilter = "all"
     o.modName = "all"
     o.sortMode = "name"
     o.containerStatus = "all"
-    o.selectedGroupKey = nil
+    o.currentSourceKey = "main"
+    o.selectedInventoryKeys = {}
+    o.selectedWarehouseKeys = {}
+    o.inventoryAnchorKey = nil
+    o.warehouseAnchorKey = nil
     o.selectedLinkId = nil
     o.selectedInstanceId = nil
-    o.withdrawTargetItemId = nil
-    o.filteredGroups = {}
-    o.filteredContainers = {}
+    o.inventoryRows = {}
+    o.warehouseRows = {}
+    o.sources = {}
+    o.pendingEquipment = nil
     o.title = text("Storage_Title", "System Storage Network")
     return o
 end
@@ -94,139 +346,153 @@ function GodSystemStorageWindow:createButton(x, y, width, height, label, interna
     return button
 end
 
+function GodSystemStorageWindow:createList(x, y, width, height, itemHeight, clickHandler, selectedSet)
+    local list = ISScrollingListBox:new(x, y, width, height)
+    list:initialise()
+    list:instantiate()
+    list.itemheight = itemHeight
+    list:setOnMouseDownFunction(self, clickHandler)
+    list.doDrawItem = function(owner, rowY, row, alternate)
+        return drawListRow(owner, rowY, row, alternate, selectedSet)
+    end
+    self:addChild(list)
+    return list
+end
+
 function GodSystemStorageWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
-    local margin = 14
-    local top = 30
-    self.storageTab = self:createButton(margin, top, 130, 30, text("Storage_Tab_Storage", "Storage"), "storage", self.onPage, true)
-    self.manageTab = self:createButton(margin + 138, top, 160, 30, text("Storage_Tab_Containers", "Container management"), "manage", self.onPage, false)
-    self.statusLabel = ISLabel:new(margin + 310, top + 7, 20, "", 0.7, 0.86, 0.92, 1, UIFont.Small, true)
+    self.storageTab = self:createButton(14, 30, 120, 30, text("Storage_Tab_Storage", "Storage"), "storage", self.onPage, true)
+    self.manageTab = self:createButton(142, 30, 160, 30, text("Storage_Tab_Containers", "Container management"), "manage", self.onPage)
+    self.statusLabel = ISLabel:new(316, 37, 20, "", 0.66, 0.82, 0.88, 1, UIFont.Small, true)
     self.statusLabel:initialise()
     self:addChild(self.statusLabel)
 
-    self.searchLabel = ISLabel:new(margin, top + 46, 20, text("Storage_Search", "Search"), 0.75, 0.78, 0.82, 1, UIFont.Small, true)
-    self.searchLabel:initialise()
-    self:addChild(self.searchLabel)
-    self.searchBox = ISTextEntryBox:new("", margin + 54, top + 42, 260, 26)
+    self.searchBox = ISTextEntryBox:new("", 14, 68, 250, 28)
     self.searchBox:initialise()
     self.searchBox:instantiate()
     self.searchBox.target = self
-    self.searchBox.onTextChange = function() self:rebuild() end
+    self.searchBox.onTextChange = function() self:rebuildLists() end
     self:addChild(self.searchBox)
+    self.categoryButton = self:createButton(272, 68, 118, 28, "", "category", self.onFilter)
+    self.stateButton = self:createButton(396, 68, 118, 28, "", "state", self.onFilter)
+    self.sourceFilterButton = self:createButton(520, 68, 136, 28, "", "source", self.onFilter)
+    self.modButton = self:createButton(662, 68, 116, 28, "", "mod", self.onFilter)
+    self.containerStatusButton = self:createButton(272, 68, 160, 28, "", "containerStatus", self.onFilter)
+    self.sortButton = self:createButton(784, 68, 120, 28, "", "sort", self.onFilter)
+    self.refreshButton = self:createButton(912, 68, 86, 28, text("Storage_Refresh", "Refresh"), "refresh", self.onAction, true)
 
-    self.categoryButton = self:createButton(margin + 324, top + 42, 120, 26, "", "category", self.onFilter)
-    self.stateButton = self:createButton(margin + 450, top + 42, 120, 26, "", "state", self.onFilter)
-    self.sourceButton = self:createButton(margin + 576, top + 42, 145, 26, "", "source", self.onFilter)
-    self.modButton = self:createButton(margin + 727, top + 42, 120, 26, "", "mod", self.onFilter)
+    self.sourceList = self:createList(14, 104, 320, 102, 30, self.onSourceSelection, nil)
+    self.sourceList.doDrawItem = function(list, y, row, alternate)
+        if not row then return y end
+        local payload = row.item or {}
+        local selected = tostring(payload.key or "") == tostring(self.currentSourceKey or "")
+        if selected then list:drawRect(0, y, list.width, row.height, 0.88, 0.06, 0.28, 0.35)
+        elseif alternate then list:drawRect(0, y, list.width, row.height, 0.25, 0.08, 0.12, 0.14) end
+        local textX = 7
+        if payload.texture then list:drawTextureScaledAspect(payload.texture, 5, y + 3, 24, 24, 1, 1, 1, 1); textX = 34 end
+        list:drawText(tostring(payload.label or row.text or ""), textX, y + 7, 0.84, 0.91, 0.94, 1, UIFont.Small)
+        return y + row.height
+    end
+    self.inventoryList = self:createList(14, 212, 320, 300, 46, self.onInventorySelection, self.selectedInventoryKeys)
+    self.warehouseList = self:createList(342, 104, 470, 408, 46, self.onWarehouseSelection, self.selectedWarehouseKeys)
+    self.detailList = self:createList(820, 104, 286, 408, 26, self.onDetailSelection, nil)
+    self.detailList.doDrawItem = function(list, y, row, alternate)
+        if not row then return y end
+        local payload = row.item or {}
+        local selected = payload.kind == "instance" and tostring(payload.itemId) == tostring(self.selectedInstanceId)
+        if selected then list:drawRect(0, y, list.width, row.height, 0.78, 0.06, 0.28, 0.35)
+        elseif alternate then list:drawRect(0, y, list.width, row.height, 0.20, 0.08, 0.12, 0.14) end
+        list:drawText(tostring(payload.displayText or row.text or ""), 7, y + 6, 0.72, 0.82, 0.86, 1, UIFont.Small)
+        return y + row.height
+    end
 
-    self.containerStatusButton = self:createButton(margin + 324, top + 42, 160, 26, "", "containerStatus", self.onFilter)
-    self.containerStatusButton:setVisible(false)
-
-    local listY = top + 78
-    local actionH = 78
-    local availableH = self.height - listY - actionH - 12
-    local leftW = math.floor((self.width - (margin * 3)) * 0.58)
-    local rightX = margin + leftW + margin
-    local rightW = self.width - rightX - margin
-
-    self.mainList = ISScrollingListBox:new(margin, listY, leftW, availableH)
-    self.mainList:initialise()
-    self.mainList:instantiate()
-    self.mainList.itemheight = 38
-    self.mainList:setOnMouseDownFunction(self, self.onMainSelection)
-    local originalRightMouseUp = self.mainList.onRightMouseUp
-    self.mainList.onRightMouseUp = function(list, x, y)
-        if self:onMainRightMouseUp(x, y) then return true end
-        if originalRightMouseUp then return originalRightMouseUp(list, x, y) end
+    local oldInventoryRight = self.inventoryList.onRightMouseUp
+    self.inventoryList.onRightMouseUp = function(_, x, y)
+        if self:onInventoryRightMouseUp(x, y) then return true end
+        if oldInventoryRight then return oldInventoryRight(self.inventoryList, x, y) end
         return false
     end
-    self.mainList.doDrawItem = function(list, y, item, alt)
-        if not item then return y end
-        local selected = list.selected == item.index
-        if selected then list:drawRect(0, y, list.width, item.height, 0.35, 0.04, 0.32, 0.45)
-        elseif alt then list:drawRect(0, y, list.width, item.height, 0.16, 0.05, 0.08, 0.11) end
-        list:drawText(tostring(item.text or ""), 8, y + 5, 0.85, 0.9, 0.94, 1, UIFont.Small)
-        local sub = item.item and item.item.subtext
-        if sub then list:drawText(tostring(sub), 8, y + 21, 0.5, 0.68, 0.74, 1, UIFont.Small) end
-        return y + item.height
+    local oldWarehouseRight = self.warehouseList.onRightMouseUp
+    self.warehouseList.onRightMouseUp = function(_, x, y)
+        if self:onWarehouseRightMouseUp(x, y) then return true end
+        if oldWarehouseRight then return oldWarehouseRight(self.warehouseList, x, y) end
+        return false
     end
-    self:addChild(self.mainList)
 
-    self.detailList = ISScrollingListBox:new(rightX, listY, rightW, availableH)
-    self.detailList:initialise()
-    self.detailList:instantiate()
-    self.detailList.itemheight = 24
-    self.detailList:setOnMouseDownFunction(self, self.onDetailSelection)
-    self.detailList.doDrawItem = function(list, y, item, alt)
-        if alt then list:drawRect(0, y, list.width, item.height, 0.12, 0.05, 0.08, 0.11) end
-        list:drawText(tostring(item.text or ""), 7, y + 5, 0.74, 0.82, 0.86, 1, UIFont.Small)
-        return y + item.height
-    end
-    self:addChild(self.detailList)
+    self.depositSelectedButton = self:createButton(14, self.height - 44, 132, 32,
+        text("Storage_DepositSelected", "Deposit selected"), "depositSelected", self.onAction, true)
+    self.depositSourceAllButton = self:createButton(152, self.height - 44, 190, 32,
+        text("Storage_DepositSourceAll", "Deposit current container"), "depositSourceAll", self.onAction)
+    self.withdrawSelectedButton = self:createButton(self.width - 152, self.height - 44, 138, 32,
+        text("Storage_WithdrawSelected", "Withdraw selected"), "withdrawSelected", self.onAction, true)
+    self.exactButton = self:createButton(self.width - 318, self.height - 44, 158, 32,
+        text("Storage_WithdrawExact", "Withdraw instance"), "withdrawExact", self.onAction)
 
-    local actionY = listY + availableH + 10
-    self.refreshButton = self:createButton(margin, actionY, 100, 30, text("Storage_Refresh", "Refresh"), "refresh", self.onAction, true)
-    self.depositAllButton = self:createButton(margin + 108, actionY, 150, 30, text("Storage_DepositAll", "Safe deposit all"), "depositAll", self.onAction, true)
-    self.withdraw1Button = self:createButton(margin + 266, actionY, 86, 30, text("Storage_Withdraw1", "Take 1"), "withdraw1", self.onAction)
-    self.withdraw5Button = self:createButton(margin + 360, actionY, 86, 30, text("Storage_Withdraw5", "Take 5"), "withdraw5", self.onAction)
-    self.withdrawAllButton = self:createButton(margin + 454, actionY, 96, 30, text("Storage_WithdrawAll", "Take all"), "withdrawAll", self.onAction)
-    self.countBox = ISTextEntryBox:new("1", margin + 558, actionY, 58, 30)
-    self.countBox:initialise()
-    self.countBox:instantiate()
-    self.countBox:setOnlyNumbers(true)
-    self:addChild(self.countBox)
-    self.withdrawCustomButton = self:createButton(margin + 624, actionY, 110, 30, text("Storage_WithdrawCustom", "Take amount"), "withdrawCustom", self.onAction)
-    self.sortButton = self:createButton(margin + 742, actionY, 120, 30, "", "sort", self.onAction)
-    self.targetButton = self:createButton(margin + 266, actionY + 34, 250, 28, "", "target", self.onAction)
-    self.exactButton = self:createButton(margin + 524, actionY + 34, 150, 28, text("Storage_WithdrawExact", "Take selected instance"), "withdrawExact", self.onAction)
+    self.connectModeButton = self:createButton(14, self.height - 44, 145, 32,
+        text("Storage_ConnectMode", "Connection mode"), "connectMode", self.onManageAction, true)
+    self.roleButton = self:createButton(167, self.height - 44, 142, 32, text("Storage_Role", "Role"), "role", self.onManageAction)
+    self.priorityDownButton = self:createButton(317, self.height - 44, 44, 32, "-10", "priorityDown", self.onManageAction)
+    self.priorityUpButton = self:createButton(369, self.height - 44, 44, 32, "+10", "priorityUp", self.onManageAction)
+    self.unlinkButton = self:createButton(421, self.height - 44, 126, 32, text("Storage_Unlink", "Remove link"), "unlink", self.onManageAction)
+    self.takeOverButton = self:createButton(555, self.height - 44, 130, 32, text("Storage_TakeOver", "Admin take over"), "takeOver", self.onManageAction)
 
-    self.connectModeButton = self:createButton(margin, actionY, 145, 30, text("Storage_ConnectMode", "Connection mode"), "connectMode", self.onManageAction, true)
-    self.roleButton = self:createButton(margin + 153, actionY, 130, 30, "", "role", self.onManageAction)
-    self.priorityDownButton = self:createButton(margin + 291, actionY, 42, 30, "-10", "priorityDown", self.onManageAction)
-    self.priorityUpButton = self:createButton(margin + 341, actionY, 42, 30, "+10", "priorityUp", self.onManageAction)
-    self.unlinkButton = self:createButton(margin + 391, actionY, 120, 30, text("Storage_Unlink", "Remove link"), "unlink", self.onManageAction)
-    self.takeOverButton = self:createButton(margin + 519, actionY, 130, 30, text("Storage_TakeOver", "Admin take over"), "takeOver", self.onManageAction)
-
+    self:layoutColumns()
     self:updatePageVisibility()
     self:rebuild()
 end
 
+function GodSystemStorageWindow:layoutColumns()
+    if not self.sourceList then return end
+    local margin, gap, top, bottom = 14, 8, 104, 54
+    local innerWidth = self.width - (margin * 2)
+    local contentHeight = math.max(220, self.height - top - bottom)
+    local detailWidth = math.max(290, math.floor(innerWidth * 0.27))
+    local inventoryWidth = math.max(320, math.floor(innerWidth * 0.30))
+    if self.page == "manage" then inventoryWidth = 0 end
+    local warehouseWidth = innerWidth - detailWidth - gap - (inventoryWidth > 0 and (inventoryWidth + gap) or 0)
+    local warehouseX = margin + (inventoryWidth > 0 and (inventoryWidth + gap) or 0)
+    local detailX = warehouseX + warehouseWidth + gap
+    local sourceHeight = math.min(112, math.max(90, math.floor(contentHeight * 0.22)))
+    resizeList(self.sourceList, margin, top, inventoryWidth, sourceHeight)
+    resizeList(self.inventoryList, margin, top + sourceHeight + 6, inventoryWidth, contentHeight - sourceHeight - 6)
+    resizeList(self.warehouseList, warehouseX, top, warehouseWidth, contentHeight)
+    resizeList(self.detailList, detailX, top, detailWidth, contentHeight)
+
+    self.searchBox:setWidth(math.max(180, math.min(260, math.floor(self.width * 0.20))))
+    self.refreshButton:setX(self.width - margin - self.refreshButton.width)
+    self.sortButton:setX(self.refreshButton.x - gap - self.sortButton.width)
+    self.withdrawSelectedButton:setX(self.width - margin - self.withdrawSelectedButton.width)
+    self.exactButton:setX(self.withdrawSelectedButton.x - gap - self.exactButton.width)
+    local actionY = self.height - 44
+    local buttons = {
+        self.depositSelectedButton, self.depositSourceAllButton, self.withdrawSelectedButton, self.exactButton,
+        self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton, self.unlinkButton, self.takeOverButton,
+    }
+    for i = 1, #buttons do buttons[i]:setY(actionY) end
+end
+
 function GodSystemStorageWindow:onResize()
     ISCollapsableWindow.onResize(self)
-    if self.mainList then
-        local margin = 14
-        local listY = 108
-        local actionH = 78
-        local availableH = self.height - listY - actionH - 12
-        local leftW = math.floor((self.width - (margin * 3)) * 0.58)
-        local rightX = margin + leftW + margin
-        self.mainList:setWidth(leftW)
-        self.mainList:setHeight(availableH)
-        self.detailList:setX(rightX)
-        self.detailList:setWidth(self.width - rightX - margin)
-        self.detailList:setHeight(availableH)
-    end
+    self:layoutColumns()
 end
 
 function GodSystemStorageWindow:onPage(button)
     self.page = button.internal
     self:updatePageVisibility()
+    self:layoutColumns()
     self:rebuild()
 end
 
 function GodSystemStorageWindow:updatePageVisibility()
     local storagePage = self.page == "storage"
+    self.sourceList:setVisible(storagePage)
+    self.inventoryList:setVisible(storagePage)
     self.categoryButton:setVisible(storagePage)
     self.stateButton:setVisible(storagePage)
-    self.sourceButton:setVisible(storagePage)
+    self.sourceFilterButton:setVisible(storagePage)
     self.modButton:setVisible(storagePage)
     self.containerStatusButton:setVisible(not storagePage)
-    local storageButtons = {
-        self.depositAllButton, self.withdraw1Button, self.withdraw5Button,
-        self.withdrawAllButton, self.countBox, self.withdrawCustomButton, self.sortButton,
-        self.targetButton,
-        self.exactButton,
-    }
+    local storageButtons = { self.depositSelectedButton, self.depositSourceAllButton, self.withdrawSelectedButton, self.exactButton }
     for i = 1, #storageButtons do storageButtons[i]:setVisible(storagePage) end
     local manageButtons = {
         self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton,
@@ -241,57 +507,47 @@ function GodSystemStorageWindow:onFilter(button)
     if button.internal == "category" then
         local values = { "all" }
         for i = 1, #Storage.Categories do values[#values + 1] = Storage.Categories[i] end
-        self.category = cycleValue(values, self.category, 1)
+        self.category = cycleValue(values, self.category)
     elseif button.internal == "state" then
-        self.state = cycleValue({
-            "all", "fresh", "stale", "rotten", "chilled", "frozen",
-            "cooking", "damaged", "lowCondition", "favorite",
-        }, self.state, 1)
+        self.state = cycleValue({ "all", "fresh", "stale", "rotten", "chilled", "frozen", "damaged", "favorite" }, self.state)
     elseif button.internal == "source" then
         local values = { "all" }
-        local snapshot = Client.snapshot or {}
-        for i = 1, #((snapshot.containers) or {}) do values[#values + 1] = tostring(snapshot.containers[i].linkId) end
-        self.source = cycleValue(values, self.source, 1)
+        for i = 1, #(((Client.snapshot or {}).containers) or {}) do
+            values[#values + 1] = tostring(Client.snapshot.containers[i].linkId)
+        end
+        self.sourceFilter = cycleValue(values, self.sourceFilter)
     elseif button.internal == "mod" then
         local values, seen = { "all" }, { all = true }
-        for i = 1, #((Client.snapshot and Client.snapshot.groups) or {}) do
+        for i = 1, #(((Client.snapshot or {}).groups) or {}) do
             local value = tostring(Client.snapshot.groups[i].modName or "")
             if value ~= "" and not seen[value] then seen[value] = true; values[#values + 1] = value end
         end
-        self.modName = cycleValue(values, self.modName, 1)
+        self.modName = cycleValue(values, self.modName)
     elseif button.internal == "containerStatus" then
-        self.containerStatus = cycleValue({ "all", "online", "offline", "full", "cold" }, self.containerStatus, 1)
+        self.containerStatus = cycleValue({ "all", "online", "offline", "full", "cold" }, self.containerStatus)
+    elseif button.internal == "sort" then
+        self.sortMode = cycleValue({ "name", "count", "weight", "condition", "spoilage", "source" }, self.sortMode)
     end
-    self:rebuild()
+    self:rebuildLists()
 end
 
 function GodSystemStorageWindow:filterGroup(group, query)
     if self.category ~= "all" and tostring(group.category) ~= self.category then return false end
-    if self.state ~= "all" and not listContains(group.states, self.state) then return false end
-    if self.source ~= "all" and not listContains(group.sources, self.source) then return false end
-    if self.modName ~= "all" and tostring(group.modName) ~= self.modName then return false end
-    if query ~= "" then
-        local haystack = table.concat({
-            tostring(group.name or ""), tostring(group.fullType or ""), tostring(group.modName or ""),
-            table.concat(group.tags or {}, " "), table.concat(group.sources or {}, " "),
-            table.concat(group.sourceNames or {}, " "),
-            tostring(group.category or ""),
-        }, " ")
-        if not contains(haystack, query) then return false end
+    if self.state ~= "all" then
+        local found = false
+        for i = 1, #(group.states or {}) do if tostring(group.states[i]) == self.state then found = true; break end end
+        if not found then return false end
     end
-    return true
-end
-
-function GodSystemStorageWindow:filterContainer(row, query)
-    if query ~= "" and not contains(table.concat({
-        tostring(row.name or ""), tostring(row.role or ""), tostring(row.linkId or ""),
-        tostring(row.x or ""), tostring(row.y or ""), tostring(row.z or ""),
-    }, " "), query) then return false end
-    if self.containerStatus == "online" and row.online ~= true then return false end
-    if self.containerStatus == "offline" and row.online == true then return false end
-    if self.containerStatus == "full" and not (row.online == true and (tonumber(row.used) or 0) >= (tonumber(row.capacity) or 0)) then return false end
-    if self.containerStatus == "cold" and row.powered ~= true then return false end
-    return true
+    if self.sourceFilter ~= "all" then
+        local found = false
+        for i = 1, #(group.sources or {}) do if tostring(group.sources[i]) == self.sourceFilter then found = true; break end end
+        if not found then return false end
+    end
+    if self.modName ~= "all" and tostring(group.modName) ~= self.modName then return false end
+    return contains(table.concat({
+        tostring(group.name or ""), tostring(group.fullType or ""), tostring(group.modName or ""),
+        tostring(group.category or ""), table.concat(group.sourceNames or {}, " "),
+    }, " "), query)
 end
 
 function GodSystemStorageWindow:sortGroups(groups)
@@ -302,166 +558,194 @@ function GodSystemStorageWindow:sortGroups(groups)
         if mode == "condition" and a.bestCondition ~= b.bestCondition then return (a.bestCondition or 0) > (b.bestCondition or 0) end
         if mode == "spoilage" and a.earliestSpoilage ~= b.earliestSpoilage then return (a.earliestSpoilage or 0) < (b.earliestSpoilage or 0) end
         if mode == "source" then
-            local as = tostring((a.sourceNames or {})[1] or (a.sources or {})[1] or "")
-            local bs = tostring((b.sourceNames or {})[1] or (b.sources or {})[1] or "")
+            local as, bs = tostring((a.sourceNames or {})[1] or ""), tostring((b.sourceNames or {})[1] or "")
             if as ~= bs then return as < bs end
         end
-        return lower(a.name) < lower(b.name)
+        if lower(a.name) ~= lower(b.name) then return lower(a.name) < lower(b.name) end
+        return tostring(a.key) < tostring(b.key)
     end)
 end
 
-function GodSystemStorageWindow:updateLabels()
-    self.categoryButton:setTitle(text("Storage_Filter_Category", "Category") .. ": " .. text("Storage_Category_" .. self.category, self.category))
-    self.stateButton:setTitle(text("Storage_Filter_State", "State") .. ": " .. text("Storage_State_" .. self.state, self.state))
-    local sourceLabel = self.source
-    for i = 1, #(((Client.snapshot or {}).containers) or {}) do
-        local row = Client.snapshot.containers[i]
-        if tostring(row.linkId) == tostring(self.source) then sourceLabel = tostring(row.name or row.linkId); break end
-    end
-    self.sourceButton:setTitle(text("Storage_Filter_Source", "Source") .. ": " .. (self.source == "all" and text("Storage_All", "All") or sourceLabel:sub(1, 16)))
-    self.modButton:setTitle(text("Storage_Filter_Mod", "Mod") .. ": " .. self.modName)
-    self.containerStatusButton:setTitle(text("Storage_Filter_Status", "Status") .. ": " .. text("Storage_ContainerStatus_" .. self.containerStatus, self.containerStatus))
-    self.sortButton:setTitle(text("Storage_Sort", "Sort") .. ": " .. text("Storage_Sort_" .. self.sortMode, self.sortMode))
-    self.targetButton:setTitle(text("Storage_Target", "Target") .. ": " .. self:getWithdrawTargetLabel())
-    local state = Client.networkState or {}
-    local snapshot = Client.snapshot or {}
-    self.statusLabel.name = string.format(
-        "%s %d | %s %d | %s %d/%d | %s %s/%s | %s%s",
-        text("Storage_Types", "Types"), tonumber(snapshot.groupCount) or #(snapshot.groups or {}),
-        text("Storage_Instances", "Items"), tonumber(snapshot.itemCount) or 0,
-        text("Storage_Containers", "Containers"), tonumber(snapshot.onlineLinks) or 0, (tonumber(snapshot.onlineLinks) or 0) + (tonumber(snapshot.offlineLinks) or 0),
-        text("Storage_Capacity", "Capacity"), formatNumber(snapshot.usedCapacity), formatNumber(snapshot.totalCapacity),
-        text("Storage_IndexTime", "Indexed"), formatIndexTime(snapshot.indexedAtMs),
-        snapshot.incomplete == true and (" | " .. text("Storage_Incomplete", "Results incomplete")) or ""
-    )
-    self.roleButton:setTitle(text("Storage_Role", "Role"))
-    local selected
-    for i = 1, #((snapshot.containers) or {}) do
-        if tostring(snapshot.containers[i].linkId) == tostring(self.selectedLinkId) then selected = snapshot.containers[i]; break end
-    end
-    if selected then self.roleButton:setTitle(text("Storage_Role", "Role") .. ": " .. text("Storage_Role_" .. tostring(selected.role), selected.role)) end
-    local admin = state.isAdmin == true
-    self.takeOverButton.enable = admin
+function GodSystemStorageWindow:currentSource()
+    return findSource(self.sources or {}, self.currentSourceKey)
 end
 
-function GodSystemStorageWindow:getWithdrawTargets()
-    local result = { { id = nil, label = text("Storage_Target_Main", "Main inventory") } }
-    local p = getPlayer and getPlayer() or nil
-    local worn = Storage.safeCall(p, "getWornItems", nil)
-    local size = Storage.integer(Storage.safeCall(worn, "size", 0), 0)
-    for i = 0, size - 1 do
-        local entry = Storage.safeCall(worn, "get", nil, i)
-        local item = Storage.safeCall(entry, "getItem", entry)
-        local inventory = Storage.safeCall(item, "getInventory", nil)
-        local id = Storage.itemId(item)
-        if inventory and id then
-            result[#result + 1] = {
-                id = id,
-                label = tostring(Storage.safeCall(item, "getDisplayName", Storage.itemFullType(item)) or id),
+function GodSystemStorageWindow:rebuildSources()
+    local player = getPlayer and getPlayer() or nil
+    self.sources = inventorySources(player)
+    local current, selectedIndex = findSource(self.sources, self.currentSourceKey)
+    self.currentSourceKey = current and current.key or "main"
+    self.sourceList:clear()
+    for i = 1, #self.sources do
+        local source = self.sources[i]
+        self.sourceList:addItem(source.label, source)
+        if tostring(source.key) == tostring(self.currentSourceKey) then selectedIndex = i end
+    end
+    self.sourceList.selected = selectedIndex or 1
+end
+
+function GodSystemStorageWindow:rebuildInventory()
+    local player = getPlayer and getPlayer() or nil
+    local source = self:currentSource()
+    local groups, order = groupDirectItems(player, source)
+    self.inventoryRows = {}
+    self.inventoryList:clear()
+    local query = lower(self.searchBox and self.searchBox:getText() or "")
+    local valid, lastSection = {}, nil
+    for i = 1, #order do
+        local group = groups[order[i]]
+        if contains(group.name .. " " .. group.fullType .. " " .. group.category, query) then
+            if group.section ~= lastSection then
+                lastSection = group.section
+                local label = group.section == "equipped" and text("Storage_InventoryEquipped", "Equipped")
+                    or text("Storage_InventoryCarried", "Contents")
+                local row = self.inventoryList:addItem(label, { kind = "divider", label = label })
+                row.height = 28
+            end
+            local payload = {
+                kind = "inventoryGroup",
+                key = group.key,
+                group = group,
+                displayText = group.name,
+                subtext = tostring(group.category) .. " | " .. formatNumber(group.totalWeight) .. " kg",
+                count = #group.instances,
+                texture = group.texture,
             }
+            self.inventoryList:addItem(group.name, payload)
+            self.inventoryRows[#self.inventoryRows + 1] = group
+            valid[group.key] = true
         end
     end
-    return result
+    for key in pairs(self.selectedInventoryKeys) do if not valid[key] then self.selectedInventoryKeys[key] = nil end end
 end
 
-function GodSystemStorageWindow:getWithdrawTargetLabel()
-    local targets = self:getWithdrawTargets()
-    for i = 1, #targets do
-        if tostring(targets[i].id or "") == tostring(self.withdrawTargetItemId or "") then return targets[i].label end
-    end
-    self.withdrawTargetItemId = nil
-    return targets[1].label
-end
-
-function GodSystemStorageWindow:cycleWithdrawTarget()
-    local targets = self:getWithdrawTargets()
-    local current = 1
-    for i = 1, #targets do
-        if tostring(targets[i].id or "") == tostring(self.withdrawTargetItemId or "") then current = i; break end
-    end
-    current = current + 1
-    if current > #targets then current = 1 end
-    self.withdrawTargetItemId = targets[current].id
-    self:updateLabels()
-end
-
-function GodSystemStorageWindow:rebuild()
-    if not self.mainList then return end
-    local previous = self.page == "storage" and self.selectedGroupKey or self.selectedLinkId
-    self.mainList:clear()
-    self.detailList:clear()
-    local query = lower(self.searchBox and self.searchBox:getText() or "")
+function GodSystemStorageWindow:rebuildWarehouse()
+    self.warehouseList:clear()
+    self.warehouseRows = {}
     local snapshot = Client.snapshot
     if not snapshot then
-        self.mainList:addItem(text("Storage_Loading", "Building storage index..."), { selectable = false })
-        self:updateLabels()
+        self.warehouseList:addItem(text("Storage_Loading", "Building storage index..."), { displayText = text("Storage_Loading", "Building storage index...") })
         return
     end
+    local query = lower(self.searchBox and self.searchBox:getText() or "")
+    local valid = {}
     if self.page == "storage" then
         local groups = {}
-        for i = 1, #(snapshot.groups or {}) do
-            if self:filterGroup(snapshot.groups[i], query) then groups[#groups + 1] = snapshot.groups[i] end
-        end
+        for i = 1, #(snapshot.groups or {}) do if self:filterGroup(snapshot.groups[i], query) then groups[#groups + 1] = snapshot.groups[i] end end
         self:sortGroups(groups)
-        self.filteredGroups = groups
         for i = 1, #groups do
             local group = groups[i]
-            local item = self.mainList:addItem(
-                tostring(group.name or group.fullType) .. "  x" .. tostring(group.count or 0),
-                {
-                    kind = "group",
-                    group = group,
-                    key = group.key,
-                    subtext = tostring(group.category or "other") .. " | " .. tostring(group.fullType or "") .. " | " .. formatNumber(group.totalWeight) .. " kg",
-                }
-            )
-            if tostring(group.key) == tostring(previous) then self.mainList.selected = i end
+            local payload = {
+                kind = "warehouseGroup",
+                key = tostring(group.key),
+                group = group,
+                displayText = tostring(group.name or group.fullType),
+                subtext = tostring(group.category or "other") .. " | " .. table.concat(group.sourceNames or {}, ", ") .. " | " .. formatNumber(group.totalWeight) .. " kg",
+                count = tonumber(group.count) or 0,
+                texture = textureForType(group.fullType),
+            }
+            self.warehouseList:addItem(payload.displayText, payload)
+            self.warehouseRows[#self.warehouseRows + 1] = group
+            valid[payload.key] = true
         end
     else
         local rows = {}
         for i = 1, #(snapshot.containers or {}) do
-            if self:filterContainer(snapshot.containers[i], query) then rows[#rows + 1] = snapshot.containers[i] end
+            local row = snapshot.containers[i]
+            local statusOk = self.containerStatus == "all"
+                or (self.containerStatus == "online" and row.online == true)
+                or (self.containerStatus == "offline" and row.online ~= true)
+                or (self.containerStatus == "full" and row.online == true and (tonumber(row.used) or 0) >= (tonumber(row.capacity) or 0))
+                or (self.containerStatus == "cold" and row.powered == true)
+            if statusOk and contains(table.concat({ row.name or "", row.role or "", row.linkId or "", row.objectId or "" }, " "), query) then
+                rows[#rows + 1] = row
+            end
         end
         table.sort(rows, function(a, b)
+            if a.isCoreHost ~= b.isCoreHost then return a.isCoreHost == true end
             if a.online ~= b.online then return a.online == true end
             if (a.priority or 0) ~= (b.priority or 0) then return (a.priority or 0) > (b.priority or 0) end
             return lower(a.name) < lower(b.name)
         end)
-        self.filteredContainers = rows
         for i = 1, #rows do
             local row = rows[i]
-            local state = row.online == true and text("Storage_Online", "Online") or text("Storage_Offline", "Offline")
-            local item = self.mainList:addItem(
-                tostring(row.name or "Container") .. " [" .. state .. "]",
-                {
-                    kind = "container",
-                    container = row,
-                    key = row.linkId,
-                    subtext = string.format("%s | P%d | %d,%d,%d | %s/%s",
-                        text("Storage_Role_" .. tostring(row.role), row.role),
-                        tonumber(row.priority) or 0,
-                        tonumber(row.x) or 0, tonumber(row.y) or 0, tonumber(row.z) or 0,
-                        formatNumber(row.used), formatNumber(row.capacity)
-                    ),
-                }
-            )
-            if tostring(row.linkId) == tostring(previous) then self.mainList.selected = i end
+            local status = row.online and text("Storage_Online", "Online") or text("Storage_Offline", "Offline")
+            local name = tostring(row.name or "Container")
+            if row.isCoreHost then name = text("Storage_CoreHost", "Core host") .. " | " .. name end
+            local payload = {
+                kind = "container", key = tostring(row.linkId), container = row, displayText = name,
+                subtext = status .. " | P" .. tostring(row.priority or 50) .. " | " .. formatNumber(row.used) .. "/" .. formatNumber(row.capacity),
+            }
+            self.warehouseList:addItem(name, payload)
+            self.warehouseRows[#self.warehouseRows + 1] = row
+            if tostring(row.linkId) == tostring(self.selectedLinkId) then self.warehouseList.selected = i end
         end
     end
-    self:updateLabels()
-    self:updateDetails()
+    for key in pairs(self.selectedWarehouseKeys) do if not valid[key] then self.selectedWarehouseKeys[key] = nil end end
 end
 
-function GodSystemStorageWindow:onMainSelection()
-    local selected = self.mainList.items[self.mainList.selected]
-    local payload = selected and selected.item
+function GodSystemStorageWindow:rebuildLists()
+    self:rebuildSources()
+    self:rebuildInventory()
+    self:rebuildWarehouse()
+    self:updateDetails()
+    self:updateLabels()
+end
+
+function GodSystemStorageWindow:rebuild()
+    self:rebuildLists()
+end
+
+function GodSystemStorageWindow:updateMultiSelection(rows, selected, anchorField, key)
+    if not key then return end
+    if isShiftDown() and self[anchorField] then
+        local first, last
+        for i = 1, #rows do
+            if tostring(rows[i].key) == tostring(self[anchorField]) then first = i end
+            if tostring(rows[i].key) == tostring(key) then last = i end
+        end
+        if first and last then
+            if not isControlDown() then clearSet(selected) end
+            for i = math.min(first, last), math.max(first, last) do selected[rows[i].key] = true end
+        end
+    elseif isControlDown() then
+        selected[key] = selected[key] ~= true and true or nil
+        self[anchorField] = key
+    else
+        clearSet(selected)
+        selected[key] = true
+        self[anchorField] = key
+    end
+end
+
+function GodSystemStorageWindow:onSourceSelection()
+    local row = self.sourceList.items[self.sourceList.selected]
+    local source = row and row.item
+    if not source or not source.key then return end
+    self.currentSourceKey = source.key
+    clearSet(self.selectedInventoryKeys)
+    self.inventoryAnchorKey = nil
+    self:rebuildInventory()
+    self:updateLabels()
+end
+
+function GodSystemStorageWindow:onInventorySelection()
+    local row = self.inventoryList.items[self.inventoryList.selected]
+    local payload = row and row.item
+    if not payload or payload.kind ~= "inventoryGroup" then return end
+    self:updateMultiSelection(self.inventoryRows, self.selectedInventoryKeys, "inventoryAnchorKey", payload.key)
+end
+
+function GodSystemStorageWindow:onWarehouseSelection()
+    local row = self.warehouseList.items[self.warehouseList.selected]
+    local payload = row and row.item
     if not payload then return end
-    if payload.kind == "group" then
-        self.selectedGroupKey = payload.key
+    if self.page == "manage" and payload.kind == "container" then
+        self.selectedLinkId = payload.key
+    elseif payload.kind == "warehouseGroup" then
+        self:updateMultiSelection(self.warehouseRows, self.selectedWarehouseKeys, "warehouseAnchorKey", payload.key)
         self.selectedInstanceId = nil
         Client.requestDetails(payload.key)
-    elseif payload.kind == "container" then
-        self.selectedLinkId = payload.key
     end
     self:updateDetails()
     self:updateLabels()
@@ -473,45 +757,266 @@ function GodSystemStorageWindow:onDetailSelection()
     if payload and payload.kind == "instance" then self.selectedInstanceId = payload.itemId end
 end
 
-local function copyRuleTable(source)
-    local result = {}
-    for key, value in pairs(type(source) == "table" and source or {}) do
-        if value == true then result[key] = true end
+function GodSystemStorageWindow:ensureInventoryRowSelected(payload)
+    if not self.selectedInventoryKeys[payload.key] then
+        clearSet(self.selectedInventoryKeys)
+        self.selectedInventoryKeys[payload.key] = true
+        self.inventoryAnchorKey = payload.key
     end
+end
+
+function GodSystemStorageWindow:ensureWarehouseRowSelected(payload)
+    if not self.selectedWarehouseKeys[payload.key] then
+        clearSet(self.selectedWarehouseKeys)
+        self.selectedWarehouseKeys[payload.key] = true
+        self.warehouseAnchorKey = payload.key
+    end
+end
+
+function GodSystemStorageWindow:depositAmount(payload)
+    if not payload then return end
+    self:ensureInventoryRowSelected(payload)
+    self:depositSelection(payload.mode)
+end
+
+function GodSystemStorageWindow:withdrawAmount(payload)
+    if not payload then return end
+    self:ensureWarehouseRowSelected(payload)
+    self:withdrawSelection(payload.mode)
+end
+
+function GodSystemStorageWindow:onInventoryRightMouseUp(x, y)
+    local index, payload = listItemAt(self.inventoryList, x, y)
+    if not payload or payload.kind ~= "inventoryGroup" then return false end
+    self.inventoryList.selected = index
+    self:ensureInventoryRowSelected(payload)
+    local context = ISContextMenu.get(Storage.integer(Storage.safeCall(getPlayer and getPlayer(), "getPlayerNum", 0), 0), getMouseX(), getMouseY())
+    if setCount(self.selectedInventoryKeys) > 1 then
+        context:addOption(text("Storage_Context_DepositSelectedAll", "Deposit all selected items"), self, self.depositAmount, { mode = "all", key = payload.key })
+    else
+        context:addOption(text("Storage_Context_DepositOne", "Deposit one"), self, self.depositAmount, { mode = "one", key = payload.key })
+        context:addOption(text("Storage_Context_DepositHalf", "Deposit half"), self, self.depositAmount, { mode = "half", key = payload.key })
+        context:addOption(text("Storage_Context_DepositAll", "Deposit all"), self, self.depositAmount, { mode = "all", key = payload.key })
+    end
+    return true
+end
+
+function GodSystemStorageWindow:onWarehouseRightMouseUp(x, y)
+    local index, payload = listItemAt(self.warehouseList, x, y)
+    if not payload then return false end
+    self.warehouseList.selected = index
+    if self.page == "manage" then
+        if payload.kind ~= "container" then return false end
+        self.selectedLinkId = payload.key
+        self:showContainerRules(payload.container)
+        return true
+    end
+    if payload.kind ~= "warehouseGroup" then return false end
+    self:ensureWarehouseRowSelected(payload)
+    local context = ISContextMenu.get(Storage.integer(Storage.safeCall(getPlayer and getPlayer(), "getPlayerNum", 0), 0), getMouseX(), getMouseY())
+    if setCount(self.selectedWarehouseKeys) > 1 then
+        context:addOption(text("Storage_Context_WithdrawSelectedAll", "Withdraw all selected items"), self, self.withdrawAmount, { mode = "all", key = payload.key })
+    else
+        context:addOption(text("Storage_Context_WithdrawOne", "Withdraw one"), self, self.withdrawAmount, { mode = "one", key = payload.key })
+        context:addOption(text("Storage_Context_WithdrawHalf", "Withdraw half"), self, self.withdrawAmount, { mode = "half", key = payload.key })
+        context:addOption(text("Storage_Context_WithdrawAll", "Withdraw all"), self, self.withdrawAmount, { mode = "all", key = payload.key })
+    end
+    return true
+end
+
+function GodSystemStorageWindow:submitQueuedDeposit(itemIds, sourceItemId, states)
+    self.pendingEquipment = { states = states or {}, itemIds = itemIds, sourceItemId = sourceItemId }
+    local dispatched = Client.depositItems(itemIds, sourceItemId)
+    if dispatched == false and self.pendingEquipment then
+        local player = getPlayer and getPlayer() or nil
+        for i = 1, #(states or {}) do queueRestoreState(player, states[i]) end
+        self.pendingEquipment = nil
+    end
+end
+
+function GodSystemStorageWindow.finishQueuedDeposit(window, itemIds, sourceItemId, states)
+    if not window then return end
+    local player = getPlayer and getPlayer() or nil
+    local source = player and Storage.resolvePlayerContainer(player, sourceItemId) or nil
+    local stateById, eligibleIds, eligibleStates = {}, {}, {}
+    for i = 1, #(states or {}) do
+        stateById[tostring(states[i].itemId or "")] = states[i]
+    end
+    for i = 1, #(itemIds or {}) do
+        local itemId = tostring(itemIds[i] or "")
+        local item = source and Storage.findDirectItem(source, itemId) or nil
+        local state = stateById[itemId]
+        if item and not Storage.isEquippedItem(player, item) then
+            eligibleIds[#eligibleIds + 1] = itemId
+            if state then eligibleStates[#eligibleStates + 1] = state; stateById[itemId] = nil end
+        end
+    end
+    for _, state in pairs(stateById) do queueRestoreState(player, state) end
+    if #eligibleIds == 0 then
+        Client.notifyReason("nothingMoved")
+        window:rebuildInventory()
+        return
+    end
+    window:submitQueuedDeposit(eligibleIds, sourceItemId, eligibleStates)
+end
+
+function GodSystemStorageWindow:queueManualDeposit(itemIds)
+    local player = getPlayer and getPlayer() or nil
+    local source = self:currentSource()
+    if not player or not source or #itemIds == 0 then return end
+    if Client.hasPendingOperation and Client.hasPendingOperation("deposit") then
+        Client.notifyReason("operationPending")
+        return
+    end
+    local states, actions = {}, {}
+    for i = 1, #itemIds do
+        local item = Storage.findDirectItem(source.container, itemIds[i])
+        local state = equipmentState(player, item)
+        if state then states[#states + 1] = state; actions[#actions + 1] = item end
+    end
+    if #actions == 0 then self:submitQueuedDeposit(itemIds, source.itemId, states); return end
+    for i = 1, #actions do ISTimedActionQueue.add(ISUnequipAction:new(player, actions[i], 50)) end
+    local barrier = ISWaitWhileGettingUp:new(player)
+    barrier:setOnComplete(GodSystemStorageWindow.finishQueuedDeposit, self, itemIds, source.itemId, states)
+    ISTimedActionQueue.add(barrier)
+end
+
+function GodSystemStorageWindow:depositSelection(mode)
+    local groups = selectedGroupsInOrder(self.inventoryRows, self.selectedInventoryKeys)
+    if #groups == 0 then return end
+    local itemIds = {}
+    for i = 1, #groups do
+        local selectedMode = #groups > 1 and "all" or (mode or "all")
+        local ids = chooseFromGroup(groups[i], selectedMode)
+        for j = 1, #ids do itemIds[#itemIds + 1] = ids[j] end
+    end
+    self:queueManualDeposit(itemIds)
+end
+
+function GodSystemStorageWindow:withdrawSelection(mode)
+    if Client.hasPendingOperation and Client.hasPendingOperation("withdraw") then
+        Client.notifyReason("operationPending")
+        return
+    end
+    local groups = selectedGroupsInOrder(self.warehouseRows, self.selectedWarehouseKeys)
+    if #groups == 0 then return end
+    local requests = {}
+    for i = 1, #groups do
+        local count = tonumber(groups[i].count) or 0
+        local selectedMode = #groups > 1 and "all" or (mode or "all")
+        if selectedMode == "one" then count = math.min(1, count)
+        elseif selectedMode == "half" then count = math.ceil(count / 2) end
+        requests[#requests + 1] = { groupKey = groups[i].key, count = count }
+    end
+    local source = self:currentSource()
+    Client.withdrawRequests(requests, source and source.itemId or nil)
+end
+
+function GodSystemStorageWindow:restoreFailedEquipment(ok, payload)
+    local pending = self.pendingEquipment
+    if not pending then return end
+    self.pendingEquipment = nil
+    local success = {}
+    if ok and type(payload) == "table" then
+        for i = 1, #(payload.successItemIds or {}) do success[tostring(payload.successItemIds[i])] = true end
+    end
+    local player = getPlayer and getPlayer() or nil
+    for i = 1, #(pending.states or {}) do
+        local state = pending.states[i]
+        if not success[tostring(state.itemId)] then queueRestoreState(player, state) end
+    end
+end
+
+function GodSystemStorageWindow:updateDetails()
+    self.detailList:clear()
+    if self.page == "manage" then
+        local selected
+        for i = 1, #(((Client.snapshot or {}).containers) or {}) do
+            local row = Client.snapshot.containers[i]
+            if tostring(row.linkId) == tostring(self.selectedLinkId) then selected = row; break end
+        end
+        if not selected then
+            self.detailList:addItem(text("Storage_SelectContainer", "Select a connected container"), { displayText = text("Storage_SelectContainer", "Select a connected container") })
+            return
+        end
+        local details = {
+            tostring(selected.name or "Container"),
+            text("Storage_Status", "Status") .. ": " .. (selected.online and text("Storage_Online", "Online") or text("Storage_Offline", "Offline")),
+            text("Storage_CoreHost", "Core host") .. ": " .. tostring(selected.isCoreHost == true),
+            text("Storage_Role", "Role") .. ": " .. tostring(selected.role or "auto"),
+            text("Storage_Priority", "Priority") .. ": " .. tostring(selected.priority or 50),
+            text("Storage_Position", "Position") .. string.format(": %d,%d,%d", selected.x or 0, selected.y or 0, selected.z or 0),
+            text("Storage_Capacity", "Capacity") .. ": " .. formatNumber(selected.used) .. "/" .. formatNumber(selected.capacity),
+            "objectId: " .. tostring(selected.objectId or ""),
+        }
+        for i = 1, #details do self.detailList:addItem(details[i], { displayText = details[i] }) end
+        self.unlinkButton.enable = selected.isCoreHost ~= true
+        return
+    end
+    local selectedGroups = selectedGroupsInOrder(self.warehouseRows, self.selectedWarehouseKeys)
+    local selected = selectedGroups[1]
+    if not selected then
+        self.detailList:addItem(text("Storage_SelectType", "Select an item type"), { displayText = text("Storage_SelectType", "Select an item type") })
+        return
+    end
+    local rows = {
+        tostring(selected.name or selected.fullType), tostring(selected.fullType or ""),
+        text("Storage_Count", "Count") .. ": " .. tostring(selected.count or 0),
+        text("Storage_Mod", "Mod") .. ": " .. tostring(selected.modName or ""),
+        text("Storage_Category", "Category") .. ": " .. tostring(selected.category or ""),
+        text("Storage_State", "State") .. ": " .. table.concat(selected.states or {}, ", "),
+        text("Storage_Sources", "Sources") .. ": " .. table.concat(selected.sourceNames or {}, ", "),
+    }
+    for i = 1, #rows do self.detailList:addItem(rows[i], { displayText = rows[i] }) end
+    local instances = Client.details[tostring(selected.key or "")] or {}
+    for i = 1, math.min(#instances, 250) do
+        local row = instances[i]
+        local label = string.format("#%s | %s | %.0f%% | %.2fkg", tostring(row.id or "?"),
+            tostring(row.sourceName or ""), (tonumber(row.conditionRatio) or 0) * 100, tonumber(row.weight) or 0)
+        self.detailList:addItem(label, { kind = "instance", itemId = row.id, displayText = label })
+    end
+end
+
+function GodSystemStorageWindow:updateLabels()
+    self.categoryButton:setTitle(text("Storage_Filter_Category", "Category") .. ": " .. text("Storage_Category_" .. self.category, self.category))
+    self.stateButton:setTitle(text("Storage_Filter_State", "State") .. ": " .. text("Storage_State_" .. self.state, self.state))
+    self.sourceFilterButton:setTitle(text("Storage_Filter_Source", "Source") .. ": " .. tostring(self.sourceFilter))
+    self.modButton:setTitle(text("Storage_Filter_Mod", "Mod") .. ": " .. tostring(self.modName))
+    self.containerStatusButton:setTitle(text("Storage_Filter_Status", "Status") .. ": " .. text("Storage_ContainerStatus_" .. self.containerStatus, self.containerStatus))
+    self.sortButton:setTitle(text("Storage_Sort", "Sort") .. ": " .. text("Storage_Sort_" .. self.sortMode, self.sortMode))
+    local snapshot = Client.snapshot or {}
+    self.statusLabel.name = string.format("%s %d | %s %d | %s %d/%d | %s %s/%s",
+        text("Storage_Types", "Types"), tonumber(snapshot.groupCount) or #(snapshot.groups or {}),
+        text("Storage_Instances", "Items"), tonumber(snapshot.itemCount) or 0,
+        text("Storage_Containers", "Containers"), tonumber(snapshot.onlineLinks) or 0,
+        (tonumber(snapshot.onlineLinks) or 0) + (tonumber(snapshot.offlineLinks) or 0),
+        text("Storage_Capacity", "Capacity"), formatNumber(snapshot.usedCapacity), formatNumber(snapshot.totalCapacity))
+    local selected
+    for i = 1, #(snapshot.containers or {}) do
+        if tostring(snapshot.containers[i].linkId) == tostring(self.selectedLinkId) then selected = snapshot.containers[i]; break end
+    end
+    self.roleButton:setTitle(text("Storage_Role", "Role") .. (selected and (": " .. text("Storage_Role_" .. tostring(selected.role), selected.role)) or ""))
+    self.unlinkButton.enable = not selected or selected.isCoreHost ~= true
+    self.takeOverButton.enable = (Client.networkState or {}).isAdmin == true
+end
+
+local function copyRules(source)
+    local result = {}
+    for key, value in pairs(type(source) == "table" and source or {}) do if value == true then result[key] = true end end
     return result
 end
 
 function GodSystemStorageWindow:applyCategoryRule(payload)
     if not payload or not payload.linkId then return end
-    local allow = copyRuleTable(payload.allowCategories)
-    local deny = copyRuleTable(payload.denyCategories)
-    if payload.mode == "allowOnly" then
-        allow = { [payload.category] = true }
-        deny[payload.category] = nil
-    elseif payload.mode == "toggleDeny" then
-        deny[payload.category] = deny[payload.category] ~= true and true or nil
-        allow[payload.category] = nil
-    elseif payload.mode == "clear" then
-        allow, deny = {}, {}
-    end
-    Client.updateLink({
-        linkId = payload.linkId,
-        allowCategories = allow,
-        denyCategories = deny,
-    })
+    local allow, deny = copyRules(payload.allowCategories), copyRules(payload.denyCategories)
+    if payload.mode == "allowOnly" then allow = { [payload.category] = true }; deny[payload.category] = nil
+    elseif payload.mode == "toggleDeny" then deny[payload.category] = deny[payload.category] ~= true and true or nil; allow[payload.category] = nil
+    elseif payload.mode == "clear" then allow, deny = {}, {} end
+    Client.updateLink({ linkId = payload.linkId, allowCategories = allow, denyCategories = deny })
 end
 
-function GodSystemStorageWindow:onMainRightMouseUp(x, y)
-    if self.page ~= "manage" or not self.mainList.rowAt then return false end
-    local rowIndex = self.mainList:rowAt(x, y)
-    local row = rowIndex and self.mainList.items[rowIndex] or nil
-    local payload = row and row.item
-    if not payload or payload.kind ~= "container" then return false end
-    self.mainList.selected = rowIndex
-    self.selectedLinkId = payload.key
-    self:updateDetails()
-    local container = payload.container or {}
-    local context = ISContextMenu.get(getPlayer() and getPlayer():getPlayerNum() or 0, getMouseX(), getMouseY())
+function GodSystemStorageWindow:showContainerRules(container)
+    local context = ISContextMenu.get(Storage.integer(Storage.safeCall(getPlayer and getPlayer(), "getPlayerNum", 0), 0), getMouseX(), getMouseY())
     local allowRoot = context:addOption(text("Storage_Rule_AllowOnly", "Allow only category"), nil, nil)
     local allowMenu = ISContextMenu:getNew(context)
     context:addSubMenu(allowRoot, allowMenu)
@@ -520,141 +1025,54 @@ function GodSystemStorageWindow:onMainRightMouseUp(x, y)
     context:addSubMenu(denyRoot, denyMenu)
     for i = 1, #Storage.Categories do
         local category = Storage.Categories[i]
-        local label = text("Storage_Category_" .. category, category)
-        local base = {
-            linkId = container.linkId,
-            category = category,
-            allowCategories = container.allowCategories,
-            denyCategories = container.denyCategories,
-        }
-        local allowPayload = copyRuleTable(base)
-        for key, value in pairs(base) do allowPayload[key] = value end
-        allowPayload.mode = "allowOnly"
-        allowMenu:addOption(label, self, self.applyCategoryRule, allowPayload)
-        local denyPayload = {}
-        for key, value in pairs(base) do denyPayload[key] = value end
-        denyPayload.mode = "toggleDeny"
-        local denied = type(container.denyCategories) == "table" and container.denyCategories[category] == true
-        denyMenu:addOption((denied and "[x] " or "[ ] ") .. label, self, self.applyCategoryRule, denyPayload)
+        local base = { linkId = container.linkId, category = category, allowCategories = container.allowCategories, denyCategories = container.denyCategories }
+        local allowPayload = {}; for key, value in pairs(base) do allowPayload[key] = value end; allowPayload.mode = "allowOnly"
+        local denyPayload = {}; for key, value in pairs(base) do denyPayload[key] = value end; denyPayload.mode = "toggleDeny"
+        allowMenu:addOption(text("Storage_Category_" .. category, category), self, self.applyCategoryRule, allowPayload)
+        denyMenu:addOption(text("Storage_Category_" .. category, category), self, self.applyCategoryRule, denyPayload)
     end
-    context:addOption(text("Storage_Rule_Clear", "Clear category rules"), self, self.applyCategoryRule, {
-        mode = "clear",
-        linkId = container.linkId,
-    })
-    return true
-end
-
-function GodSystemStorageWindow:updateDetails()
-    self.detailList:clear()
-    if self.page == "storage" then
-        local selected
-        for i = 1, #((Client.snapshot and Client.snapshot.groups) or {}) do
-            if tostring(Client.snapshot.groups[i].key) == tostring(self.selectedGroupKey) then selected = Client.snapshot.groups[i]; break end
-        end
-        if not selected then
-            self.detailList:addItem(text("Storage_SelectType", "Select an item type to view details"), {})
-            return
-        end
-        self.detailList:addItem(tostring(selected.name or selected.fullType), {})
-        self.detailList:addItem(tostring(selected.fullType or ""), {})
-        self.detailList:addItem(text("Storage_Count", "Count") .. ": " .. tostring(selected.count or 0), {})
-        self.detailList:addItem(text("Storage_Mod", "Mod") .. ": " .. tostring(selected.modName or ""), {})
-        self.detailList:addItem(text("Storage_Category", "Category") .. ": " .. tostring(selected.category or ""), {})
-        self.detailList:addItem(text("Storage_State", "State") .. ": " .. table.concat(selected.states or {}, ", "), {})
-        self.detailList:addItem(text("Storage_Sources", "Sources") .. ": " .. tostring(#(selected.sources or {})), {})
-        self.detailList:addItem("", {})
-        local instances = Client.details[tostring(self.selectedGroupKey or "")] or {}
-        for i = 1, math.min(#instances, 250) do
-            local row = instances[i]
-            self.detailList:addItem(string.format(
-                "#%s | %s | %.0f%% | %.2fkg",
-                tostring(row.id or "?"), tostring(row.sourceName or ""),
-                (tonumber(row.conditionRatio) or 0) * 100, tonumber(row.weight) or 0
-            ), { kind = "instance", itemId = row.id })
-        end
-    else
-        local selected
-        for i = 1, #((Client.snapshot and Client.snapshot.containers) or {}) do
-            if tostring(Client.snapshot.containers[i].linkId) == tostring(self.selectedLinkId) then selected = Client.snapshot.containers[i]; break end
-        end
-        if not selected then
-            local state = Client.networkState or {}
-            self.detailList:addItem(text("Storage_SelectContainer", "Select a connected container"), {})
-            self.detailList:addItem(text("Storage_NodeCount", "Connected furniture") .. ": " .. tostring(state.nodeCount or 0) .. "/" .. tostring(state.maxLinks or Storage.MaxLinks), {})
-            self.detailList:addItem(text("Storage_ContainerSlotCount", "Storage compartments") .. ": " .. tostring(state.linkCount or 0), {})
-            if state.truncated == true then self.detailList:addItem(text("Storage_TopologyTruncated", "Network exceeds the 128-furniture limit"), {}) end
-            return
-        end
-        self.detailList:addItem(tostring(selected.name or "Container"), {})
-        self.detailList:addItem(text("Storage_Status", "Status") .. ": " .. (selected.online and text("Storage_Online", "Online") or text("Storage_Offline", "Offline")), {})
-        self.detailList:addItem(text("Storage_Role", "Role") .. ": " .. tostring(selected.role or "auto"), {})
-        self.detailList:addItem(text("Storage_Priority", "Priority") .. ": " .. tostring(selected.priority or 50), {})
-        self.detailList:addItem(text("Storage_Position", "Position") .. string.format(": %d,%d,%d", selected.x or 0, selected.y or 0, selected.z or 0), {})
-        self.detailList:addItem(text("Storage_Capacity", "Capacity") .. ": " .. formatNumber(selected.used) .. "/" .. formatNumber(selected.capacity), {})
-        self.detailList:addItem(text("Storage_Powered", "Powered cold storage") .. ": " .. tostring(selected.powered == true), {})
-        if selected.reason then self.detailList:addItem(text("Storage_DisconnectReason", "Disconnect reason") .. ": " .. tostring(selected.reason), {}) end
-    end
+    context:addOption(text("Storage_Rule_Clear", "Clear category rules"), self, self.applyCategoryRule, { mode = "clear", linkId = container.linkId })
 end
 
 function GodSystemStorageWindow:onAction(button)
-    if button.internal == "refresh" then
-        Client.refresh()
-    elseif button.internal == "depositAll" then
-        Client.depositAll()
-    elseif button.internal == "sort" then
-        self.sortMode = cycleValue({ "name", "count", "weight", "condition", "spoilage", "source" }, self.sortMode, 1)
-        self:rebuild()
-    elseif button.internal == "target" then
-        self:cycleWithdrawTarget()
+    if button.internal == "refresh" then Client.refresh(); self:rebuildInventory()
+    elseif button.internal == "depositSelected" then self:depositSelection("all")
+    elseif button.internal == "depositSourceAll" then
+        local source = self:currentSource()
+        if Client.hasPendingOperation and Client.hasPendingOperation("deposit") then
+            Client.notifyReason("operationPending")
+        else
+            Client.depositAll(source and source.itemId or nil)
+        end
+    elseif button.internal == "withdrawSelected" then self:withdrawSelection("all")
     elseif button.internal == "withdrawExact" then
-        if not self.selectedGroupKey or not self.selectedInstanceId then
-            if GodSystem and GodSystem.notify then GodSystem.notify(text("Storage_SelectInstance", "Select a specific instance in the details list")) end
-            return
+        local groups = selectedGroupsInOrder(self.warehouseRows, self.selectedWarehouseKeys)
+        local source = self:currentSource()
+        if Client.hasPendingOperation and Client.hasPendingOperation("withdraw") then
+            Client.notifyReason("operationPending")
+        elseif groups[1] and self.selectedInstanceId then
+            Client.withdrawRequests({ { groupKey = groups[1].key, itemIds = { self.selectedInstanceId } } }, source and source.itemId or nil)
         end
-        Client.withdrawExact(self.selectedGroupKey, self.selectedInstanceId, self.withdrawTargetItemId)
-    else
-        if not self.selectedGroupKey then
-            if GodSystem and GodSystem.notify then GodSystem.notify(text("Storage_SelectType", "Select an item type")) end
-            return
-        end
-        local selected
-        for i = 1, #((Client.snapshot and Client.snapshot.groups) or {}) do
-            if tostring(Client.snapshot.groups[i].key) == tostring(self.selectedGroupKey) then selected = Client.snapshot.groups[i]; break end
-        end
-        local count = 1
-        if button.internal == "withdraw5" then count = 5
-        elseif button.internal == "withdrawAll" then count = selected and selected.count or 1
-        elseif button.internal == "withdrawCustom" then count = math.max(1, math.floor(tonumber(self.countBox:getText()) or 1)) end
-        Client.withdraw(self.selectedGroupKey, count, self.withdrawTargetItemId)
     end
 end
 
 function GodSystemStorageWindow:onManageAction(button)
     if button.internal == "connectMode" then
-        if GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode then
-            GodSystemStorageContext.toggleConnectMode()
-        end
+        if GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode then GodSystemStorageContext.toggleConnectMode() end
         return
     end
-    if button.internal == "takeOver" then
-        Client.takeOver()
-        return
-    end
+    if button.internal == "takeOver" then Client.takeOver(); return end
     if not self.selectedLinkId then return end
     local selected
-    for i = 1, #((Client.snapshot and Client.snapshot.containers) or {}) do
+    for i = 1, #(((Client.snapshot or {}).containers) or {}) do
         if tostring(Client.snapshot.containers[i].linkId) == tostring(self.selectedLinkId) then selected = Client.snapshot.containers[i]; break end
     end
     if not selected then return end
     if button.internal == "unlink" then
-        Client.unlink(self.selectedLinkId)
-    elseif button.internal == "role" then
-        Client.updateLink({ linkId = self.selectedLinkId, role = cycleValue(Storage.Roles, selected.role or "auto", 1) })
-    elseif button.internal == "priorityDown" then
-        Client.updateLink({ linkId = self.selectedLinkId, priority = math.max(0, (tonumber(selected.priority) or 50) - 10) })
-    elseif button.internal == "priorityUp" then
-        Client.updateLink({ linkId = self.selectedLinkId, priority = math.min(100, (tonumber(selected.priority) or 50) + 10) })
-    end
+        if selected.isCoreHost ~= true then Client.unlink(self.selectedLinkId) end
+    elseif button.internal == "role" then Client.updateLink({ linkId = self.selectedLinkId, role = cycleValue(Storage.Roles, selected.role or "auto") })
+    elseif button.internal == "priorityDown" then Client.updateLink({ linkId = self.selectedLinkId, priority = math.max(0, (tonumber(selected.priority) or 50) - 10) })
+    elseif button.internal == "priorityUp" then Client.updateLink({ linkId = self.selectedLinkId, priority = math.min(100, (tonumber(selected.priority) or 50) + 10) }) end
 end
 
 function GodSystemStorageWindow:close()
@@ -663,22 +1081,26 @@ function GodSystemStorageWindow:close()
 end
 
 function UI.open()
-    if UI.window then
-        UI.window:setVisible(true)
-        UI.window:addToUIManager()
-        UI.window:rebuild()
-        return UI.window
-    end
-    local screenW = getCore():getScreenWidth()
-    local screenH = getCore():getScreenHeight()
-    local width = math.min(1120, math.max(900, screenW - 160))
-    local height = math.min(760, math.max(600, screenH - 140))
+    if UI.window then UI.window:setVisible(true); UI.window:addToUIManager(); UI.window:rebuild(); return UI.window end
+    local screenW, screenH = getCore():getScreenWidth(), getCore():getScreenHeight()
+    local width = math.min(1480, math.max(1120, screenW - 80))
+    local height = math.min(820, math.max(650, screenH - 80))
     local window = GodSystemStorageWindow:new(math.floor((screenW - width) / 2), math.floor((screenH - height) / 2), width, height)
     window:initialise()
     window:addToUIManager()
     window:setVisible(true)
     UI.window = window
     return window
+end
+
+function UI.depositExternalSelection(items, sourceItemId)
+    if not UI.window then return false end
+    local ids = {}
+    for i = 1, #(items or {}) do local id = Storage.itemId(items[i]); if id then ids[#ids + 1] = id end end
+    UI.window.currentSourceKey = sourceItemId and ("item:" .. tostring(sourceItemId)) or "main"
+    UI.window:rebuildSources()
+    UI.window:queueManualDeposit(ids)
+    return #ids > 0
 end
 
 function UI.close()
@@ -690,7 +1112,7 @@ function UI.onSnapshot()
 end
 
 function UI.onDetails(groupKey)
-    if UI.window and tostring(UI.window.selectedGroupKey or "") == tostring(groupKey or "") then UI.window:updateDetails() end
+    if UI.window and UI.window.selectedWarehouseKeys[tostring(groupKey or "")] then UI.window:updateDetails() end
 end
 
 function UI.onNetworkState()
@@ -698,26 +1120,38 @@ function UI.onNetworkState()
 end
 
 function UI.onIndexStarted()
-    if UI.window then
-        UI.window.statusLabel.name = text("Storage_Loading", "Building storage index...")
-    end
+    if UI.window then UI.window.statusLabel.name = text("Storage_Loading", "Building storage index...") end
 end
 
 function UI.onOperationResult(command, ok, reason, payload)
+    if UI.window and command == "deposit" then UI.window:restoreFailedEquipment(ok, payload) end
     if payload and GodSystem and GodSystem.notify and (command == "deposit" or command == "withdraw") then
-        GodSystem.notify(
-            text("Storage_TransferResult", "Moved {1}; skipped {2}; failed {3}; cold downgrade {4}")
-                :gsub("{1}", tostring(payload.success or 0))
-                :gsub("{2}", tostring(payload.skipped or 0))
-                :gsub("{3}", tostring(payload.failed or 0))
-                :gsub("{4}", tostring(payload.coldDowngrade or 0))
-        )
+        GodSystem.notify(text("Storage_TransferResult", "Moved {1}; skipped {2}; failed {3}; cold downgrade {4}")
+            :gsub("{1}", tostring(payload.success or 0)):gsub("{2}", tostring(payload.skipped or 0))
+            :gsub("{3}", tostring(payload.failed or 0)):gsub("{4}", tostring(payload.coldDowngrade or 0)))
     end
-    if UI.window and ok then UI.window.statusLabel.name = text("Storage_Refreshing", "Refreshing...") end
+    if UI.window then
+        if ok then UI.window.statusLabel.name = text("Storage_Refreshing", "Refreshing...") end
+        UI.window:rebuildInventory()
+    end
 end
 
-function UI.onError()
-    if UI.window then UI.window:updateLabels() end
+function UI.onError(args)
+    if UI.window then
+        if args and args.command == "deposit" and args.reason ~= "operationPending" then
+            UI.window:restoreFailedEquipment(false, args.payload)
+        end
+        UI.window:updateLabels()
+    end
+end
+
+function UI.onContainerUpdate()
+    if UI.window and UI.window:isVisible() then UI.window:rebuildSources(); UI.window:rebuildInventory() end
+end
+
+if Events.OnContainerUpdate then
+    Events.OnContainerUpdate.Remove(UI.onContainerUpdate)
+    Events.OnContainerUpdate.Add(UI.onContainerUpdate)
 end
 
 return UI

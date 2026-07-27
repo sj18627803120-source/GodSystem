@@ -598,7 +598,6 @@ local function installTarget(player, args)
     local marker = Storage.getNetworkContainerMarker(object)
     if not marker then return nil, nil, "networkContainerRequired" end
     if Storage.isCoreHost(object) then return nil, nil, "coreInstalled" end
-    if not Storage.coreHostIsEmpty(object) then return nil, nil, "coreHostNotEmpty" end
     return object, position, nil
 end
 
@@ -896,6 +895,7 @@ function Manager.unlinkContainer(player, coreArgs, linkId)
     if not link then return false, "linkMissing" end
     local object = Storage.resolveLink(link)
     if not object then return false, "targetChanged" end
+    if Storage.isCoreHost(object) then return false, "coreInstalled" end
     if not Storage.clearNetworkContainerMarker(object) then return false, "markerFailed" end
     network.revision = Storage.integer(network.revision, 0) + 1
     network.updatedAtMs = Storage.nowMs()
@@ -1014,87 +1014,93 @@ function Manager.latestJob(networkId, snapshotId)
     return job
 end
 
-local function collectSafeDepositItems(player)
-    local result = {}
-    local inventory = safeCall(player, "getInventory", nil)
-    local items = safeCall(inventory, "getItems", nil)
-    local size = Storage.integer(safeCall(items, "size", 0), 0)
-    local seen = {}
-    local function append(item)
-        local id = Storage.itemId(item)
-        if id and not seen[id] then seen[id] = true; result[#result + 1] = { item = item, container = Storage.getItemContainer(item) } end
-    end
-    local function visitWornContents(item, depth)
-        if depth > Storage.MaxDepth then return end
-        local child = safeCall(item, "getInventory", nil)
-        local children = safeCall(child, "getItems", nil)
-        local childCount = Storage.integer(safeCall(children, "size", 0), 0)
-        for j = 0, childCount - 1 do
-            local nested = safeCall(children, "get", nil, j)
-            local allowed = Storage.isSafeDepositItem(player, nested)
-            if allowed then append(nested) else visitWornContents(nested, depth + 1) end
-        end
-    end
-    for i = 0, size - 1 do
-        local item = safeCall(items, "get", nil, i)
-        local allowed, reason = Storage.isSafeDepositItem(player, item)
-        if allowed then
-            append(item)
-        elseif reason == "worn" then
-            visitWornContents(item, 0)
-        end
-    end
-    return result
-end
-
 function Manager.deposit(player, coreArgs, args)
+    args = type(args) == "table" and args or {}
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
     local connected = Manager.connectedNetwork(network, coreObject)
-    local candidates = {}
-    if args.safeAll == true then
-        candidates = collectSafeDepositItems(player)
-    else
-        local inventory = safeCall(player, "getInventory", nil)
-        local seen = {}
-        for i = 1, #((args and args.itemIds) or {}) do
-            local id = tostring(args.itemIds[i] or "")
-            if id ~= "" and not seen[id] then
-                seen[id] = true
-                local item, source = Storage.findItemRecursive(inventory, id)
-                if item and source then candidates[#candidates + 1] = { item = item, container = source } end
-            end
+    local mode = tostring(args.mode or "")
+    if mode ~= "selected" and mode ~= "sourceAll" then return false, "invalidMode" end
+    local source, sourceItem, sourceReason = Storage.resolvePlayerContainer(player, args.sourceItemId)
+    if not source then return false, sourceReason end
+    local stats = {
+        requested = 0, success = 0, skipped = 0, failed = 0, coldDowngrade = 0, offline = 0,
+        successItemIds = {}, failedItems = {}, skippedItemIds = {},
+    }
+    local candidates, seen = {}, {}
+    local function failItem(id, itemReason)
+        stats.failed = stats.failed + 1
+        stats.failedItems[#stats.failedItems + 1] = { itemId = tostring(id or ""), reason = tostring(itemReason or "unknown") }
+    end
+    local function append(item, id)
+        id = tostring(id or Storage.itemId(item) or "")
+        if id ~= "" and not seen[id] then
+            seen[id] = true
+            stats.requested = stats.requested + 1
+            if item then candidates[#candidates + 1] = { item = item, itemId = id, container = source }
+            else failItem(id, "sourceChanged") end
         end
     end
-    local stats = { requested = #candidates, success = 0, skipped = 0, failed = 0, coldDowngrade = 0, offline = 0 }
+    if mode == "sourceAll" then
+        local items = safeCall(source, "getItems", nil)
+        local size = Storage.integer(safeCall(items, "size", 0), 0)
+        for i = 0, math.min(size - 1, Storage.MaxIndexedItems - 1) do
+            local item = safeCall(items, "get", nil, i)
+            append(item, Storage.itemId(item))
+        end
+    else
+        for i = 1, math.min(#(args.itemIds or {}), Storage.MaxIndexedItems) do
+            local id = tostring(args.itemIds[i] or "")
+            if id ~= "" and not seen[id] then append(Storage.findDirectItem(source, id), id) end
+        end
+    end
     local fallbackSquare = Storage.getSquare(network.coreHost.x, network.coreHost.y, network.coreHost.z)
     for i = 1, #candidates do
         local row = candidates[i]
-        local allowed = Storage.isSafeDepositItem(player, row.item)
+        local allowed, itemReason
+        if mode == "sourceAll" then
+            allowed, itemReason = Storage.isBulkDepositItem(player, row.item)
+        else
+            allowed, itemReason = Storage.isManualDepositItem(player, row.item)
+        end
         if not allowed then
-            stats.skipped = stats.skipped + 1
+            if mode == "sourceAll" then
+                stats.skipped = stats.skipped + 1
+                stats.skippedItemIds[#stats.skippedItemIds + 1] = row.itemId
+            else
+                failItem(row.itemId, itemReason)
+            end
         else
             local routes, downgraded = Storage.routeCandidates(connected, player, row.item)
             if #routes == 0 then
-                stats.skipped = stats.skipped + 1
+                failItem(row.itemId, "noRoute")
             else
                 local moved = false
+                local transferReason = "targetAddFailed"
                 for j = 1, #routes do
                     local route = routes[j]
+                    local function sourceValidator()
+                        local current, currentItem = Storage.resolvePlayerContainer(player, args.sourceItemId)
+                        return current == source and currentItem == sourceItem
+                            and Storage.findDirectItem(source, row.itemId) == row.item
+                    end
                     local function targetValidator()
                         local object, current = Storage.resolveLink(route.link)
                         return object ~= nil and current == route.container
                             and Storage.isWithinNetworkRange(connected, { x = route.link.x, y = route.link.y, z = route.link.z })
                     end
-                    local ok = Storage.transferItem(player, row.item, row.container, route.container, fallbackSquare, nil, targetValidator)
+                    local ok, moveReason = Storage.transferItem(player, row.item, row.container, route.container,
+                        fallbackSquare, sourceValidator, targetValidator)
+                    transferReason = moveReason or transferReason
                     if ok then moved = true; break end
                     if not Storage.containerContains(row.container, row.item) then break end
                 end
                 if moved then
                     stats.success = stats.success + 1
+                    stats.successItemIds[#stats.successItemIds + 1] = row.itemId
                     if downgraded then stats.coldDowngrade = stats.coldDowngrade + 1 end
                 else
-                    stats.failed = stats.failed + 1
+                    failItem(row.itemId, transferReason)
                 end
             end
         end
@@ -1107,69 +1113,75 @@ function Manager.deposit(player, coreArgs, args)
     return stats.success > 0, stats.success > 0 and nil or "nothingMoved", stats
 end
 
-local function playerWearsItem(player, expectedItem)
-    local worn = safeCall(player, "getWornItems", nil)
-    local size = Storage.integer(safeCall(worn, "size", 0), 0)
-    for i = 0, size - 1 do
-        local entry = safeCall(worn, "get", nil, i)
-        local wornItem = safeCall(entry, "getItem", entry)
-        if wornItem == expectedItem then return true end
-    end
-    return false
-end
-
 function Manager.withdraw(player, coreArgs, args)
+    args = type(args) == "table" and args or {}
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
     local connected = Manager.connectedNetwork(network, coreObject)
     local job = Manager.latestJob(network.networkId, args.snapshotId)
     if not job then return false, "snapshotExpired" end
-    local instances = job.instances[tostring(args.groupKey or "")] or {}
-    local wanted = Storage.clamp(Storage.integer(args.count, 1), 1, 20000)
-    if args.itemId and tostring(args.itemId) ~= "" then
-        local exact = {}
-        for i = 1, #instances do
-            if tostring(instances[i].id or "") == tostring(args.itemId) then exact[1] = instances[i]; break end
-        end
-        instances = exact
-        wanted = 1
-    end
-    local target = safeCall(player, "getInventory", nil)
-    local targetItem
-    if args.targetItemId and tostring(args.targetItemId) ~= "" then
-        targetItem = Storage.findItemRecursive(target, tostring(args.targetItemId))
-        if not targetItem or not playerWearsItem(player, targetItem) then return false, "targetInvalid" end
-        local nested = targetItem and safeCall(targetItem, "getInventory", nil) or nil
-        if not nested then return false, "targetInvalid" end
-        target = nested
-    end
-    if not target then return false, "targetMissing" end
-    local stats = { requested = wanted, success = 0, skipped = 0, failed = 0, coldDowngrade = 0, offline = 0 }
+    local target, targetItem, targetReason = Storage.resolvePlayerContainer(player, args.targetItemId)
+    if not target then return false, targetReason end
+    local stats = {
+        requested = 0, success = 0, skipped = 0, failed = 0, coldDowngrade = 0, offline = 0,
+        successItemIds = {}, failedItems = {}, skippedItemIds = {},
+    }
     local fallbackSquare = Storage.getSquare(network.coreHost.x, network.coreHost.y, network.coreHost.z)
-    local selected, expectedIds = {}, {}
-    for i = 1, math.min(wanted, #instances) do
-        selected[#selected + 1] = instances[i]
-        expectedIds[tostring(instances[i].id or "")] = true
+    local selected, expectedIds, selectedIds = {}, {}, {}
+    local requests = type(args.requests) == "table" and args.requests or {}
+    local function selectInstance(instance, groupKey)
+        local id = tostring(instance and instance.id or "")
+        if id == "" or selectedIds[id] or #selected >= Storage.MaxIndexedItems then return end
+        selectedIds[id] = true
+        expectedIds[id] = true
+        selected[#selected + 1] = { id = id, groupKey = tostring(groupKey or "") }
     end
+    for i = 1, #requests do
+        if #selected >= Storage.MaxIndexedItems then break end
+        local request = type(requests[i]) == "table" and requests[i] or {}
+        local groupKey = tostring(request.groupKey or "")
+        local instances = job.instances[groupKey] or {}
+        if type(request.itemIds) == "table" and #request.itemIds > 0 then
+            local byId = {}
+            for j = 1, #instances do byId[tostring(instances[j].id or "")] = instances[j] end
+            for j = 1, #request.itemIds do
+                local id = tostring(request.itemIds[j] or "")
+                if byId[id] then selectInstance(byId[id], groupKey) end
+            end
+        else
+            local wanted = Storage.clamp(Storage.integer(request.count, 1), 1, Storage.MaxIndexedItems)
+            for j = 1, math.min(wanted, #instances) do selectInstance(instances[j], groupKey) end
+        end
+    end
+    stats.requested = #selected
+    if stats.requested == 0 then return false, "nothingMoved", stats end
     local liveItems = Storage.findNetworkItems(connected, expectedIds)
     for i = 1, #selected do
         local expected = selected[i]
-        local live = liveItems[tostring(expected.id or "")]
+        local live = liveItems[expected.id]
         local item, source = live and live.item or nil, live and live.source or nil
-        if not item or not source then
+        if not item or not source or Storage.itemGroupKey(item) ~= expected.groupKey then
             stats.skipped = stats.skipped + 1
+            stats.skippedItemIds[#stats.skippedItemIds + 1] = expected.id
         else
             local function sourceValidator()
                 local object, current = Storage.resolveLink(live.link)
-                return object ~= nil and current ~= nil
+                return object ~= nil and current == source and Storage.containerContains(source, item)
                     and Storage.isWithinNetworkRange(connected, { x = live.link.x, y = live.link.y, z = live.link.z })
             end
             local function targetValidator()
-                if not targetItem then return target == safeCall(player, "getInventory", nil) end
-                return playerWearsItem(player, targetItem) and safeCall(targetItem, "getInventory", nil) == target
+                local current, currentItem = Storage.resolvePlayerContainer(player, args.targetItemId)
+                return current == target and currentItem == targetItem
             end
-            local ok = Storage.transferItem(player, item, source, target, fallbackSquare, sourceValidator, targetValidator)
-            if ok then stats.success = stats.success + 1 else stats.failed = stats.failed + 1 end
+            local ok, moveReason = Storage.transferItem(player, item, source, target, fallbackSquare,
+                sourceValidator, targetValidator)
+            if ok then
+                stats.success = stats.success + 1
+                stats.successItemIds[#stats.successItemIds + 1] = expected.id
+            else
+                stats.failed = stats.failed + 1
+                stats.failedItems[#stats.failedItems + 1] = { itemId = expected.id, reason = tostring(moveReason or "unknown") }
+            end
         end
     end
     if stats.success > 0 then

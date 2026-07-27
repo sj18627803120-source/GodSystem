@@ -38,8 +38,6 @@ local reasonText = {
     coreOwned = { "Storage_Error_CoreOwned", "A valid storage core is already in your inventory" },
     coreInstalled = { "Storage_Error_CoreInstalled", "A storage core is already installed" },
     networkContainerRequired = { "Storage_Error_NetworkContainerRequired", "Mark this furniture as a network container first" },
-    coreHostNotEmpty = { "Storage_Error_CoreHostNotEmpty", "Every storage slot in the host furniture must be empty" },
-    capacityLockFailed = { "Storage_Error_CapacityLockFailed", "The host capacity could not be locked" },
     capacityRestoreFailed = { "Storage_Error_CapacityRestoreFailed", "The host capacity could not be restored" },
     coreConsumeFailed = { "Storage_Error_CoreConsumeFailed", "The storage core could not be consumed" },
     coreReturnFailed = { "Storage_Error_CoreReturnFailed", "The storage core could not be returned; the host was unlocked" },
@@ -75,6 +73,13 @@ end
 
 function Client.newOperationId(command)
     return Storage.newId("op-" .. tostring(command or "storage"), Storage.playerKey(player()))
+end
+
+function Client.hasPendingOperation(command)
+    for _, pending in pairs(Client.pending or {}) do
+        if pending.command == command then return true end
+    end
+    return false
 end
 
 function Client.coreArgs()
@@ -366,7 +371,7 @@ local function localMutation(command, args)
         ok, reason, payload = Manager.withdraw(p, core, args)
     end
     if not ok then Client.notifyReason(reason) end
-    if payload and GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
+    if GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
         GodSystemStorageUI.onOperationResult(command, ok, reason, payload)
     end
     if command == "link" then
@@ -442,31 +447,35 @@ function Client.takeOver()
     return true
 end
 
-function Client.depositItems(itemIds)
-    return Client.mutate("deposit", { itemIds = itemIds or {}, safeAll = false })
+function Client.depositItems(itemIds, sourceItemId)
+    return Client.mutate("deposit", {
+        mode = "selected",
+        sourceItemId = sourceItemId,
+        itemIds = itemIds or {},
+    })
 end
 
-function Client.depositAll()
-    return Client.mutate("deposit", { safeAll = true })
+function Client.depositAll(sourceItemId)
+    return Client.mutate("deposit", {
+        mode = "sourceAll",
+        sourceItemId = sourceItemId,
+    })
+end
+
+function Client.withdrawRequests(requests, targetItemId)
+    return Client.mutate("withdraw", {
+        snapshotId = Client.snapshot and Client.snapshot.snapshotId,
+        requests = requests or {},
+        targetItemId = targetItemId,
+    })
 end
 
 function Client.withdraw(groupKey, count, targetItemId)
-    return Client.mutate("withdraw", {
-        snapshotId = Client.snapshot and Client.snapshot.snapshotId,
-        groupKey = groupKey,
-        count = count,
-        targetItemId = targetItemId,
-    })
+    return Client.withdrawRequests({ { groupKey = groupKey, count = count } }, targetItemId)
 end
 
 function Client.withdrawExact(groupKey, itemId, targetItemId)
-    return Client.mutate("withdraw", {
-        snapshotId = Client.snapshot and Client.snapshot.snapshotId,
-        groupKey = groupKey,
-        itemId = itemId,
-        count = 1,
-        targetItemId = targetItemId,
-    })
+    return Client.withdrawRequests({ { groupKey = groupKey, itemIds = { itemId } } }, targetItemId)
 end
 
 function Client.onServerCommand(module, command, args)

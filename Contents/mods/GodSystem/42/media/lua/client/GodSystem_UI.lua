@@ -3606,7 +3606,7 @@ function GodSystemWindow:populateStorageNetwork()
     self:setActionBar(storageActions)
     self:addListItem(GodSystem.text("Storage_Manual_Title", "User guide"), {
         kind = "storageInfo",
-        detail = GodSystem.text("Storage_Manual_Detail", "Claim the first storage core for free. Enable connection mode and mark fixed containers. Empty one marked furniture completely, then right-click it to install the core. The host becomes the storage entrance and a bridge, but its own storage slots are locked. Same-floor cardinal neighbors and containers stacked on one square connect. Retrieve the core before moving furniture; recovery costs 2000 if it is lost.")
+        detail = GodSystem.text("Storage_Manual_Detail", "Claim the first storage core for free. Enable connection mode and mark fixed containers, then install the core into any marked furniture, including a non-empty multi-slot fixture. The host remains a normal network container and participates in indexing and routing. Use the three-column storage window to move selected items between the current character container and the warehouse. Retrieve the core before moving furniture; recovery costs 2000 if it is lost.")
     })
     if status then
         local stateKey = "Storage_CoreState_" .. tostring(status.state or "missing")

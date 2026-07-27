@@ -39,6 +39,8 @@ REMOVED_UI_KEYS = {
     "Attribute_BuyToLevel",
     "Attribute_TargetLevelPrompt",
     "Waist_CapacityExtended",
+    "Storage_Error_CoreHostNotEmpty",
+    "Storage_Error_CapacityLockFailed",
 }
 
 

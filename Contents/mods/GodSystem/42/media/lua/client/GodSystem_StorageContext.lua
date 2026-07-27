@@ -5,6 +5,7 @@ require "ISUI/ISWorldObjectContextMenu"
 GodSystemStorageContext = GodSystemStorageContext or {}
 
 local Context = GodSystemStorageContext
+local UI = GodSystemStorageUI
 local Storage = GodSystemStorage
 local Client = GodSystemStorageClient
 
@@ -72,16 +73,56 @@ local function objectPosition(object)
     }
 end
 
-function Context.clearHighlights()
-    for object in pairs(Context.highlighted) do
-        if object and object.setHighlighted then object:setHighlighted(false) end
+function Context.clearTemporaryHighlights()
+    for object, playerNum in pairs(Context.highlighted) do
+        if object and object.setHighlighted then
+            pcall(function() object:setHighlighted(Storage.integer(playerNum, 0), false) end)
+        end
     end
     Context.highlighted = {}
+end
+
+function Context.clearHighlights()
+    Context.clearTemporaryHighlights()
     Context.markers = {}
     Context.markerCount = 0
 end
 
-local function cacheMarker(object, marker)
+local function connectedObjectIds()
+    return type(Client.networkState) == "table" and type(Client.networkState.connectedObjectIds) == "table"
+        and Client.networkState.connectedObjectIds or {}
+end
+
+local function candidateRows(square)
+    local rows = {}
+    local objects = Storage.squareObjects(square)
+    for i = 1, #objects do
+        local object = objects[i]
+        if #Storage.getContainerSlots(object) > 0 and Storage.getObjectIndex(object) >= 0 then
+            rows[#rows + 1] = object
+        end
+    end
+    table.sort(rows, function(a, b)
+        local ai, bi = Storage.getObjectIndex(a), Storage.getObjectIndex(b)
+        if ai ~= bi then return ai < bi end
+        local as, bs = Storage.objectSpriteName(a), Storage.objectSpriteName(b)
+        if as ~= bs then return as < bs end
+        return tostring(a) < tostring(b)
+    end)
+    return rows
+end
+
+local function candidateNumber(object)
+    local square = Storage.safeCall(object, "getSquare", nil)
+    local rows = candidateRows(square)
+    for i = 1, #rows do if rows[i] == object then return i end end
+    return 1
+end
+
+Context.candidateRows = candidateRows
+Context.candidateNumber = candidateNumber
+
+local function cacheMarker(object, marker, number)
     local position = Storage.objectCoordinates(object)
     local objectId = marker and tostring(marker.objectId or "") or ""
     if not position or objectId == "" then return end
@@ -92,7 +133,9 @@ local function cacheMarker(object, marker)
         x = position.x,
         y = position.y,
         z = position.z,
+        number = number or candidateNumber(object),
         coreHost = Storage.isCoreHost(object),
+        connected = connectedObjectIds()[objectId] == true,
     }
 end
 
@@ -123,14 +166,21 @@ function Context.renderMarkers()
         if sx and sy and zoom then
             local size = math.max(6, 10 / zoom)
             local stem = math.max(4, 7 / zoom)
-            local cy = sy - math.max(20, 34 / zoom)
-            local red, green, blue = 0.12, 0.48, 0.92
+            local offset = math.max(10, 14 / zoom) * math.max(0, Storage.integer(marker.number, 1) - 1)
+            sx = sx + offset
+            local cy = sy - math.max(20, 34 / zoom) - offset
+            local red, green, blue = 0.86, 0.26, 0.28
+            if marker.connected then red, green, blue = 0.12, 0.48, 0.92 end
             if marker.coreHost then red, green, blue = 0.12, 0.82, 0.42 end
             drawLine(renderer, Context.lineTexture, sx, cy - size, sx + size, cy, red, green, blue)
             drawLine(renderer, Context.lineTexture, sx + size, cy, sx, cy + size, red, green, blue)
             drawLine(renderer, Context.lineTexture, sx, cy + size, sx - size, cy, red, green, blue)
             drawLine(renderer, Context.lineTexture, sx - size, cy, sx, cy - size, red, green, blue)
             drawLine(renderer, Context.lineTexture, sx, cy + size, sx, cy + size + stem, red, green, blue)
+            if getTextManager then
+                getTextManager():DrawStringCentre(UIFont.Small, sx, cy - 6,
+                    tostring(marker.number or 1), 1, 1, 1, 1)
+            end
         end
     end
 end
@@ -143,15 +193,58 @@ function Context.refreshHighlights()
     if not position then return end
     for x = Storage.integer(position.x, 0) - Storage.HighlightRadius, Storage.integer(position.x, 0) + Storage.HighlightRadius do
         for y = Storage.integer(position.y, 0) - Storage.HighlightRadius, Storage.integer(position.y, 0) + Storage.HighlightRadius do
-            local objects = Storage.squareObjects(Storage.getSquare(x, y, position.z))
+            local objects = candidateRows(Storage.getSquare(x, y, position.z))
             for i = 1, #objects do
                 local marker = Storage.getNetworkContainerMarker(objects[i])
                 if marker then
-                    cacheMarker(objects[i], marker)
+                    cacheMarker(objects[i], marker, i)
                 end
             end
         end
     end
+end
+
+local function colorForObject(object)
+    if Storage.isCoreHost(object) then return 0.12, 0.82, 0.42 end
+    local marker = Storage.getNetworkContainerMarker(object)
+    if marker then
+        local objectId = tostring(marker.objectId or "")
+        if connectedObjectIds()[objectId] == true then return 0.12, 0.48, 0.92 end
+        return 0.86, 0.26, 0.28
+    end
+    return 0.80, 0.74, 0.30
+end
+
+
+Context.colorForObject = colorForObject
+
+function Context.onOptionHighlight(_, menu, highlighted, object)
+    if not object or not object.setHighlighted then return end
+    local playerNum = Storage.integer(menu and menu.player, 0)
+    if not highlighted then
+        pcall(function() object:setHighlighted(playerNum, false) end)
+        Context.highlighted[object] = nil
+        return
+    end
+    Context.clearTemporaryHighlights()
+    local red, green, blue = colorForObject(object)
+    pcall(function()
+        object:setHighlightColor(playerNum, ColorInfo.new(red, green, blue, 1))
+        object:setHighlighted(playerNum, true, false)
+    end)
+    Context.highlighted[object] = playerNum
+end
+
+local function configureOption(option, object)
+    if option then
+        option.onHighlightParams = { object }
+        option.onHighlight = Context.onOptionHighlight
+    end
+    return option
+end
+
+local function numberedLabel(number, label)
+    return "[" .. tostring(number or 1) .. "] " .. tostring(label or "")
 end
 
 function Context.setConnectMode(enabled)
@@ -189,22 +282,22 @@ function Context.setNetworkContainer(_, payload)
     Client.setNetworkContainer(payload)
 end
 
-local function addCoreHostOptions(context, object)
+local function addCoreHostOptions(context, object, number)
     if not Storage.isCoreHost(object) then return false end
     local position = objectPosition(object)
     if not position then return false end
-    context:addOption(text("Storage_Context_Open", "Open system storage"), Context, Context.openCoreHost, {
+    configureOption(context:addOption(numberedLabel(number, text("Storage_Context_Open", "Open system storage")), Context, Context.openCoreHost, {
         position = position,
         object = object,
-    })
-    context:addOption(text("Storage_Context_RetrieveCore", "Retrieve storage core"), Context, Context.retrieveCore, {
+    }), object)
+    configureOption(context:addOption(numberedLabel(number, text("Storage_Context_RetrieveCore", "Retrieve storage core")), Context, Context.retrieveCore, {
         position = position,
         object = object,
-    })
+    }), object)
     return true
 end
 
-local function addNetworkContainerOption(context, object)
+local function addNetworkContainerOption(context, object, number)
     local position = Storage.objectCoordinates(object)
     if not position then return false end
     local slots = Storage.getContainerSlots(object)
@@ -223,37 +316,41 @@ local function addNetworkContainerOption(context, object)
     local label = marker
         and text("Storage_Context_UnmarkNetwork", "Remove network container mark")
         or text("Storage_Context_MarkNetwork", "Mark as network container")
-    context:addOption(label, Context, Context.setNetworkContainer, payload)
+    configureOption(context:addOption(numberedLabel(number, label), Context, Context.setNetworkContainer, payload), object)
     return true
 end
 
-local function addInstallCoreOption(context, object)
+local function addInstallCoreOption(context, object, number)
     if not Client.findCarriedCore or not Client.findCarriedCore() then return false end
     local marker = Storage.getNetworkContainerMarker(object)
     if not marker or Storage.isCoreHost(object) then return false end
-    if not Storage.coreHostIsEmpty(object) then return false end
     local position = Storage.objectCoordinates(object)
     local objectIndex = Storage.getObjectIndex(object)
     if not position or objectIndex < 0 then return false end
-    context:addOption(text("Storage_Context_InstallCore", "Install storage core"), Context, Context.installCore, {
+    configureOption(context:addOption(numberedLabel(number, text("Storage_Context_InstallCore", "Install storage core")), Context, Context.installCore, {
         x = position.x, y = position.y, z = position.z,
         objectIndex = objectIndex,
         sprite = Storage.objectSpriteName(object),
-    })
+    }), object)
     return true
 end
 
 function Context.fillWorldMenu(playerNum, context, worldObjects, test)
     if test then return end
-    local objects = collectWorldObjects(worldObjects)
-    for i = 1, #objects do
-        addCoreHostOptions(context, objects[i])
-        addInstallCoreOption(context, objects[i])
+    Context.clearTemporaryHighlights()
+    local clicked = collectWorldObjects(worldObjects)
+    local squares, seenSquares = {}, {}
+    for i = 1, #clicked do
+        local square = Storage.safeCall(clicked[i], "getSquare", nil)
+        if square and not seenSquares[square] then seenSquares[square] = true; squares[#squares + 1] = square end
     end
-    if not Context.connectMode then return end
-    for i = 1, #objects do
-        local object = objects[i]
-        addNetworkContainerOption(context, object)
+    for s = 1, #squares do
+        local objects = candidateRows(squares[s])
+        for i = 1, #objects do
+            addCoreHostOptions(context, objects[i], i)
+            addInstallCoreOption(context, objects[i], i)
+            if Context.connectMode then addNetworkContainerOption(context, objects[i], i) end
+        end
     end
 end
 
@@ -282,22 +379,44 @@ function Context.depositSelected(_, payload)
         local id = Storage.itemId(payload.items[i])
         if id then itemIds[#itemIds + 1] = id end
     end
-    if #itemIds > 0 then Client.depositItems(itemIds) end
+    if #itemIds > 0 then
+        if not UI.window then UI.open() end
+        UI.depositExternalSelection(payload.items, payload.sourceItemId)
+    end
+end
+
+local function sourceItemIdForSelection(player, items)
+    local root = Storage.safeCall(player, "getInventory", nil)
+    local source = items[1] and Storage.getItemContainer(items[1]) or nil
+    if not root or not source then return nil, false end
+    for i = 2, #items do if Storage.getItemContainer(items[i]) ~= source then return nil, false end end
+    if source == root then return nil, true end
+    local roots = Storage.safeCall(root, "getItems", nil)
+    local size = Storage.integer(Storage.safeCall(roots, "size", 0), 0)
+    for i = 0, size - 1 do
+        local item = Storage.safeCall(roots, "get", nil, i)
+        if Storage.safeCall(item, "getInventory", nil) == source and Storage.isPlayerSourceItem(player, item) then
+            return Storage.itemId(item), true
+        end
+    end
+    return nil, false
 end
 
 function Context.fillInventoryMenu(playerNum, context, items)
     local p = playerByNumber(playerNum)
     local selected = collectInventoryItems(items)
     if not coreNearby(p) then return end
+    local sourceItemId, sourceValid = sourceItemIdForSelection(p, selected)
+    if not sourceValid then return end
     local eligible = {}
     for i = 1, #selected do
-        local allowed = Storage.isSafeDepositItem(p, selected[i])
+        local allowed = Storage.isManualDepositItem(p, selected[i])
         if allowed and isInPlayerInventory(p, selected[i]) then eligible[#eligible + 1] = selected[i] end
     end
     if #eligible <= 0 then return end
     local label = text("Storage_Context_DepositSelected", "Deposit selected into system storage")
         .. " (" .. tostring(#eligible) .. ")"
-    context:addOption(label, Context, Context.depositSelected, { items = eligible })
+    context:addOption(label, Context, Context.depositSelected, { items = eligible, sourceItemId = sourceItemId })
 end
 
 function Context.reset()

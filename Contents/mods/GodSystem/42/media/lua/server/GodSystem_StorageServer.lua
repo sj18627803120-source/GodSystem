@@ -101,10 +101,10 @@ local function fingerprint(command, args)
         tostring(args and args.coreY or ""),
         tostring(args and args.coreZ or ""),
         tostring(args and args.snapshotId or ""),
-        tostring(args and args.groupKey or ""),
-        tostring(args and args.count or ""),
+        tostring(args and args.mode or ""),
+        tostring(args and args.sourceItemId or ""),
+        tostring(args and args.targetItemId or ""),
         tostring(args and args.linkId or ""),
-        tostring(args and args.safeAll == true),
         tostring(args and args.x or ""),
         tostring(args and args.y or ""),
         tostring(args and args.z or ""),
@@ -114,14 +114,35 @@ local function fingerprint(command, args)
         tostring(args and args.name or ""),
         tostring(args and args.role or ""),
         tostring(args and args.priority or ""),
-        tostring(args and args.targetItemId or ""),
-        tostring(args and args.itemId or ""),
         tostring(args and args.radius or ""),
         tostring(args and args.maxLinks or ""),
         tostring(args and args.forceRecovery == true),
         tostring(args and args.enabled == true),
     }
-    for i = 1, #((args and args.itemIds) or {}) do parts[#parts + 1] = tostring(args.itemIds[i]) end
+    local itemIds, seenItemIds = {}, {}
+    for i = 1, #((args and args.itemIds) or {}) do
+        local id = tostring(args.itemIds[i] or "")
+        if id ~= "" and not seenItemIds[id] then seenItemIds[id] = true; itemIds[#itemIds + 1] = id end
+    end
+    table.sort(itemIds)
+    for i = 1, #itemIds do parts[#parts + 1] = "item:" .. itemIds[i] end
+    local requestParts = {}
+    for i = 1, #((args and args.requests) or {}) do
+        local request = type(args.requests[i]) == "table" and args.requests[i] or {}
+        local requestIds, requestSeen = {}, {}
+        for j = 1, #(request.itemIds or {}) do
+            local id = tostring(request.itemIds[j] or "")
+            if id ~= "" and not requestSeen[id] then requestSeen[id] = true; requestIds[#requestIds + 1] = id end
+        end
+        table.sort(requestIds)
+        requestParts[#requestParts + 1] = table.concat({
+            tostring(request.groupKey or ""),
+            #requestIds > 0 and "ids" or "count",
+            #requestIds > 0 and table.concat(requestIds, ",") or tostring(Storage.integer(request.count, 1)),
+        }, ":")
+    end
+    table.sort(requestParts)
+    for i = 1, #requestParts do parts[#parts + 1] = "request:" .. requestParts[i] end
     for i = 1, #Storage.Categories do
         local category = Storage.Categories[i]
         parts[#parts + 1] = "a:" .. category .. ":" .. tostring(type(args and args.allowCategories) == "table" and args.allowCategories[category] == true)
@@ -129,6 +150,8 @@ local function fingerprint(command, args)
     end
     return table.concat(parts, "|")
 end
+
+Server.fingerprint = fingerprint
 
 local function operation(player, command, args, fn, refreshAfter)
     local opId = tostring(args and args.opId or "")

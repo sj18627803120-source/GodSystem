@@ -1,4 +1,5 @@
 local luaRoot = assert(arg[1], "lua root is required")
+local allowCoreHostStorage = arg[2] == "allowCoreHostStorage"
 package.path = luaRoot .. "/shared/?.lua;" .. package.path
 GodSystemConfig = { DataKey = "GodSystem_Test" }
 package.loaded.GodSystem_Config = true
@@ -186,7 +187,12 @@ mark(right)
 mark(blocked)
 
 local blockedOk, blockedReason = Storage.lockCoreHost(blocked, coreNetworkId, coreToken)
-assert(not blockedOk and blockedReason == "coreHostNotEmpty", "non-empty furniture must reject core installation")
+if allowCoreHostStorage then
+    assert(blockedOk, tostring(blockedReason))
+    assert(Storage.unlockCoreHost(blocked, coreToken), "compatibility fixture must clear the temporary core marker")
+else
+    assert(not blockedOk and blockedReason == "coreHostNotEmpty", "non-empty furniture must reject core installation")
+end
 assert(blocked.slots[1]:getCapacity() == 25, "failed installation must not change capacity")
 
 local installed, installReason, installPayload = Manager.installCore(player, {
@@ -200,20 +206,27 @@ local installed, installReason, installPayload = Manager.installCore(player, {
 assert(installed, tostring(installReason))
 assert(installPayload.state == "installed", "install must return installed state")
 assert(#playerInventory.items.values == 0, "installed core item must be consumed")
-assert(host.slots[1]:getCapacity() == 0 and host.slots[2]:getCapacity() == 0,
-    "every host slot must be locked to zero")
+if allowCoreHostStorage then
+    assert(host.slots[1]:getCapacity() == 50 and host.slots[2]:getCapacity() == 20,
+        "core-host storage compatibility must preserve capacities")
+else
+    assert(host.slots[1]:getCapacity() == 0 and host.slots[2]:getCapacity() == 0,
+        "every host slot must be locked to zero")
+end
 assert(Storage.isCoreHost(host), "host ModData must record the installed core")
 
 local network = assert(Manager.getNetwork(coreNetworkId))
 local view = Manager.connectedNetwork(network, host)
 assert(view.nodeCount == 4, "host must bridge all touching marked furniture")
-assert(Manager.linkCount(view) == 3, "core host slots must be excluded from storage links")
+assert(Manager.linkCount(view) == (allowCoreHostStorage and 5 or 3),
+    "core-host link count must match the selected historical behavior")
 
 local job = Storage.newIndexJob(view)
 while not Storage.stepIndexJob(job, Storage.IndexBatchItems, Storage.IndexBudgetMs) do end
 local snapshot = Storage.buildSnapshot(job, view)
 assert(snapshot.itemCount == 3, "connected ordinary containers must remain indexable")
-assert(snapshot.onlineLinks == 3, "only ordinary container slots count as online links")
+assert(snapshot.onlineLinks == (allowCoreHostStorage and 5 or 3),
+    "online links must match the selected historical behavior")
 
 local hostSquare = squares[squareKey(0, 0, 0)]
 squares[squareKey(0, 0, 0)] = nil
@@ -222,8 +235,13 @@ assert(unloadedStatus.state == "installed", "unloaded host must not be treated a
 squares[squareKey(0, 0, 0)] = hostSquare
 local loadedStatus = assert(Manager.coreStatus(player))
 assert(loadedStatus.state == "installed", "reloaded host must remain installed")
-assert(host.slots[1]:getCapacity() == 0 and host.slots[2]:getCapacity() == 0,
-    "reloaded host must be recalibrated to zero capacity")
+if allowCoreHostStorage then
+    assert(host.slots[1]:getCapacity() == 50 and host.slots[2]:getCapacity() == 20,
+        "reloaded v1.16.71 host must preserve capacity")
+else
+    assert(host.slots[1]:getCapacity() == 0 and host.slots[2]:getCapacity() == 0,
+        "reloaded host must be recalibrated to zero capacity")
+end
 
 local retrieved, retrieveReason = Manager.retrieveCore(player, {
     networkId = coreNetworkId,

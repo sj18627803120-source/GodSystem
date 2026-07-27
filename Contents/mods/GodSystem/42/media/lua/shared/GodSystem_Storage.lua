@@ -4,13 +4,14 @@ GodSystemStorage = GodSystemStorage or {}
 
 local Storage = GodSystemStorage
 
-Storage.SchemaVersion = 3
+Storage.SchemaVersion = 4
 Storage.Module = "GodSystemStorage"
 Storage.StoreKey = (GodSystemConfig.DataKey or "GodSystem_CN_Data") .. "_StorageNetworkV1"
 Storage.CoreFullType = "GodSystem.StorageController"
 Storage.CoreTokenKey = "GodSystemStorageCoreToken"
 Storage.CoreNetworkKey = "GodSystemStorageCoreNetworkId"
 Storage.CoreHostKey = "GodSystemStorageCoreHostV1"
+Storage.CoreHostVersion = 2
 Storage.LegacyControllerTokenKey = "GodSystemStorageControllerToken"
 Storage.LegacyControllerNetworkKey = "GodSystemStorageNetworkId"
 Storage.LegacyControllerInstalledKey = "GodSystemStorageControllerInstalled"
@@ -367,16 +368,13 @@ function Storage.lockCoreHost(object, networkId, token)
     if not object or Storage.isCoreHost(object) then return false, "coreInstalled" end
     local networkMarker = Storage.getNetworkContainerMarker(object)
     if not networkMarker then return false, "networkContainerRequired" end
-    if not Storage.coreHostIsEmpty(object) then return false, "coreHostNotEmpty" end
     local capacities = capacityRows(object)
     if #capacities <= 0 then return false, "containerMissing" end
-    if not setSlotCapacities(object, capacities, true) then
-        setSlotCapacities(object, capacities, false)
-        return false, "capacityLockFailed"
-    end
     local data = modDataOf(object)
     data[Storage.CoreHostKey] = {
         installed = true,
+        hostVersion = Storage.CoreHostVersion,
+        capacityMode = "networkStorage",
         networkId = tostring(networkId or ""),
         token = tostring(token or ""),
         objectId = tostring(networkMarker.objectId or ""),
@@ -394,10 +392,17 @@ function Storage.enforceCoreHostLock(object, networkId, token)
         or tostring(marker.token or "") ~= tostring(token or "") then
         return false, "coreExpired"
     end
-    if not setSlotCapacities(object, marker.originalCapacities or {}, true) then
-        return false, "capacityLockFailed"
+    if integer(marker.hostVersion, 0) < Storage.CoreHostVersion
+        or tostring(marker.capacityMode or "") ~= "networkStorage" then
+        if not setSlotCapacities(object, marker.originalCapacities or {}, false) then
+            return false, "capacityRestoreFailed"
+        end
+        marker.hostVersion = Storage.CoreHostVersion
+        marker.capacityMode = "networkStorage"
+        marker.capacityRestoredAtMs = Storage.nowMs()
+        if object.transmitModData then object:transmitModData() end
     end
-    return true
+    return true, nil, marker
 end
 
 function Storage.unlockCoreHost(object, expectedToken)
@@ -407,9 +412,11 @@ function Storage.unlockCoreHost(object, expectedToken)
         and tostring(marker.token or "") ~= tostring(expectedToken) then
         return false, "coreExpired"
     end
-    if not setSlotCapacities(object, marker.originalCapacities or {}, false) then
-        setSlotCapacities(object, marker.originalCapacities or {}, true)
-        return false, "capacityRestoreFailed"
+    if integer(marker.hostVersion, 0) < Storage.CoreHostVersion
+        or tostring(marker.capacityMode or "") ~= "networkStorage" then
+        if not setSlotCapacities(object, marker.originalCapacities or {}, false) then
+            return false, "capacityRestoreFailed"
+        end
     end
     local data = modDataOf(object)
     data[Storage.CoreHostKey] = nil
@@ -653,29 +660,28 @@ function Storage.discoverNetwork(network, coreObject)
             if position then
                 local slots = Storage.getContainerSlots(row.object)
                 local isHost = Storage.isCoreHost(row.object)
-                if not isHost then
-                    for i = 1, #slots do
-                        local slot = slots[i]
-                        local suffix = slot.type ~= "" and slot.type or tostring(i)
-                        local linkId = "node:" .. objectId .. ":" .. tostring(slot.index)
-                        view.links[linkId] = {
-                            linkId = linkId,
-                            networkId = view.networkId,
-                            scopeKey = scopeKey,
-                            objectId = objectId,
-                            nodeId = objectId,
-                            x = position.x, y = position.y, z = position.z,
-                            slotIndex = slot.index,
-                            sprite = Storage.objectSpriteName(row.object),
-                            containerType = slot.type,
-                            name = (#slots > 1 and (tostring(row.marker.name or "Container") .. " / " .. suffix)
-                                or tostring(row.marker.name or slot.type or "Container")),
-                            role = tostring(row.marker.role or "auto"),
-                            priority = clamp(integer(row.marker.priority, 50), 0, 100),
-                            allowCategories = row.marker.allowCategories or {},
-                            denyCategories = row.marker.denyCategories or {},
-                        }
-                    end
+                for i = 1, #slots do
+                    local slot = slots[i]
+                    local suffix = slot.type ~= "" and slot.type or tostring(i)
+                    local linkId = "node:" .. objectId .. ":" .. tostring(slot.index)
+                    view.links[linkId] = {
+                        linkId = linkId,
+                        networkId = view.networkId,
+                        scopeKey = scopeKey,
+                        objectId = objectId,
+                        nodeId = objectId,
+                        isCoreHost = isHost,
+                        x = position.x, y = position.y, z = position.z,
+                        slotIndex = slot.index,
+                        sprite = Storage.objectSpriteName(row.object),
+                        containerType = slot.type,
+                        name = (#slots > 1 and (tostring(row.marker.name or "Container") .. " / " .. suffix)
+                            or tostring(row.marker.name or slot.type or "Container")),
+                        role = tostring(row.marker.role or "auto"),
+                        priority = clamp(integer(row.marker.priority, 50), 0, 100),
+                        allowCategories = row.marker.allowCategories or {},
+                        denyCategories = row.marker.denyCategories or {},
+                    }
                 end
                 enqueueSquare(position.x - 1, position.y, position.z)
                 enqueueSquare(position.x + 1, position.y, position.z)
@@ -887,27 +893,80 @@ function Storage.describeItem(item, sourceLink, sourceContainer)
     }
 end
 
-function Storage.isSafeDepositItem(player, item)
-    if not item or Storage.isProtected(item) then return false, "protected" end
-    if safeCall(item, "isFavorite", false) == true then return false, "favorite" end
-    if safeCall(item, "getCategory", "") == "Key" or hasText(Storage.itemFullType(item), "Key") then return false, "key" end
+function Storage.isEquippedItem(player, item)
+    if not player or not item then return false end
     if safeCall(player, "getPrimaryHandItem", nil) == item or safeCall(player, "getSecondaryHandItem", nil) == item then
-        return false, "hand"
+        return true
     end
-    if safeCall(player, "isItemInBothHands", false, item) == true then return false, "hand" end
+    if safeCall(player, "isItemInBothHands", false, item) == true then return true end
     local hotbar = safeCall(player, "getAttachedItems", nil)
     local size = integer(safeCall(hotbar, "size", 0), 0)
     for i = 0, size - 1 do
         local entry = safeCall(hotbar, "get", nil, i)
-        if safeCall(entry, "getItem", entry) == item then return false, "hotbar" end
+        if safeCall(entry, "getItem", entry) == item then return true end
     end
     local worn = safeCall(player, "getWornItems", nil)
     size = integer(safeCall(worn, "size", 0), 0)
     for i = 0, size - 1 do
         local entry = safeCall(worn, "get", nil, i)
-        if safeCall(entry, "getItem", entry) == item then return false, "worn" end
+        if safeCall(entry, "getItem", entry) == item then return true end
     end
+    return safeCall(player, "isEquipped", false, item) == true
+end
+
+function Storage.isKeyItem(item)
+    if not item then return false end
+    local category = lower(safeCall(item, "getCategory", ""))
+    local fullType = lower(Storage.itemFullType(item))
+    return category == "key" or hasText(fullType, "keyring") or hasText(fullType, "key_ring")
+end
+
+function Storage.isManualDepositItem(_, item)
+    if not item or Storage.isProtected(item) then return false, "protected" end
     return true, nil
+end
+
+function Storage.isBulkDepositItem(player, item)
+    if not item or Storage.isProtected(item) then return false, "protected" end
+    if safeCall(item, "isFavorite", false) == true then return false, "favorite" end
+    if Storage.isKeyItem(item) then return false, "key" end
+    if Storage.isEquippedItem(player, item) then return false, "equipped" end
+    return true, nil
+end
+
+function Storage.isSafeDepositItem(player, item)
+    return Storage.isBulkDepositItem(player, item)
+end
+
+function Storage.findDirectItem(container, expectedId)
+    expectedId = tostring(expectedId or "")
+    if not container or expectedId == "" then return nil end
+    local items = safeCall(container, "getItems", nil)
+    local size = integer(safeCall(items, "size", 0), 0)
+    for i = 0, size - 1 do
+        local item = safeCall(items, "get", nil, i)
+        if tostring(Storage.itemId(item) or "") == expectedId then return item end
+    end
+    return nil
+end
+
+function Storage.isPlayerSourceItem(player, item)
+    local root = safeCall(player, "getInventory", nil)
+    if not root or not item or not Storage.containerContains(root, item) then return false end
+    if not safeCall(item, "getInventory", nil) then return false end
+    if Storage.isEquippedItem(player, item) then return true end
+    return hasText(Storage.itemFullType(item), "KeyRing") or hasText(Storage.itemFullType(item), "Key_Ring")
+end
+
+function Storage.resolvePlayerContainer(player, sourceItemId)
+    local root = safeCall(player, "getInventory", nil)
+    if not root then return nil, nil, "targetMissing" end
+    if sourceItemId == nil or tostring(sourceItemId) == "" then return root, nil, nil end
+    local item = Storage.findDirectItem(root, sourceItemId)
+    if not item or not Storage.isPlayerSourceItem(player, item) then return nil, nil, "targetInvalid" end
+    local nested = safeCall(item, "getInventory", nil)
+    if not nested then return nil, nil, "targetInvalid" end
+    return nested, item, nil
 end
 
 function Storage.containerAccepts(container, player, item)
@@ -1082,6 +1141,8 @@ function Storage.newIndexJob(network)
         link.lastError = online and nil or (reason or "outOfRange")
         local summary = {
             linkId = link.linkId,
+            objectId = link.objectId,
+            isCoreHost = link.isCoreHost == true,
             name = link.name,
             role = link.role,
             priority = link.priority,

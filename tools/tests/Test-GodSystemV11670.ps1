@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
-    [string]$ExpectedVersion = "1.16.70"
+    [string]$ExpectedVersion = "1.16.70",
+    [switch]$AllowCoreHostStorage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,9 +63,16 @@ Require-Text $storage 'CoreHostKey\s*=\s*"GodSystemStorageCoreHostV1"' 'Core-hos
 Require-Text $storage 'function\s+Storage\.lockCoreHost' 'Core-host capacity transaction is missing'
 Require-Text $storage 'function\s+Storage\.unlockCoreHost' 'Core-host capacity restoration is missing'
 Require-Text $storage 'function\s+Storage\.enforceCoreHostLock' 'Core-host reload calibration is missing'
-Require-Text $storage 'container:setCapacity\(expected\)' 'Core capacity must use the native ItemContainer setter'
 Require-Text $storage 'local\s+isHost\s*=\s*Storage\.isCoreHost\(row\.object\)' 'Core host must be recognized during topology discovery'
-Require-Text $storage 'if\s+not\s+isHost\s+then' 'Core host storage slots must be excluded from indexing'
+if ($AllowCoreHostStorage) {
+    Require-Text $storage 'CoreHostVersion\s*=\s*2' 'Core-host storage migration version is missing'
+    Require-Text $storage 'capacityMode\s*=\s*"networkStorage"' 'Core hosts must use normal network-storage capacity mode'
+    Require-Text $storage 'isCoreHost\s*=\s*isHost' 'Core-host links must remain distinguishable while participating in storage'
+}
+else {
+    Require-Text $storage 'container:setCapacity\(expected\)' 'Core capacity must use the native ItemContainer setter'
+    Require-Text $storage 'if\s+not\s+isHost\s+then' 'Core host storage slots must be excluded from indexing'
+}
 Reject-Text $storage 'function\s+Storage\.findNearbyWorldController' 'Active nearby world-controller scanning returned'
 
 foreach ($name in @('coreStatus', 'claimCore', 'installCore', 'retrieveCore', 'resolveCoreHost', 'calibrateLoadedSquare')) {
@@ -96,10 +104,12 @@ foreach ($key in @(
     'Tooltip_GodSystem_StorageController',
     'Storage_Context_InstallCore',
     'Storage_Context_RetrieveCore',
-    'Storage_Error_CoreHostNotEmpty',
     'Storage_Error_CapacityRestoreFailed'
 )) {
     Require-Text $localization ('(?m)^' + [regex]::Escape($key) + ':') "Localization key is missing: $key"
+}
+if (-not $AllowCoreHostStorage) {
+    Require-Text $localization '(?m)^Storage_Error_CoreHostNotEmpty:' 'Legacy empty-host localization key is missing'
 }
 Require-Text $cnItems 'ItemName_GodSystem\.StorageController\s*=' 'CN core item localization was not regenerated'
 Require-Text $chItems 'ItemName_GodSystem\.StorageController\s*=' 'CH core item localization was not regenerated'
@@ -111,7 +121,9 @@ if (-not $luaExe) {
 }
 if (-not $luaExe) { throw 'Lua 5.1 runtime is required for v1.16.70 storage validation' }
 $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
-& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11670Runtime.lua') $Lua
+$runtimeArgs = @((Join-Path $PSScriptRoot 'Test-GodSystemV11670Runtime.lua'), $Lua)
+if ($AllowCoreHostStorage) { $runtimeArgs += 'allowCoreHostStorage' }
+& $luaPath @runtimeArgs
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.70 runtime test failed' }
 
 Write-Output 'Test-GodSystemV11670 passed'
