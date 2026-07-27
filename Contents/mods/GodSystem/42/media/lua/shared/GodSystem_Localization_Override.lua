@@ -1577,3 +1577,6 @@ GodSystemFallbackText.zh["Storage_Context_WithdrawHalf"] = "\229\143\150\229\135
 GodSystemFallbackText.zh["Storage_Context_WithdrawAll"] = "\229\143\150\229\135\186\229\133\168\233\131\168"
 GodSystemFallbackText.zh["Storage_Context_WithdrawSelectedAll"] = "\229\143\150\229\135\186\229\133\168\233\131\168\233\128\137\228\184\173\231\137\169\229\147\129"
 GodSystemFallbackText.zh["Storage_CoreHost"] = "\230\160\184\229\191\131\229\174\191\228\184\187"
+GodSystemFallbackText.zh["Storage_Level_Low"] = "\228\189\142"
+GodSystemFallbackText.zh["Storage_Level_Middle"] = "\228\184\173"
+GodSystemFallbackText.zh["Storage_Level_High"] = "\233\171\152"

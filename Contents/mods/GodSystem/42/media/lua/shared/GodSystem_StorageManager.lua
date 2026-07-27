@@ -809,6 +809,17 @@ function Manager.networkSummary(player, network)
     }
 end
 
+function Manager.networkSummaryForPlayer(player)
+    local status, reason = Manager.coreStatus(player)
+    if not status then return nil, reason end
+    if tostring(status.state or "") ~= "installed" or not status.networkId then return nil, "coreHostMissing" end
+    local network = Manager.getNetwork(status.networkId)
+    if not network then return nil, "coreMissing" end
+    local coreObject = findRecordedCoreHost(network, network.coreToken)
+    if not coreObject then return nil, "coreHostMissing" end
+    return Manager.networkSummary(player, Manager.connectedNetwork(network, coreObject)), nil
+end
+
 function Manager.linkCount(network)
     local count = 0
     for _ in pairs((network and network.links) or {}) do count = count + 1 end

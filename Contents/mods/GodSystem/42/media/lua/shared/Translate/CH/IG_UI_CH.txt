@@ -1546,4 +1546,8 @@ IGUI_CH = {
     IGUI_GodSystem_Storage_Context_WithdrawAll = "取出全部",
     IGUI_GodSystem_Storage_Context_WithdrawSelectedAll = "取出全部选中物品",
     IGUI_GodSystem_Storage_CoreHost = "核心宿主",
+
+    IGUI_GodSystem_Storage_Level_Low = "低",
+    IGUI_GodSystem_Storage_Level_Middle = "中",
+    IGUI_GodSystem_Storage_Level_High = "高",
 }

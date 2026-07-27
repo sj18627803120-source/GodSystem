@@ -142,6 +142,20 @@ function Client.applySnapshot(snapshot)
     end
 end
 
+local function publishNetworkState(state)
+    if type(state) ~= "table" then return false end
+    Client.networkState = state
+    if GodSystemStorageUI and GodSystemStorageUI.onNetworkState then
+        local ok, err = pcall(GodSystemStorageUI.onNetworkState, state)
+        if not ok then print("[GodSystemStorage] network UI update failed: " .. tostring(err)) end
+    end
+    if GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
+        local ok, err = pcall(GodSystemStorageContext.refreshHighlights)
+        if not ok then print("[GodSystemStorage] marker refresh failed: " .. tostring(err)) end
+    end
+    return true
+end
+
 local function startLocalIndex(allowRemote)
     local p = player()
     local ok, reason, job = Manager.startIndex(p, {
@@ -154,8 +168,7 @@ local function startLocalIndex(allowRemote)
         Client.applySnapshot(snapshot)
     end)
     if not ok then Client.notifyReason(reason); return false end
-    Client.networkState = Manager.networkSummary(p, job.network)
-    if GodSystemStorageUI and GodSystemStorageUI.onNetworkState then GodSystemStorageUI.onNetworkState(Client.networkState) end
+    publishNetworkState(Manager.networkSummary(p, job.network))
     return true
 end
 
@@ -372,7 +385,10 @@ local function localMutation(command, args)
     end
     if not ok then Client.notifyReason(reason) end
     if GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
-        GodSystemStorageUI.onOperationResult(command, ok, reason, payload)
+        local callbackOk, callbackError = pcall(GodSystemStorageUI.onOperationResult, command, ok, reason, payload)
+        if not callbackOk then
+            print("[GodSystemStorage] operation UI update failed: " .. tostring(callbackError))
+        end
     end
     if command == "link" then
         startLocalIndex(true)
@@ -415,7 +431,12 @@ function Client.setNetworkContainer(target)
     local ok, reason, payload = Manager.setNetworkContainer(player(), args)
     Client.pending[args.opId] = nil
     if not ok then Client.notifyReason(reason) end
-    if GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
+    if ok then
+        local summary = Manager.networkSummaryForPlayer(player())
+        if not publishNetworkState(summary) and GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
+            GodSystemStorageContext.refreshHighlights()
+        end
+    elseif GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
         GodSystemStorageContext.refreshHighlights()
     end
     if Client.core then Client.refresh() end
@@ -492,11 +513,7 @@ function Client.onServerCommand(module, command, args)
         return
     end
     if command == "networkState" then
-        Client.networkState = args
-        if GodSystemStorageUI and GodSystemStorageUI.onNetworkState then GodSystemStorageUI.onNetworkState(args) end
-        if GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
-            GodSystemStorageContext.refreshHighlights()
-        end
+        publishNetworkState(args)
         return
     end
     if command == "indexStarted" then

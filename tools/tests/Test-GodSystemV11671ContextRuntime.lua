@@ -94,6 +94,15 @@ package.loaded["ISUI/ISWorldObjectContextMenu"] = true
 local Context = require "GodSystem_StorageContext"
 assert(Context.candidateNumber(objects[1]) == 1 and Context.candidateNumber(objects[4]) == 4,
     "same-square candidates must use stable object-index numbering")
+assert(Context.markerHorizontalSlot(1) == 0 and Context.markerHorizontalSlot(2) == -1
+    and Context.markerHorizontalSlot(3) == 1 and Context.markerHorizontalSlot(4) == -2,
+    "same-square markers must keep the first object centered and expand left/right")
+assert(Context.markerChevronCount(1) == 1 and Context.markerChevronCount(2) == 2
+    and Context.markerChevronCount(3) == 3 and Context.markerChevronCount(8) == 3,
+    "compact markers must encode low/middle/high with one to three chevrons")
+assert(Context.candidateLevelLabel(1, 3) == "Low" and Context.candidateLevelLabel(2, 3) == "Middle"
+    and Context.candidateLevelLabel(3, 3) == "High",
+    "three stacked candidates must use low/middle/high context-menu labels")
 local r1, g1, b1 = Context.colorForObject(objects[1])
 local r2, g2, b2 = Context.colorForObject(objects[2])
 local r3, g3, b3 = Context.colorForObject(objects[3])

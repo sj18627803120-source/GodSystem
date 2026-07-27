@@ -167,6 +167,7 @@ local function operation(player, command, args, fn, refreshAfter)
             payload = row.payload,
             replay = true,
         })
+        if row.ok == true and refreshAfter ~= false then startIndex(player, args, command == "link") end
         return
     end
     if status == "pending" then fail(player, command, "operationPending", { opId = opId }); return end
@@ -285,13 +286,18 @@ end
 
 function Commands.setNetworkContainer(player, args)
     operation(player, "setNetworkContainer", args, function()
-        return Manager.setNetworkContainer(player, {
+        local ok, reason, payload = Manager.setNetworkContainer(player, {
             x = args.x, y = args.y, z = args.z,
             objectIndex = args.objectIndex,
             sprite = args.sprite,
             name = args.name,
             enabled = args.enabled == true,
         })
+        if ok then
+            local summary = Manager.networkSummaryForPlayer(player)
+            if summary then send(player, "networkState", summary) end
+        end
+        return ok, reason, payload
     end, false)
 end
 

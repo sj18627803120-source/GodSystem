@@ -119,10 +119,38 @@ local function candidateNumber(object)
     return 1
 end
 
+local function markerHorizontalSlot(number)
+    number = math.max(1, Storage.integer(number, 1))
+    if number == 1 then return 0 end
+    local distance = math.floor(number / 2)
+    return number % 2 == 0 and -distance or distance
+end
+
+local function markerChevronCount(number)
+    return math.min(3, math.max(1, Storage.integer(number, 1)))
+end
+
+local function candidateLevelLabel(number, total)
+    number = math.max(1, Storage.integer(number, 1))
+    total = math.max(1, Storage.integer(total, 1))
+    if total == 2 then
+        return number == 1 and text("Storage_Level_Low", "Low") or text("Storage_Level_High", "High")
+    end
+    if total == 3 then
+        if number == 1 then return text("Storage_Level_Low", "Low") end
+        if number == 2 then return text("Storage_Level_Middle", "Middle") end
+        return text("Storage_Level_High", "High")
+    end
+    return "#" .. tostring(number)
+end
+
 Context.candidateRows = candidateRows
 Context.candidateNumber = candidateNumber
+Context.markerHorizontalSlot = markerHorizontalSlot
+Context.markerChevronCount = markerChevronCount
+Context.candidateLevelLabel = candidateLevelLabel
 
-local function cacheMarker(object, marker, number)
+local function cacheMarker(object, marker, number, total)
     local position = Storage.objectCoordinates(object)
     local objectId = marker and tostring(marker.objectId or "") or ""
     if not position or objectId == "" then return end
@@ -134,6 +162,7 @@ local function cacheMarker(object, marker, number)
         y = position.y,
         z = position.z,
         number = number or candidateNumber(object),
+        total = total or 1,
         coreHost = Storage.isCoreHost(object),
         connected = connectedObjectIds()[objectId] == true,
     }
@@ -164,23 +193,22 @@ function Context.renderMarkers()
     for _, marker in pairs(Context.markers) do
         local sx, sy, zoom = screenPoint(marker.x + 0.5, marker.y + 0.5, marker.z)
         if sx and sy and zoom then
-            local size = math.max(6, 10 / zoom)
-            local stem = math.max(4, 7 / zoom)
-            local offset = math.max(10, 14 / zoom) * math.max(0, Storage.integer(marker.number, 1) - 1)
-            sx = sx + offset
-            local cy = sy - math.max(20, 34 / zoom) - offset
+            local size = math.max(4, 7 / zoom)
+            local step = math.max(5, 8 / zoom)
+            local spacing = math.max(12, 18 / zoom)
+            local stem = math.max(3, 5 / zoom)
+            sx = sx + (markerHorizontalSlot(marker.number) * spacing)
+            local baseY = sy - math.max(30, 46 / zoom)
             local red, green, blue = 0.86, 0.26, 0.28
             if marker.connected then red, green, blue = 0.12, 0.48, 0.92 end
             if marker.coreHost then red, green, blue = 0.12, 0.82, 0.42 end
-            drawLine(renderer, Context.lineTexture, sx, cy - size, sx + size, cy, red, green, blue)
-            drawLine(renderer, Context.lineTexture, sx + size, cy, sx, cy + size, red, green, blue)
-            drawLine(renderer, Context.lineTexture, sx, cy + size, sx - size, cy, red, green, blue)
-            drawLine(renderer, Context.lineTexture, sx - size, cy, sx, cy - size, red, green, blue)
-            drawLine(renderer, Context.lineTexture, sx, cy + size, sx, cy + size + stem, red, green, blue)
-            if getTextManager then
-                getTextManager():DrawStringCentre(UIFont.Small, sx, cy - 6,
-                    tostring(marker.number or 1), 1, 1, 1, 1)
+            local count = markerChevronCount(marker.number)
+            for level = 1, count do
+                local cy = baseY - ((level - 1) * step)
+                drawLine(renderer, Context.lineTexture, sx - size, cy + size, sx, cy, red, green, blue)
+                drawLine(renderer, Context.lineTexture, sx, cy, sx + size, cy + size, red, green, blue)
             end
+            drawLine(renderer, Context.lineTexture, sx, baseY + size, sx, baseY + size + stem, red, green, blue)
         end
     end
 end
@@ -197,7 +225,7 @@ function Context.refreshHighlights()
             for i = 1, #objects do
                 local marker = Storage.getNetworkContainerMarker(objects[i])
                 if marker then
-                    cacheMarker(objects[i], marker, i)
+                    cacheMarker(objects[i], marker, i, #objects)
                 end
             end
         end
@@ -243,8 +271,8 @@ local function configureOption(option, object)
     return option
 end
 
-local function numberedLabel(number, label)
-    return "[" .. tostring(number or 1) .. "] " .. tostring(label or "")
+local function numberedLabel(number, total, label)
+    return "[" .. candidateLevelLabel(number, total) .. "] " .. tostring(label or "")
 end
 
 function Context.setConnectMode(enabled)
@@ -282,22 +310,22 @@ function Context.setNetworkContainer(_, payload)
     Client.setNetworkContainer(payload)
 end
 
-local function addCoreHostOptions(context, object, number)
+local function addCoreHostOptions(context, object, number, total)
     if not Storage.isCoreHost(object) then return false end
     local position = objectPosition(object)
     if not position then return false end
-    configureOption(context:addOption(numberedLabel(number, text("Storage_Context_Open", "Open system storage")), Context, Context.openCoreHost, {
+    configureOption(context:addOption(numberedLabel(number, total, text("Storage_Context_Open", "Open system storage")), Context, Context.openCoreHost, {
         position = position,
         object = object,
     }), object)
-    configureOption(context:addOption(numberedLabel(number, text("Storage_Context_RetrieveCore", "Retrieve storage core")), Context, Context.retrieveCore, {
+    configureOption(context:addOption(numberedLabel(number, total, text("Storage_Context_RetrieveCore", "Retrieve storage core")), Context, Context.retrieveCore, {
         position = position,
         object = object,
     }), object)
     return true
 end
 
-local function addNetworkContainerOption(context, object, number)
+local function addNetworkContainerOption(context, object, number, total)
     local position = Storage.objectCoordinates(object)
     if not position then return false end
     local slots = Storage.getContainerSlots(object)
@@ -316,18 +344,18 @@ local function addNetworkContainerOption(context, object, number)
     local label = marker
         and text("Storage_Context_UnmarkNetwork", "Remove network container mark")
         or text("Storage_Context_MarkNetwork", "Mark as network container")
-    configureOption(context:addOption(numberedLabel(number, label), Context, Context.setNetworkContainer, payload), object)
+    configureOption(context:addOption(numberedLabel(number, total, label), Context, Context.setNetworkContainer, payload), object)
     return true
 end
 
-local function addInstallCoreOption(context, object, number)
+local function addInstallCoreOption(context, object, number, total)
     if not Client.findCarriedCore or not Client.findCarriedCore() then return false end
     local marker = Storage.getNetworkContainerMarker(object)
     if not marker or Storage.isCoreHost(object) then return false end
     local position = Storage.objectCoordinates(object)
     local objectIndex = Storage.getObjectIndex(object)
     if not position or objectIndex < 0 then return false end
-    configureOption(context:addOption(numberedLabel(number, text("Storage_Context_InstallCore", "Install storage core")), Context, Context.installCore, {
+    configureOption(context:addOption(numberedLabel(number, total, text("Storage_Context_InstallCore", "Install storage core")), Context, Context.installCore, {
         x = position.x, y = position.y, z = position.z,
         objectIndex = objectIndex,
         sprite = Storage.objectSpriteName(object),
@@ -347,9 +375,9 @@ function Context.fillWorldMenu(playerNum, context, worldObjects, test)
     for s = 1, #squares do
         local objects = candidateRows(squares[s])
         for i = 1, #objects do
-            addCoreHostOptions(context, objects[i], i)
-            addInstallCoreOption(context, objects[i], i)
-            if Context.connectMode then addNetworkContainerOption(context, objects[i], i) end
+            addCoreHostOptions(context, objects[i], i, #objects)
+            addInstallCoreOption(context, objects[i], i, #objects)
+            if Context.connectMode then addNetworkContainerOption(context, objects[i], i, #objects) end
         end
     end
 end

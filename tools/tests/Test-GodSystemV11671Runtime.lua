@@ -185,6 +185,9 @@ local network = assert(Manager.getNetwork(networkId))
 local view = Manager.connectedNetwork(network, host)
 assert(view.nodeCount == 2, "host and adjacent furniture must be connected")
 assert(Manager.linkCount(view) == 3, "both host slots and the adjacent slot must be normal links")
+local currentSummary, summaryReason = Manager.networkSummaryForPlayer(player)
+assert(currentSummary and not summaryReason and currentSummary.connectedObjectIds[Storage.getObjectId(left, false)] == true,
+    "current-network summary must immediately expose newly connected marked furniture")
 local hostLinkId
 for linkId, link in pairs(view.links) do if link.isCoreHost == true then hostLinkId = linkId end end
 assert(hostLinkId, "host links must expose isCoreHost")

@@ -56,7 +56,14 @@ Require-Text $storage 'isCoreHost\s*=' 'Container summaries must identify core-h
 Require-Text $context 'setHighlightColor' 'Context-menu furniture highlighting is missing'
 Require-Text $context 'onHighlightParams' 'Context-menu hover highlighting is missing'
 Require-Text $context 'connectedObjectIds' 'Marker colors must use current connectivity state'
+Require-Text $context 'markerHorizontalSlot' 'Compact same-square marker positioning is missing'
+Require-Text $context 'markerChevronCount' 'Low/middle/high chevron markers are missing'
+Require-Text $context 'candidateLevelLabel' 'Context-menu level labels are missing'
+Reject-Text $context 'DrawStringCentre' 'Compact connection markers must not draw overlapping numeric labels'
 Reject-Text $client 'if\s+payload\s+and\s+GodSystemStorageUI\s+and\s+GodSystemStorageUI\.onOperationResult' 'SP failures without payload must still reach equipment restoration'
+Require-Text $client 'pcall\(GodSystemStorageUI\.onOperationResult' 'UI result failures must not block SP storage refresh'
+Require-Text $client 'networkSummaryForPlayer' 'Container marking must refresh connectivity without an open storage window'
+Require-Text $manager 'function\s+Manager\.networkSummaryForPlayer' 'Current-network summary helper is missing'
 Require-Text $client 'function\s+Client\.hasPendingOperation' 'The UI needs a stable pending-operation guard'
 Require-Text $storageUi 'sourceList' 'The character inventory source list is missing'
 Require-Text $storageUi 'inventoryList' 'The character inventory item list is missing'
@@ -67,6 +74,12 @@ Require-Text $storageUi 'ISUnequipAction' 'Manual equipped-item deposit must que
 Require-Text $storageUi 'ISWaitWhileGettingUp' 'Equipped-item deposit completion barrier is missing'
 Require-Text $storageUi 'item\s+and\s+not\s+Storage\.isEquippedItem\(player,\s*item\)' 'Deposit must revalidate that queued equipment was actually unequipped'
 Require-Text $storageUi 'hasPendingOperation\("deposit"\)' 'Deposit UI must not overwrite pending equipment recovery state'
+Require-Text $storageUi 'selectedLinkId' 'Container management selection identity is missing'
+Require-Text $storageUi 'warehouseRowSelected' 'Container management selected-row rendering is missing'
+Reject-Text $storageUi 'exactButton' 'The duplicate exact-withdraw button must be removed'
+Require-Text $storageUi 'selectedInstanceId[\s\S]{0,500}withdrawRequests' 'The main withdraw action must support a selected exact instance'
+Require-Text $storageUi 'isMultiplayerSession' 'SP must hide the administrator take-over control'
+Require-Text $storageUi 'sourceDisplayLabel' 'Warehouse source filters must use short container labels'
 Reject-Text $storageUi 'Storage_DepositAll",\s*"Safe deposit all"' 'The old safe-deposit-all control remains'
 
 foreach ($key in @(
@@ -85,7 +98,10 @@ foreach ($key in @(
     'Storage_Context_WithdrawAll',
     'Storage_Context_DepositSelectedAll',
     'Storage_Context_WithdrawSelectedAll',
-    'Storage_CoreHost'
+    'Storage_CoreHost',
+    'Storage_Level_Low',
+    'Storage_Level_Middle',
+    'Storage_Level_High'
 )) {
     Require-Text $localization ('(?m)^' + [regex]::Escape($key) + ':') "Localization key is missing: $key"
     Require-Text $fallback ('GodSystemFallbackText\.zh\["' + [regex]::Escape($key) + '"\]') "Lua fallback key is missing: $key"
@@ -109,5 +125,7 @@ if ($LASTEXITCODE -ne 0) { throw 'v1.16.71 runtime test failed' }
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.71 context runtime test failed' }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11671ServerRuntime.lua') $Lua
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.71 server runtime test failed' }
+& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11671ClientRuntime.lua') $Lua
+if ($LASTEXITCODE -ne 0) { throw 'v1.16.71 client runtime test failed' }
 
 Write-Output 'Test-GodSystemV11671 passed'
