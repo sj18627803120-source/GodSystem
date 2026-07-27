@@ -743,6 +743,12 @@ function GodSystemShortcutWindow:getActions()
     actions[#actions + 1] = { action = "recycleWaistOnly", label = GodSystem.text("Shortcut_RecycleWaistOnly", "Waist recycle") }
     actions[#actions + 1] = { action = "recycleWaistAndList", label = GodSystem.text("Shortcut_RecycleWaistAndList", "Waist recycle and list") }
     actions[#actions + 1] = { action = "depositAllCash", label = GodSystem.text("Shortcut_DepositAllCash", "Deposit cash") }
+    local connectMode = GodSystemStorageContext and GodSystemStorageContext.connectMode == true
+    actions[#actions + 1] = {
+        action = "storageConnectMode",
+        label = GodSystem.text(connectMode and "Storage_ConnectModeOff" or "Storage_ConnectModeOn",
+            connectMode and "Disable connection mode" or "Enable connection mode"),
+    }
     return actions
 end
 
@@ -830,6 +836,11 @@ function GodSystemShortcutWindow:performAction(action)
         return self:finishShortcutCommand(GodSystem.recycleWaistSpaceItemsAndUnlock(nil))
     elseif action == "depositAllCash" then
         return self:finishShortcutCommand(GodSystem.performBankAction("depositAllCash"))
+    elseif action == "storageConnectMode" then
+        if not (GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode) then return false end
+        GodSystemStorageContext.toggleConnectMode()
+        self:refreshActions(true)
+        return true
     end
     return false
 end

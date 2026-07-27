@@ -156,6 +156,13 @@ local function publishNetworkState(state)
     return true
 end
 
+function Client.refreshNetworkState()
+    if isMultiplayer() then return send("networkState", {}) end
+    local summary = Manager.networkSummaryForPlayer(player())
+    if type(summary) ~= "table" then summary = { connectedObjectIds = {} } end
+    return publishNetworkState(summary)
+end
+
 local function startLocalIndex(allowRemote)
     local p = player()
     local ok, reason, job = Manager.startIndex(p, {

@@ -14,6 +14,8 @@ Context.highlighted = Context.highlighted or {}
 Context.markers = Context.markers or {}
 Context.markerCount = Context.markerCount or 0
 Context.lineTexture = Context.lineTexture or nil
+Context.RefreshIntervalMs = 5000
+Context.lastRefreshMs = Context.lastRefreshMs or 0
 
 local function text(key, fallback)
     if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
@@ -279,7 +281,13 @@ function Context.setConnectMode(enabled)
     local nextValue = enabled == true
     local changed = Context.connectMode ~= nextValue
     Context.connectMode = nextValue
-    if Context.connectMode then Context.refreshHighlights() else Context.clearHighlights() end
+    if Context.connectMode then
+        Context.lastRefreshMs = 0
+        Context.refreshConnectionState(true)
+    else
+        Context.lastRefreshMs = 0
+        Context.clearHighlights()
+    end
     if changed and GodSystem and GodSystem.notify then
         GodSystem.notify(Context.connectMode
             and text("Storage_Notify_ConnectModeOn", "Connection mode enabled. Right-click a nearby fixed container.")
@@ -289,6 +297,21 @@ end
 
 function Context.toggleConnectMode()
     Context.setConnectMode(not Context.connectMode)
+    return Context.connectMode
+end
+
+function Context.refreshConnectionState(force)
+    if not Context.connectMode then return false end
+    local now = Storage.nowMs()
+    if force ~= true and now - (Context.lastRefreshMs or 0) < Context.RefreshIntervalMs then return false end
+    Context.lastRefreshMs = now
+    local requested = Client.refreshNetworkState and Client.refreshNetworkState() or false
+    if requested == false or (isClient and isClient()) then Context.refreshHighlights() end
+    return requested ~= false
+end
+
+function Context.onTick()
+    if Context.connectMode then Context.refreshConnectionState(false) end
 end
 
 function Context.openCoreHost(_, payload)
@@ -449,6 +472,7 @@ end
 
 function Context.reset()
     Context.connectMode = false
+    Context.lastRefreshMs = 0
     Context.clearHighlights()
 end
 
@@ -465,6 +489,10 @@ Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)
 if Events.OnPreUIDraw then
     Events.OnPreUIDraw.Remove(Context.renderMarkers)
     Events.OnPreUIDraw.Add(Context.renderMarkers)
+end
+if Events.OnTick then
+    Events.OnTick.Remove(Context.onTick)
+    Events.OnTick.Add(Context.onTick)
 end
 if Events.OnDisconnect then
     Events.OnDisconnect.Remove(Context.reset)

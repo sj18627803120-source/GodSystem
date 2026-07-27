@@ -78,16 +78,29 @@ local function setCount(values)
     return count
 end
 
+function UI.syncListScrollBar(list)
+    if not list or not list.vscroll then return end
+    list.vscroll:setX(math.max(0, list.width - 16))
+    list.vscroll:setHeight(list.height)
+end
+
+function UI.clearList(list)
+    if not list then return end
+    list:clear()
+    list:setYScroll(0)
+    list:setScrollHeight(0)
+    list.smoothScrollTargetY = nil
+    list.smoothScrollY = nil
+    UI.syncListScrollBar(list)
+end
+
 local function resizeList(list, x, y, width, height)
     if not list then return end
     list:setX(x)
     list:setY(y)
     list:setWidth(math.max(40, width))
     list:setHeight(math.max(40, height))
-    if list.vscroll then
-        list.vscroll:setX(math.max(0, list.width - 16))
-        list.vscroll:setHeight(list.height)
-    end
+    UI.syncListScrollBar(list)
 end
 
 local function textureForType(fullType)
@@ -116,11 +129,6 @@ function UI.listRowClip(list, y, row)
     return math.max(0, rowTop), math.min(viewportHeight, rowBottom), rowHeight
 end
 
-local function restoreListStencil(list)
-    local height = Storage.number(Storage.safeCall(list, "getHeight", list and list.height or 0), 0)
-    list:setStencilRect(0, 0, list.width, height)
-end
-
 function UI.drawListRow(list, y, row, alternate, selectedSet, forceSelected)
     if not row then return y end
     local clipY, clipY2, rowHeight = UI.listRowClip(list, y, row)
@@ -131,7 +139,7 @@ function UI.drawListRow(list, y, row, alternate, selectedSet, forceSelected)
     if payload.kind == "divider" then
         list:drawRect(0, y, list.width, rowHeight, 0.82, 0.035, 0.055, 0.065)
         list:drawText(tostring(payload.label or row.text or ""), 7, y + 6, 0.67, 0.76, 0.80, 1, UIFont.Small)
-        restoreListStencil(list)
+        list:clearStencilRect()
         return y + rowHeight
     end
     if selected then
@@ -150,7 +158,7 @@ function UI.drawListRow(list, y, row, alternate, selectedSet, forceSelected)
     if payload.count and payload.count > 1 then
         list:drawTextRight("x" .. tostring(payload.count), list.width - 20, y + 7, 0.35, 0.80, 0.92, 1, UIFont.Small)
     end
-    restoreListStencil(list)
+    list:clearStencilRect()
     return y + rowHeight
 end
 
@@ -423,6 +431,13 @@ function GodSystemStorageWindow:createList(x, y, width, height, itemHeight, clic
     list.doDrawItem = function(owner, rowY, row, alternate)
         return drawListRow(owner, rowY, row, alternate, selectedSet)
     end
+    local originalPrerender = list.prerender
+    list.prerender = function(owner)
+        UI.syncListScrollBar(owner)
+        local result = originalPrerender(owner)
+        UI.syncListScrollBar(owner)
+        return result
+    end
     self:addChild(list)
     return list
 end
@@ -647,7 +662,7 @@ function GodSystemStorageWindow:rebuildSources()
     self.sources = inventorySources(player)
     local current, selectedIndex = findSource(self.sources, self.currentSourceKey)
     self.currentSourceKey = current and current.key or "main"
-    self.sourceList:clear()
+    UI.clearList(self.sourceList)
     for i = 1, #self.sources do
         local source = self.sources[i]
         self.sourceList:addItem(source.label, source)
@@ -661,7 +676,7 @@ function GodSystemStorageWindow:rebuildInventory()
     local source = self:currentSource()
     local groups, order = groupDirectItems(player, source)
     self.inventoryRows = {}
-    self.inventoryList:clear()
+    UI.clearList(self.inventoryList)
     local query = lower(self.searchBox and self.searchBox:getText() or "")
     local valid, lastSection = {}, nil
     for i = 1, #order do
@@ -692,7 +707,7 @@ function GodSystemStorageWindow:rebuildInventory()
 end
 
 function GodSystemStorageWindow:rebuildWarehouse()
-    self.warehouseList:clear()
+    UI.clearList(self.warehouseList)
     self.warehouseRows = {}
     local snapshot = Client.snapshot
     if not snapshot then
@@ -1022,7 +1037,7 @@ function GodSystemStorageWindow:restoreFailedEquipment(ok, payload)
 end
 
 function GodSystemStorageWindow:updateDetails()
-    self.detailList:clear()
+    UI.clearList(self.detailList)
     if self.page == "manage" then
         local selected
         for i = 1, #(((Client.snapshot or {}).containers) or {}) do

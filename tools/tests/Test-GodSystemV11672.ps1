@@ -29,6 +29,9 @@ $client = Read-Utf8 (Join-Path $Lua 'client\GodSystem_AutoLoaderClient.lua')
 $context = Read-Utf8 (Join-Path $Lua 'client\GodSystem_AutoLoaderContext.lua')
 $ui = Read-Utf8 (Join-Path $Lua 'client\GodSystem_AutoLoaderUI.lua')
 $storageUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageUI.lua')
+$storageContext = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageContext.lua')
+$storageClient = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageClient.lua')
+$storageServer = Read-Utf8 (Join-Path $Lua 'server\GodSystem_StorageServer.lua')
 $shopUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_UI.lua')
 $core = Read-Utf8 (Join-Path $Lua 'client\GodSystem_Core.lua')
 $mainServer = Read-Utf8 (Join-Path $Lua 'server\GodSystem_Server.lua')
@@ -118,6 +121,18 @@ Require-Text $mainServer 'GodSystemStorage\.isProtected\(item\)' 'Server recycle
 Require-Text $storageUi 'function\s+UI\.listRowClip' 'Custom storage rows need explicit viewport clipping'
 Require-Text $storageUi 'rowTop\s*=\s*Storage\.number\(y,\s*0\)\s*\+\s*scrollY' 'Storage row clipping must include the active list scroll offset'
 Require-Text $storageUi 'setStencilRect\(0,\s*clipY' 'Storage rows must apply their computed visible stencil'
+Require-Text $storageUi 'clearStencilRect\(\)' 'Each custom row must clear its temporary stencil like B42 vanilla code'
+Reject-Text $storageUi 'restoreListStencil' 'Nested stencils must not be widened with a second setStencilRect call'
+Require-Text $storageUi 'function\s+UI\.clearList' 'Reused storage lists need a shared scroll reset helper'
+Require-Text $storageUi 'smoothScrollTargetY\s*=\s*nil' 'List rebuilds must clear stale smooth-scroll targets'
+Require-Text $storageUi 'originalPrerender' 'Every storage list needs a prerender scrollbar-geometry guard'
+Require-Text $storageContext 'RefreshIntervalMs\s*=\s*5000' 'Connection-mode status must refresh every five seconds'
+Require-Text $storageContext 'function\s+Context\.onTick' 'Connection-mode periodic refresh handler is missing'
+Require-Text $storageContext 'Events\.OnTick\.Add\(Context\.onTick\)' 'Connection-mode refresh must be registered on OnTick'
+Require-Text $storageClient 'function\s+Client\.refreshNetworkState' 'A lightweight connectivity refresh path is missing'
+Require-Text $storageServer 'function\s+Commands\.networkState' 'The server connectivity refresh command is missing'
+Require-Text $shopUi 'depositAllCash[\s\S]{0,300}storageConnectMode' 'The connection-mode shortcut must be appended after existing shortcuts'
+Require-Text $shopUi 'storageConnectMode[\s\S]{0,600}toggleConnectMode' 'The connection-mode shortcut action is missing'
 
 $keys = @(
     'AutoLoader_Title', 'AutoLoader_Context', 'AutoLoader_DepositAll', 'AutoLoader_FillAll',
@@ -157,5 +172,7 @@ if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 auto-loader client runtime test faile
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 inventory context-chain runtime test failed' }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672UIRuntime.lua') $Lua
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 storage UI clipping runtime test failed' }
+& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11672StorageRefreshRuntime.lua') $Lua
+if ($LASTEXITCODE -ne 0) { throw 'v1.16.72 storage connection refresh runtime test failed' }
 
 Write-Output 'Test-GodSystemV11672 passed'

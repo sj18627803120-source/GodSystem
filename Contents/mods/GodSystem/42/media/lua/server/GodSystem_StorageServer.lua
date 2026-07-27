@@ -199,6 +199,11 @@ function Commands.coreStatus(player)
     sendCoreStatus(player)
 end
 
+function Commands.networkState(player)
+    local summary = Manager.networkSummaryForPlayer(player)
+    send(player, "networkState", type(summary) == "table" and summary or { connectedObjectIds = {} })
+end
+
 function Commands.claimCore(player, args)
     operation(player, "claimCore", args, function()
         local ok, reason, payload = Manager.claimCore(player, {
