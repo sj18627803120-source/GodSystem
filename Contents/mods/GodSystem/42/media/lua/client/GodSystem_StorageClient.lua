@@ -14,6 +14,7 @@ Client.core = Client.core or nil
 Client.pending = Client.pending or {}
 Client.lastError = Client.lastError or nil
 Client.claimState = Client.claimState or nil
+Client.organizer = Client.organizer or { state = "idle" }
 Client.statusRequestedAtMs = Client.statusRequestedAtMs or 0
 
 local function player()
@@ -62,6 +63,7 @@ local reasonText = {
     adminOnly = { "Storage_Error_AdminOnly", "Only an administrator can change this setting" },
     internalError = { "Storage_Error_Internal", "Storage operation failed" },
     markerFailed = { "Storage_Error_MarkerFailed", "The network container mark could not be changed" },
+    organizerRunning = { "Storage_Error_OrganizerRunning", "仓库正在整理，请等待完成或先停止整理" },
 }
 
 function Client.notifyReason(reason)
@@ -152,6 +154,24 @@ local function publishNetworkState(state)
     if GodSystemStorageContext and GodSystemStorageContext.refreshHighlights then
         local ok, err = pcall(GodSystemStorageContext.refreshHighlights)
         if not ok then print("[GodSystemStorage] marker refresh failed: " .. tostring(err)) end
+    end
+    return true
+end
+
+local function publishOrganizer(state)
+    local previousState = type(Client.organizer) == "table" and Client.organizer.state or "idle"
+    Client.organizer = type(state) == "table" and state or { state = "idle" }
+    if previousState == "running" and Client.organizer.state == "completed"
+        and GodSystem and GodSystem.notify then
+        GodSystem.notify(text("Storage_Organizer_Result", "整理完成：移动 {1} 件，保持 {2} 件，跳过 {3} 件，失败 {4} 件")
+            :gsub("{1}", tostring(Client.organizer.moved or 0))
+            :gsub("{2}", tostring(Client.organizer.unchanged or 0))
+            :gsub("{3}", tostring(Client.organizer.skipped or 0))
+            :gsub("{4}", tostring(Client.organizer.failed or 0)))
+    end
+    if GodSystemStorageUI and GodSystemStorageUI.onOrganizerStatus then
+        local ok, err = pcall(GodSystemStorageUI.onOrganizerStatus, Client.organizer)
+        if not ok then print("[GodSystemStorage] organizer UI update failed: " .. tostring(err)) end
     end
     return true
 end
@@ -389,6 +409,12 @@ local function localMutation(command, args)
         ok, reason, payload = Manager.deposit(p, core, args)
     elseif command == "withdraw" then
         ok, reason, payload = Manager.withdraw(p, core, args)
+    elseif command == "organizerStart" then
+        ok, reason, payload = Manager.startOrganizer(p, core, function(status)
+            publishOrganizer(status)
+        end)
+    elseif command == "organizerStop" then
+        ok, reason, payload = Manager.stopOrganizer(p, core)
     end
     if not ok then Client.notifyReason(reason) end
     if GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
@@ -397,7 +423,9 @@ local function localMutation(command, args)
             print("[GodSystemStorage] operation UI update failed: " .. tostring(callbackError))
         end
     end
-    if command == "link" then
+    if command == "organizerStart" or command == "organizerStop" then
+        publishOrganizer(payload)
+    elseif command == "link" then
         startLocalIndex(true)
     else
         Client.refresh()
@@ -462,6 +490,21 @@ function Client.updateLimits(radius, maxLinks)
     return Client.mutate("updateLimits", { radius = radius, maxLinks = maxLinks })
 end
 
+function Client.startOrganizer()
+    return Client.mutate("organizerStart", {})
+end
+
+function Client.stopOrganizer()
+    return Client.mutate("organizerStop", {})
+end
+
+function Client.requestOrganizerStatus()
+    if not Client.core then return false end
+    if isMultiplayer() then return send("organizerStatus", Client.coreArgs()) end
+    local network = Manager.getNetwork(Client.core.networkId)
+    return publishOrganizer(Manager.organizerStatus(network and network.networkId))
+end
+
 function Client.takeOver()
     if not Client.core then return false end
     if isMultiplayer() then return send("takeOver", Client.coreArgs()) end
@@ -521,6 +564,10 @@ function Client.onServerCommand(module, command, args)
     end
     if command == "networkState" then
         publishNetworkState(args)
+        return
+    end
+    if command == "organizerStatus" then
+        publishOrganizer(args)
         return
     end
     if command == "indexStarted" then
@@ -589,6 +636,9 @@ function Client.onServerCommand(module, command, args)
             end
             if args.ok == true and Client.core then Client.refresh() end
         end
+        if args.command == "organizerStart" or args.command == "organizerStop" then
+            publishOrganizer(args.payload)
+        end
         if GodSystemStorageUI and GodSystemStorageUI.onOperationResult then
             GodSystemStorageUI.onOperationResult(args.command, args.ok == true, args.reason, args.payload)
         end
@@ -620,6 +670,7 @@ function Client.reset()
     Client.pending = {}
     Client.networkState = nil
     Client.claimState = nil
+    Client.organizer = { state = "idle" }
     Client.statusRequestedAtMs = 0
     if GodSystemStorageUI and GodSystemStorageUI.close then GodSystemStorageUI.close() end
 end

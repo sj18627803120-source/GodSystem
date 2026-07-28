@@ -45,6 +45,49 @@ local function cycleValue(values, current)
     return values[index]
 end
 
+local function localizedGameText(key)
+    if not getTextOrNull then return nil end
+    local ok, value = pcall(getTextOrNull, tostring(key or ""))
+    if ok and value and tostring(value) ~= "" then return tostring(value) end
+    return nil
+end
+
+local function categoryLabel(category)
+    category = tostring(category or "other")
+    return text("Storage_Category_" .. category, category)
+end
+
+local function stateLabel(state)
+    state = tostring(state or "")
+    return text("Storage_State_" .. state, state)
+end
+
+local function roleLabel(role)
+    role = Storage.normalizeRole(role)
+    return text("Storage_Role_" .. role, role)
+end
+
+local function priorityLabel(tier)
+    tier = Storage.normalizePriorityTier(tier)
+    return text("Storage_Priority_" .. tier, tier)
+end
+
+local function containerDisplayName(row)
+    row = type(row) == "table" and row or {}
+    local slotType = tostring(row.slotType or row.containerType or "")
+    local localized = localizedGameText("IGUI_ContainerTitle_" .. slotType)
+        or localizedGameText("IGUI_Container_" .. slotType)
+    local base = tostring(row.baseName or row.name or "")
+    if localized and localized ~= slotType then
+        if base ~= "" and base ~= slotType and base ~= "Container" and base ~= localized then
+            return base .. " / " .. localized
+        end
+        return localized
+    end
+    if base ~= "" then return base end
+    return slotType ~= "" and slotType or text("Storage_ContainerFallback", "容器")
+end
+
 local function formatNumber(value)
     value = tonumber(value) or 0
     if math.abs(value - math.floor(value)) < 0.01 then return tostring(math.floor(value)) end
@@ -517,10 +560,16 @@ function GodSystemStorageWindow:createChildren()
     self.connectModeButton = self:createButton(14, self.height - 44, 145, 32,
         text("Storage_ConnectMode", "Connection mode"), "connectMode", self.onManageAction, true)
     self.roleButton = self:createButton(167, self.height - 44, 142, 32, text("Storage_Role", "Role"), "role", self.onManageAction)
-    self.priorityDownButton = self:createButton(317, self.height - 44, 44, 32, "-10", "priorityDown", self.onManageAction)
-    self.priorityUpButton = self:createButton(369, self.height - 44, 44, 32, "+10", "priorityUp", self.onManageAction)
-    self.unlinkButton = self:createButton(421, self.height - 44, 126, 32, text("Storage_Unlink", "Remove link"), "unlink", self.onManageAction)
-    self.takeOverButton = self:createButton(555, self.height - 44, 130, 32, text("Storage_TakeOver", "Admin take over"), "takeOver", self.onManageAction)
+    self.priorityDownButton = self:createButton(317, self.height - 44, 68, 32,
+        text("Storage_PriorityDown", "降一档"), "priorityDown", self.onManageAction)
+    self.priorityUpButton = self:createButton(393, self.height - 44, 68, 32,
+        text("Storage_PriorityUp", "升一档"), "priorityUp", self.onManageAction)
+    self.unlinkButton = self:createButton(469, self.height - 44, 126, 32, text("Storage_Unlink", "Remove link"), "unlink", self.onManageAction)
+    self.takeOverButton = self:createButton(603, self.height - 44, 130, 32, text("Storage_TakeOver", "Admin take over"), "takeOver", self.onManageAction)
+    self.organizerButton = self:createButton(741, self.height - 44, 132, 32,
+        text("Storage_Organizer_Start", "整理仓库"), "organizerStart", self.onManageAction, true)
+    self.organizerStopButton = self:createButton(881, self.height - 44, 132, 32,
+        text("Storage_Organizer_Stop", "停止整理"), "organizerStop", self.onManageAction)
 
     self:layoutColumns()
     self:updatePageVisibility()
@@ -552,6 +601,7 @@ function GodSystemStorageWindow:layoutColumns()
     local buttons = {
         self.depositSelectedButton, self.depositSourceAllButton, self.withdrawSelectedButton,
         self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton, self.unlinkButton, self.takeOverButton,
+        self.organizerButton, self.organizerStopButton,
     }
     for i = 1, #buttons do buttons[i]:setY(actionY) end
 end
@@ -581,7 +631,7 @@ function GodSystemStorageWindow:updatePageVisibility()
     for i = 1, #storageButtons do storageButtons[i]:setVisible(storagePage) end
     local manageButtons = {
         self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton,
-        self.unlinkButton,
+        self.unlinkButton, self.organizerButton, self.organizerStopButton,
     }
     for i = 1, #manageButtons do manageButtons[i]:setVisible(not storagePage) end
     self.takeOverButton:setVisible(not storagePage and isMultiplayerSession()
@@ -727,7 +777,7 @@ function GodSystemStorageWindow:rebuildWarehouse()
                 key = tostring(group.key),
                 group = group,
                 displayText = tostring(group.name or group.fullType),
-                subtext = tostring(group.category or "other") .. " | " .. compactSourceNames(group.sourceNames)
+                subtext = categoryLabel(group.category) .. " | " .. compactSourceNames(group.sourceNames)
                     .. " | " .. formatNumber(group.totalWeight) .. " kg",
                 count = tonumber(group.count) or 0,
                 texture = textureForType(group.fullType),
@@ -745,24 +795,27 @@ function GodSystemStorageWindow:rebuildWarehouse()
                 or (self.containerStatus == "offline" and row.online ~= true)
                 or (self.containerStatus == "full" and row.online == true and (tonumber(row.used) or 0) >= (tonumber(row.capacity) or 0))
                 or (self.containerStatus == "cold" and row.powered == true)
-            if statusOk and contains(table.concat({ row.name or "", row.role or "", row.linkId or "", row.objectId or "" }, " "), query) then
+            local displayName = containerDisplayName(row)
+            if statusOk and contains(table.concat({ displayName, row.name or "", roleLabel(row.role), row.linkId or "", row.objectId or "" }, " "), query) then
+                row.displayName = displayName
                 rows[#rows + 1] = row
             end
         end
         table.sort(rows, function(a, b)
             if a.isCoreHost ~= b.isCoreHost then return a.isCoreHost == true end
             if a.online ~= b.online then return a.online == true end
-            if (a.priority or 0) ~= (b.priority or 0) then return (a.priority or 0) > (b.priority or 0) end
-            return lower(a.name) < lower(b.name)
+            if (a.priorityRank or 0) ~= (b.priorityRank or 0) then return (a.priorityRank or 0) > (b.priorityRank or 0) end
+            return lower(a.displayName or a.name) < lower(b.displayName or b.name)
         end)
         for i = 1, #rows do
             local row = rows[i]
             local status = row.online and text("Storage_Online", "Online") or text("Storage_Offline", "Offline")
-            local name = tostring(row.name or "Container")
+            local name = tostring(row.displayName or containerDisplayName(row))
             if row.isCoreHost then name = text("Storage_CoreHost", "Core host") .. " | " .. name end
             local payload = {
                 kind = "container", key = tostring(row.linkId), container = row, displayText = name,
-                subtext = status .. " | P" .. tostring(row.priority or 50) .. " | " .. formatNumber(row.used) .. "/" .. formatNumber(row.capacity),
+                subtext = status .. " | " .. roleLabel(row.role) .. " | " .. priorityLabel(row.priorityTier)
+                    .. " | " .. formatNumber(row.used) .. "/" .. formatNumber(row.capacity),
             }
             self.warehouseList:addItem(name, payload)
             self.warehouseRows[#self.warehouseRows + 1] = row
@@ -1049,11 +1102,11 @@ function GodSystemStorageWindow:updateDetails()
             return
         end
         local details = {
-            tostring(selected.name or "Container"),
+            containerDisplayName(selected),
             text("Storage_Status", "Status") .. ": " .. (selected.online and text("Storage_Online", "Online") or text("Storage_Offline", "Offline")),
             text("Storage_CoreHost", "Core host") .. ": " .. tostring(selected.isCoreHost == true),
-            text("Storage_Role", "Role") .. ": " .. tostring(selected.role or "auto"),
-            text("Storage_Priority", "Priority") .. ": " .. tostring(selected.priority or 50),
+            text("Storage_Role", "Role") .. ": " .. roleLabel(selected.role),
+            text("Storage_Priority", "Priority") .. ": " .. priorityLabel(selected.priorityTier),
             text("Storage_Position", "Position") .. string.format(": %d,%d,%d", selected.x or 0, selected.y or 0, selected.z or 0),
             text("Storage_Capacity", "Capacity") .. ": " .. formatNumber(selected.used) .. "/" .. formatNumber(selected.capacity),
             text("Storage_Sources", "Sources") .. ": " .. sourceDisplayLabel(selected.linkId, Client.snapshot),
@@ -1072,8 +1125,12 @@ function GodSystemStorageWindow:updateDetails()
         tostring(selected.name or selected.fullType), tostring(selected.fullType or ""),
         text("Storage_Count", "Count") .. ": " .. tostring(selected.count or 0),
         text("Storage_Mod", "Mod") .. ": " .. tostring(selected.modName or ""),
-        text("Storage_Category", "Category") .. ": " .. tostring(selected.category or ""),
-        text("Storage_State", "State") .. ": " .. table.concat(selected.states or {}, ", "),
+        text("Storage_Category", "Category") .. ": " .. categoryLabel(selected.category),
+        text("Storage_State", "State") .. ": " .. (function()
+            local labels = {}
+            for i = 1, #(selected.states or {}) do labels[#labels + 1] = stateLabel(selected.states[i]) end
+            return table.concat(labels, ", ")
+        end)(),
         text("Storage_Sources", "Sources") .. ": " .. compactSourceNames(selected.sourceNames),
     }
     for i = 1, #rows do self.detailList:addItem(rows[i], { displayText = rows[i] }) end
@@ -1103,8 +1160,27 @@ function GodSystemStorageWindow:updateLabels()
     for i = 1, #(snapshot.containers or {}) do
         if tostring(snapshot.containers[i].linkId) == tostring(self.selectedLinkId) then selected = snapshot.containers[i]; break end
     end
-    self.roleButton:setTitle(text("Storage_Role", "Role") .. (selected and (": " .. text("Storage_Role_" .. tostring(selected.role), selected.role)) or ""))
-    self.unlinkButton.enable = not selected or selected.isCoreHost ~= true
+    self.roleButton:setTitle(text("Storage_Role", "Role") .. (selected and (": " .. roleLabel(selected.role)) or ""))
+    local organizer = Client.organizer or { state = "idle" }
+    local organizing = organizer.state == "running"
+    local canManage = (Client.networkState or {}).canManage == true
+    self.unlinkButton.enable = not organizing and (not selected or selected.isCoreHost ~= true)
+    self.roleButton.enable = not organizing and selected ~= nil
+    self.priorityDownButton.enable = not organizing and selected ~= nil
+    self.priorityUpButton.enable = not organizing and selected ~= nil
+    self.connectModeButton.enable = not organizing
+    self.depositSelectedButton.enable = not organizing
+    self.depositSourceAllButton.enable = not organizing
+    self.withdrawSelectedButton.enable = not organizing
+    self.organizerButton.enable = canManage and not organizing
+    self.organizerStopButton.enable = canManage and organizing
+    self.organizerStopButton:setVisible(self.page == "manage" and organizing)
+    if organizing then
+        self.statusLabel.name = text("Storage_Organizer_Progress", "整理中 {1}/{2}，已移动 {3}")
+            :gsub("{1}", tostring(organizer.processed or 0))
+            :gsub("{2}", tostring(organizer.total or 0))
+            :gsub("{3}", tostring(organizer.moved or 0))
+    end
     self.takeOverButton.enable = (Client.networkState or {}).isAdmin == true
     self.takeOverButton:setVisible(self.page == "manage" and isMultiplayerSession()
         and (Client.networkState or {}).isAdmin == true)
@@ -1113,38 +1189,39 @@ function GodSystemStorageWindow:updateLabels()
     self:updateWithdrawButton()
 end
 
-local function copyRules(source)
-    local result = {}
-    for key, value in pairs(type(source) == "table" and source or {}) do if value == true then result[key] = true end end
-    return result
-end
-
-function GodSystemStorageWindow:applyCategoryRule(payload)
+function GodSystemStorageWindow:applyContainerSetting(payload)
     if not payload or not payload.linkId then return end
-    local allow, deny = copyRules(payload.allowCategories), copyRules(payload.denyCategories)
-    if payload.mode == "allowOnly" then allow = { [payload.category] = true }; deny[payload.category] = nil
-    elseif payload.mode == "toggleDeny" then deny[payload.category] = deny[payload.category] ~= true and true or nil; allow[payload.category] = nil
-    elseif payload.mode == "clear" then allow, deny = {}, {} end
-    Client.updateLink({ linkId = payload.linkId, allowCategories = allow, denyCategories = deny })
+    Client.updateLink({
+        linkId = payload.linkId,
+        role = payload.role,
+        priorityTier = payload.priorityTier,
+    })
 end
 
 function GodSystemStorageWindow:showContainerRules(container)
     local context = ISContextMenu.get(Storage.integer(Storage.safeCall(getPlayer and getPlayer(), "getPlayerNum", 0), 0), getMouseX(), getMouseY())
-    local allowRoot = context:addOption(text("Storage_Rule_AllowOnly", "Allow only category"), nil, nil)
-    local allowMenu = ISContextMenu:getNew(context)
-    context:addSubMenu(allowRoot, allowMenu)
-    local denyRoot = context:addOption(text("Storage_Rule_Deny", "Toggle denied category"), nil, nil)
-    local denyMenu = ISContextMenu:getNew(context)
-    context:addSubMenu(denyRoot, denyMenu)
-    for i = 1, #Storage.Categories do
-        local category = Storage.Categories[i]
-        local base = { linkId = container.linkId, category = category, allowCategories = container.allowCategories, denyCategories = container.denyCategories }
-        local allowPayload = {}; for key, value in pairs(base) do allowPayload[key] = value end; allowPayload.mode = "allowOnly"
-        local denyPayload = {}; for key, value in pairs(base) do denyPayload[key] = value end; denyPayload.mode = "toggleDeny"
-        allowMenu:addOption(text("Storage_Category_" .. category, category), self, self.applyCategoryRule, allowPayload)
-        denyMenu:addOption(text("Storage_Category_" .. category, category), self, self.applyCategoryRule, denyPayload)
+    local roleRoot = context:addOption(text("Storage_Role", "Role"), nil, nil)
+    local roleMenu = ISContextMenu:getNew(context)
+    context:addSubMenu(roleRoot, roleMenu)
+    for i = 1, #Storage.Roles do
+        local role = Storage.Roles[i]
+        local option = roleMenu:addOption(roleLabel(role), self, self.applyContainerSetting, {
+            linkId = container.linkId,
+            role = role,
+        })
+        if option and Storage.normalizeRole(container.role) == role then option.notAvailable = true end
     end
-    context:addOption(text("Storage_Rule_Clear", "Clear category rules"), self, self.applyCategoryRule, { mode = "clear", linkId = container.linkId })
+    local priorityRoot = context:addOption(text("Storage_Priority", "Priority"), nil, nil)
+    local priorityMenu = ISContextMenu:getNew(context)
+    context:addSubMenu(priorityRoot, priorityMenu)
+    for i = #Storage.PriorityTiers, 1, -1 do
+        local tier = Storage.PriorityTiers[i]
+        local option = priorityMenu:addOption(priorityLabel(tier), self, self.applyContainerSetting, {
+            linkId = container.linkId,
+            priorityTier = tier,
+        })
+        if option and Storage.normalizePriorityTier(container.priorityTier) == tier then option.notAvailable = true end
+    end
 end
 
 function GodSystemStorageWindow:onAction(button)
@@ -1167,6 +1244,8 @@ function GodSystemStorageWindow:onManageAction(button)
         return
     end
     if button.internal == "takeOver" then Client.takeOver(); return end
+    if button.internal == "organizerStart" then Client.startOrganizer(); return end
+    if button.internal == "organizerStop" then Client.stopOrganizer(); return end
     if not self.selectedLinkId then return end
     local selected
     for i = 1, #(((Client.snapshot or {}).containers) or {}) do
@@ -1175,9 +1254,15 @@ function GodSystemStorageWindow:onManageAction(button)
     if not selected then return end
     if button.internal == "unlink" then
         if selected.isCoreHost ~= true then Client.unlink(self.selectedLinkId) end
-    elseif button.internal == "role" then Client.updateLink({ linkId = self.selectedLinkId, role = cycleValue(Storage.Roles, selected.role or "auto") })
-    elseif button.internal == "priorityDown" then Client.updateLink({ linkId = self.selectedLinkId, priority = math.max(0, (tonumber(selected.priority) or 50) - 10) })
-    elseif button.internal == "priorityUp" then Client.updateLink({ linkId = self.selectedLinkId, priority = math.min(100, (tonumber(selected.priority) or 50) + 10) }) end
+    elseif button.internal == "role" then
+        Client.updateLink({ linkId = self.selectedLinkId, role = cycleValue(Storage.Roles, Storage.normalizeRole(selected.role)) })
+    elseif button.internal == "priorityDown" then
+        local index = Storage.priorityRank(selected.priorityTier)
+        Client.updateLink({ linkId = self.selectedLinkId, priorityTier = Storage.PriorityTiers[math.max(1, index - 1)] })
+    elseif button.internal == "priorityUp" then
+        local index = Storage.priorityRank(selected.priorityTier)
+        Client.updateLink({ linkId = self.selectedLinkId, priorityTier = Storage.PriorityTiers[math.min(#Storage.PriorityTiers, index + 1)] })
+    end
 end
 
 function GodSystemStorageWindow:close()
@@ -1195,6 +1280,7 @@ function UI.open()
     window:addToUIManager()
     window:setVisible(true)
     UI.window = window
+    Client.requestOrganizerStatus()
     return window
 end
 
@@ -1242,6 +1328,10 @@ function UI.onOperationResult(command, ok, reason, payload)
         if ok then UI.window.statusLabel.name = text("Storage_Refreshing", "Refreshing...") end
         UI.window:rebuildInventory()
     end
+end
+
+function UI.onOrganizerStatus()
+    if UI.window then UI.window:updateLabels() end
 end
 
 function UI.onError(args)

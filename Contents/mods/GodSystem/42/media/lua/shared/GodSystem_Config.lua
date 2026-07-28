@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "1.16.72"
+GodSystemConfig.Version = "1.16.73"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "神级系统币"
@@ -73,7 +73,6 @@ GodSystemConfig.BankFixedTerms = {
     { id = "d3", days = 3, hours = 72, interestRate = 0.07 },
     { id = "d7", days = 7, hours = 168, interestRate = 0.18 },
 }
-GodSystemConfig.BankAllowNewFixedDeposits = false
 GodSystemConfig.BankInvestmentSettlementHours = 24
 GodSystemConfig.BankInvestmentMinAmount = 1
 GodSystemConfig.BankInvestmentProfiles = {

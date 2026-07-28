@@ -10,10 +10,14 @@ Manager.runtime = Manager.runtime or {
     latestJobs = {},
     snapshotJobs = {},
     listeners = {},
+    organizers = {},
+    organizerByNetwork = {},
 }
 Manager.runtime.jobs = Manager.runtime.jobs or {}
 Manager.runtime.latestJobs = Manager.runtime.latestJobs or {}
 Manager.runtime.snapshotJobs = Manager.runtime.snapshotJobs or {}
+Manager.runtime.organizers = Manager.runtime.organizers or {}
+Manager.runtime.organizerByNetwork = Manager.runtime.organizerByNetwork or {}
 
 local function safeCall(object, methodName, fallback, ...)
     return Storage.safeCall(object, methodName, fallback, ...)
@@ -28,6 +32,37 @@ function Manager.save(network)
     transmitStore()
 end
 
+local function organizerPayload(job)
+    if type(job) ~= "table" then return { state = "idle" } end
+    local stats = job.stats or {}
+    return {
+        jobId = job.jobId,
+        networkId = job.networkId,
+        state = job.state or "running",
+        total = Storage.integer(job.total, #(job.items or {})),
+        processed = Storage.integer(job.processed, 0),
+        moved = Storage.integer(stats.moved, 0),
+        unchanged = Storage.integer(stats.unchanged, 0),
+        skipped = Storage.integer(stats.skipped, 0),
+        failed = Storage.integer(stats.failed, 0),
+        buffered = Storage.integer(stats.buffered, 0),
+        noBuffer = Storage.integer(stats.noBuffer, 0),
+        incomplete = job.incomplete == true,
+        reason = job.reason,
+    }
+end
+
+function Manager.isOrganizing(networkId)
+    local jobId = Manager.runtime.organizerByNetwork[tostring(networkId or "")]
+    local job = jobId and Manager.runtime.organizers[jobId] or nil
+    return type(job) == "table" and job.state == "running"
+end
+
+function Manager.organizerStatus(networkId)
+    local jobId = Manager.runtime.organizerByNetwork[tostring(networkId or "")]
+    return organizerPayload(jobId and Manager.runtime.organizers[jobId] or nil)
+end
+
 function Manager.calibrateLoadedSquare(square)
     local changed = false
     local objects = Storage.squareObjects(square)
@@ -37,9 +72,9 @@ function Manager.calibrateLoadedSquare(square)
         if host then
             local network = Manager.getNetwork(host.networkId)
             local position = Storage.objectCoordinates(object)
-            local recorded = network and (network.coreHost or network.controller) or nil
+            local recorded = network and network.coreHost or nil
             local active = network
-                and tostring(network.coreToken or network.controllerToken or "") == tostring(host.token or "")
+                and tostring(network.coreToken or "") == tostring(host.token or "")
                 and type(recorded) == "table"
                 and position
                 and Storage.integer(recorded.x, -1) == Storage.integer(position.x, 0)
@@ -121,11 +156,11 @@ function Manager.createNetwork(player, scope, scopeKey)
         coreItemId = nil,
         coreHost = nil,
         pendingCoreUnlock = nil,
-        coreMigrationVersion = 1,
         radius = Storage.DefaultRadius,
         maxLinks = Storage.MaxLinks,
         links = {},
         topologyVersion = Storage.TopologyVersion,
+        routingSequence = Storage.nowMs() * 100,
         revision = 1,
         createdAtMs = Storage.nowMs(),
         updatedAtMs = Storage.nowMs(),
@@ -151,7 +186,7 @@ function Manager.canUse(player, network)
     if Storage.isAdmin(player) then return true end
     if network.scope == "personal" then return Storage.playerKey(player) == tostring(network.owner or "") end
     if network.scope == "safehouse" then
-        local coreHost = network.coreHost or network.controller or {}
+        local coreHost = network.coreHost or {}
         local safehouse = Storage.getSafehouseAt(coreHost.x or 0, coreHost.y or 0)
         if Storage.safehouseKey(safehouse) == tostring(network.safehouse or "") then
             return Storage.playerAllowedSafehouse(player, safehouse)
@@ -165,7 +200,7 @@ function Manager.canManage(player, network)
     if Storage.isAdmin(player) then return true end
     if not Manager.canUse(player, network) then return false end
     if network.scope == "personal" then return Storage.playerKey(player) == tostring(network.owner or "") end
-    local coreHost = network.coreHost or network.controller or {}
+    local coreHost = network.coreHost or {}
     local safehouse = Storage.getSafehouseAt(coreHost.x or 0, coreHost.y or 0)
     local username = Storage.playerKey(player)
     if Storage.safehouseKey(safehouse) ~= tostring(network.safehouse or "") then
@@ -255,47 +290,10 @@ local function cleanupInventoryCores(player, networkId, keepItem)
     return removed
 end
 
-local function removeLegacyWorldObject(object)
-    local square = safeCall(object, "getSquare", nil)
-    if not square or not object then return false end
-    if square.transmitRemoveItemFromSquare then
-        local ok = pcall(function() square:transmitRemoveItemFromSquare(object) end)
-        if not ok then return false end
-    else
-        if object.removeFromWorld then pcall(function() object:removeFromWorld() end) end
-        if object.removeFromSquare then pcall(function() object:removeFromSquare() end) end
-    end
-    return Storage.integer(safeCall(object, "getObjectIndex", -1), -1) < 0
-end
-
 local function normalizeCoreFields(network)
     local changed = false
-    if Storage.integer(network.coreMigrationVersion, 0) < 1 then
-        local legacyToken = tostring(network.controllerToken or "")
-        if tostring(network.coreToken or "") == "" then network.coreToken = legacyToken end
-        if network.coreClaimedOnce == nil then
-            network.coreClaimedOnce = network.controllerClaimedOnce == true or legacyToken ~= ""
-        end
-        local legacyState = tostring(network.controllerState or "")
-        if type(network.controller) == "table"
-            and (legacyState == "installed" or legacyState == "legacyGround") then
-            network.legacyControllerCleanup = network.controller
-            network.legacyControllerCleanup.token = legacyToken
-            network.coreState = "migrationPending"
-        elseif legacyState == "kit" then
-            network.coreState = "kit"
-            network.coreItemId = network.controllerItemId
-        elseif tostring(network.coreToken or "") == "" then
-            network.coreState = "unclaimed"
-        else
-            network.coreState = "missing"
-        end
-        network.coreMigrationVersion = 1
-        network.controller = nil
-        network.controllerToken = nil
-        network.controllerState = nil
-        network.controllerItemId = nil
-        network.controllerClaimedOnce = nil
+    if Storage.integer(network.schemaVersion, 0) ~= Storage.SchemaVersion then
+        network.schemaVersion = Storage.SchemaVersion
         changed = true
     end
     local token = tostring(network.coreToken or "")
@@ -353,33 +351,6 @@ local function processPendingUnlock(network)
     return true
 end
 
-local function cleanupLegacyController(network)
-    local legacy = type(network.legacyControllerCleanup) == "table" and network.legacyControllerCleanup or nil
-    if not legacy then return false end
-    local square = Storage.getSquare(legacy.x, legacy.y, legacy.z)
-    if not square then return false end
-    local object = Storage.findLegacyWorldController(
-        legacy.x, legacy.y, legacy.z, legacy.itemId,
-        tostring(legacy.token or network.coreToken or ""), legacy.objectId)
-    if object and not removeLegacyWorldObject(object) then return false end
-    network.legacyControllerCleanup = nil
-    return true
-end
-
-local function migrateInventoryCore(player, network, item, container)
-    if not item or not Storage.hasLegacyControllerIdentity(item) then
-        if item then Storage.setCoreIdentity(item, network.networkId, network.coreToken) end
-        return item, container
-    end
-    local replacement, reason = inventoryAddCore(player, network, network.coreToken)
-    if not replacement then return item, container, reason end
-    if not removeInventoryItem(container, item) then
-        removeInventoryItem(safeCall(player, "getInventory", nil), replacement)
-        return item, container, "migrationRemoveFailed"
-    end
-    return replacement, safeCall(replacement, "getContainer", nil)
-end
-
 function Manager.coreStatus(player)
     local position = Storage.positionOfPlayer(player)
     if not position then return nil, "playerMissing" end
@@ -408,7 +379,7 @@ function Manager.coreStatus(player)
         local newestAt = -1
         for _, candidate in pairs(Manager.getStore().networks) do
             if tostring(candidate.owner or candidate.creator or "") == username
-                and tostring(candidate.coreToken or candidate.controllerToken or "") ~= ""
+                and tostring(candidate.coreToken or "") ~= ""
                 and Storage.number(candidate.updatedAtMs, 0) > newestAt then
                 network = candidate
                 newestAt = Storage.number(candidate.updatedAtMs, 0)
@@ -429,7 +400,6 @@ function Manager.coreStatus(player)
 
     local changed = normalizeCoreFields(network)
     if processPendingUnlock(network) then changed = true end
-    if cleanupLegacyController(network) then changed = true end
     local token = tostring(network.coreToken or "")
     local state = tostring(network.coreState or "missing")
     local itemId = network.coreItemId
@@ -438,7 +408,6 @@ function Manager.coreStatus(player)
     if token ~= "" then
         local item, container = findInventoryCore(player, network.networkId, token)
         if item then
-            item, container = migrateInventoryCore(player, network, item, container)
             activeCoreItem = item
             itemId = Storage.itemId(item)
             if type(coreHost) == "table" then
@@ -455,14 +424,6 @@ function Manager.coreStatus(player)
             end
             coreHost = nil
             state = "kit"
-        elseif state == "migrationPending" then
-            local migrated, migrateReason = inventoryAddCore(player, network, token)
-            if not migrated then return nil, migrateReason end
-            activeCoreItem = migrated
-            itemId = Storage.itemId(migrated)
-            coreHost = nil
-            state = "kit"
-            cleanupLegacyController(network)
         elseif type(coreHost) == "table" then
             local object, _, loaded = findRecordedCoreHost(network, token)
             if object then
@@ -513,6 +474,7 @@ function Manager.claimCore(player, options)
     if not network then return false, reason end
     if not Manager.canUse(player, network) then return false, "notAllowed" end
     if not created and not Manager.canManage(player, network) then return false, "manageDenied" end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     normalizeCoreFields(network)
     local state = tostring(status.state or "missing")
     local forceRecovery = options.forceRecovery == true
@@ -623,6 +585,7 @@ function Manager.installCore(player, args)
     args = type(args) == "table" and args or {}
     local network = Manager.getNetwork(args.networkId)
     if not network then return false, "coreInvalid" end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     normalizeCoreFields(network)
     local token = tostring(args.coreToken or "")
     if token == "" or token ~= tostring(network.coreToken or "") then return false, "coreExpired" end
@@ -662,6 +625,7 @@ end
 function Manager.retrieveCore(player, args)
     local network, object, _, reason = Manager.resolveCoreHost(player, args)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     if not Manager.canManage(player, network) then return false, "manageDenied" end
     local token = tostring(network.coreToken or "")
     local unlocked, unlockReason = Storage.unlockCoreHost(object, token)
@@ -757,34 +721,9 @@ end
 function Manager.connectedNetwork(network, coreObject)
     if type(network) ~= "table" then return nil end
     if processPendingUnlock(network) then Manager.save(network) end
-    if Storage.integer(network.topologyVersion, 0) < Storage.TopologyVersion then
-        local migrated = {}
-        for _, legacyLink in pairs(type(network.links) == "table" and network.links or {}) do
-            local object = Storage.resolveLink(legacyLink)
-            if object then
-                local objectId = Storage.getObjectId(object, true)
-                if objectId and not migrated[objectId] then
-                    Storage.setNetworkContainerMarker(object, {
-                        scopeKey = network.scopeKey,
-                        owner = network.owner,
-                        name = legacyLink.name,
-                        role = legacyLink.role,
-                        priority = legacyLink.priority,
-                        allowCategories = legacyLink.allowCategories,
-                        denyCategories = legacyLink.denyCategories,
-                    })
-                    migrated[objectId] = true
-                end
-                Storage.clearLinkMarker(object, legacyLink.slotIndex, legacyLink.linkId)
-            end
-        end
-        network.links = {}
-        network.topologyVersion = Storage.TopologyVersion
-        network.maxLinks = Storage.MaxLinks
-        network.radius = nil
-        network.revision = Storage.integer(network.revision, 0) + 1
-        transmitStore()
-    end
+    network.schemaVersion = Storage.SchemaVersion
+    network.topologyVersion = Storage.TopologyVersion
+    network.maxLinks = Storage.MaxLinks
     return Storage.discoverNetwork(network, coreObject)
 end
 
@@ -863,6 +802,8 @@ function Manager.setNetworkContainer(player, targetArgs)
     if not object then return false, reason end
     local existing = Storage.getNetworkContainerMarker(object)
     local enabled = targetArgs.enabled == true
+    local existingNetwork = existing and Manager.getNetworkByScope(existing.scopeKey) or nil
+    if existingNetwork and Manager.isOrganizing(existingNetwork.networkId) then return false, "organizerRunning" end
     if existing and not markerManageAllowed(player, existing, position) then return false, "manageDenied" end
     if not enabled then
         if not existing then return true, nil, { enabled = false } end
@@ -871,6 +812,8 @@ function Manager.setNetworkContainer(player, targetArgs)
         return true, nil, { enabled = false, objectId = existing.objectId }
     end
     local scope, scopeKey, safehouse = Manager.scopeForPosition(player, position)
+    local scopeNetwork = Manager.getNetworkByScope(scopeKey)
+    if scopeNetwork and Manager.isOrganizing(scopeNetwork.networkId) then return false, "organizerRunning" end
     if scope == "safehouse" and not (Storage.playerAllowedSafehouse(player, safehouse) or Storage.isAdmin(player)) then
         return false, "notAllowed"
     end
@@ -882,10 +825,8 @@ function Manager.setNetworkContainer(player, targetArgs)
         scopeKey = scopeKey,
         owner = Storage.playerKey(player),
         name = existing and existing.name or defaultName,
-        role = existing and existing.role or "auto",
-        priority = existing and existing.priority or 50,
-        allowCategories = existing and existing.allowCategories or {},
-        denyCategories = existing and existing.denyCategories or {},
+        role = existing and existing.role or "general",
+        priorityTier = existing and (existing.priorityTier or existing.priority) or "normal",
         markedAtMs = existing and existing.markedAtMs or Storage.nowMs(),
     }) then return false, "markerFailed" end
     return true, nil, Storage.getNetworkContainerMarker(object)
@@ -900,6 +841,7 @@ end
 function Manager.unlinkContainer(player, coreArgs, linkId)
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     if not Manager.canManage(player, network) then return false, "manageDenied" end
     local view = Manager.connectedNetwork(network, coreObject)
     local link = view.links[tostring(linkId or "")]
@@ -920,22 +862,19 @@ local function validRole(role)
         roleSet = {}
         for i = 1, #Storage.Roles do roleSet[Storage.Roles[i]] = true end
     end
-    return roleSet[tostring(role or "")] == true
+    return roleSet[Storage.normalizeRole(role)] == true
 end
 
-local function normalizeCategoryRules(source)
-    local result = {}
-    if type(source) ~= "table" then return result end
-    for i = 1, #Storage.Categories do
-        local category = Storage.Categories[i]
-        if source[category] == true then result[category] = true end
-    end
-    return result
+local function nextRoutingOrder(network)
+    local clock = Storage.nowMs() * 100
+    network.routingSequence = math.max(Storage.number(network.routingSequence, 0) + 1, clock)
+    return network.routingSequence
 end
 
 function Manager.updateLink(player, coreArgs, args)
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     if not Manager.canManage(player, network) then return false, "manageDenied" end
     local view = Manager.connectedNetwork(network, coreObject)
     local link = view.links[tostring(args.linkId or "")]
@@ -945,23 +884,37 @@ function Manager.updateLink(player, coreArgs, args)
     local marker = Storage.getNetworkContainerMarker(object)
     if not marker then return false, "linkMissing" end
     if args.name ~= nil then marker.name = tostring(args.name):sub(1, 60) end
+    local settings = Storage.getContainerSettings(object, link.slotIndex, true)
+    if not settings then return false, "containerMissing" end
+    local changedRouting = false
     if args.role ~= nil then
         if not validRole(args.role) then return false, "invalidRole" end
-        marker.role = tostring(args.role)
+        settings.role = Storage.normalizeRole(args.role)
+        changedRouting = true
     end
-    if args.priority ~= nil then marker.priority = Storage.clamp(Storage.integer(args.priority, 50), 0, 100) end
-    if type(args.allowCategories) == "table" then marker.allowCategories = normalizeCategoryRules(args.allowCategories) end
-    if type(args.denyCategories) == "table" then marker.denyCategories = normalizeCategoryRules(args.denyCategories) end
+    if args.priorityTier ~= nil or args.priority ~= nil then
+        settings.priorityTier = Storage.normalizePriorityTier(args.priorityTier or args.priority)
+        changedRouting = true
+    end
+    if changedRouting then settings.assignedOrder = nextRoutingOrder(network) end
     if not Storage.setNetworkContainerMarker(object, marker) then return false, "markerFailed" end
+    if not Storage.setContainerSettings(object, link.slotIndex, settings) then return false, "markerFailed" end
     network.revision = Storage.integer(network.revision, 0) + 1
     network.updatedAtMs = Storage.nowMs()
     transmitStore()
-    return true, nil, marker
+    return true, nil, {
+        linkId = link.linkId,
+        role = settings.role,
+        priorityTier = settings.priorityTier,
+        assignedOrder = settings.assignedOrder,
+        name = marker.name,
+    }
 end
 
 function Manager.updateLimits(player, coreArgs)
     local network, _, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     if not Storage.isAdmin(player) then return false, "adminOnly" end
     network.radius = nil
     network.maxLinks = Storage.MaxLinks
@@ -974,6 +927,7 @@ end
 function Manager.startIndex(player, coreArgs, callback)
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     local connected = Manager.connectedNetwork(network, coreObject)
     local job = Storage.newIndexJob(connected)
     local jobId = Storage.newId("index", network.networkId)
@@ -982,6 +936,239 @@ function Manager.startIndex(player, coreArgs, callback)
     job.callback = callback
     Manager.runtime.jobs[jobId] = job
     return true, nil, job
+end
+
+local function organizerItemRows(connected)
+    local rows, byId, incomplete = {}, {}, false
+    local ordered = {}
+    for _, link in pairs((connected and connected.links) or {}) do
+        ordered[#ordered + 1] = link
+    end
+    table.sort(ordered, function(a, b) return tostring(a.linkId) < tostring(b.linkId) end)
+    for i = 1, #ordered do
+        local link = ordered[i]
+        local _, container = Storage.resolveLink(link)
+        if container then
+            local items = safeCall(container, "getItems", nil)
+            local size = Storage.integer(safeCall(items, "size", 0), 0)
+            for index = 0, size - 1 do
+                if #rows >= Storage.MaxIndexedItems then incomplete = true; break end
+                local item = safeCall(items, "get", nil, index)
+                local itemId = tostring(Storage.itemId(item) or "")
+                if item and itemId ~= "" and not byId[itemId] and not Storage.isProtected(item) then
+                    local description = Storage.describeItem(item, link, container)
+                    local row = {
+                        item = item,
+                        itemId = itemId,
+                        source = container,
+                        sourceLink = link,
+                        category = description.category,
+                        spoilageRemaining = Storage.number(description.spoilageRemaining, math.huge),
+                        processed = false,
+                    }
+                    rows[#rows + 1] = row
+                    byId[itemId] = row
+                end
+            end
+        end
+        if incomplete then break end
+    end
+    table.sort(rows, function(a, b)
+        local ap, bp = a.category == "perishable", b.category == "perishable"
+        if ap ~= bp then return ap end
+        if ap and a.spoilageRemaining ~= b.spoilageRemaining then
+            return a.spoilageRemaining > b.spoilageRemaining
+        end
+        return a.itemId < b.itemId
+    end)
+    return rows, byId, incomplete
+end
+
+local function organizerLiveContainer(connected, link)
+    local object, container = Storage.resolveLink(link)
+    if not object or not container then return nil end
+    if not Storage.isWithinNetworkRange(connected, { x = link.x, y = link.y, z = link.z }) then return nil end
+    return container
+end
+
+local function organizerMove(job, row, targetLink, targetContainer)
+    local source, sourceLink = row.source, row.sourceLink
+    if not source or not Storage.containerContains(source, row.item) then return false, "sourceChanged" end
+    local fallbackSquare = Storage.getSquare(job.coreX, job.coreY, job.coreZ)
+    local function sourceValidator()
+        return organizerLiveContainer(job.connected, sourceLink) == source
+            and Storage.containerContains(source, row.item)
+    end
+    local function targetValidator()
+        return organizerLiveContainer(job.connected, targetLink) == targetContainer
+    end
+    local ok, reason = Storage.transferItem(job.player, row.item, source, targetContainer,
+        fallbackSquare, sourceValidator, targetValidator)
+    if ok then
+        row.source = targetContainer
+        row.sourceLink = targetLink
+    end
+    return ok, reason
+end
+
+local function organizerBufferRoutes(job, item, blockedLink, blockedContainer)
+    local rows = {}
+    for _, link in pairs(job.connected.links or {}) do
+        if tostring(link.linkId) ~= tostring(blockedLink.linkId) then
+            local container = organizerLiveContainer(job.connected, link)
+            if container and container ~= blockedContainer then
+                local accepted = Storage.containerAccepts(container, job.player, item)
+                if accepted then
+                    rows[#rows + 1] = {
+                        link = link,
+                        container = container,
+                        generalRank = Storage.normalizeRole(link.role) == "general" and 1 or 0,
+                        priorityRank = Storage.priorityRank(link.priorityTier),
+                        assignedOrder = Storage.number(link.assignedOrder, math.huge),
+                    }
+                end
+            end
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.generalRank ~= b.generalRank then return a.generalRank > b.generalRank end
+        if a.priorityRank ~= b.priorityRank then return a.priorityRank > b.priorityRank end
+        if a.assignedOrder ~= b.assignedOrder then return a.assignedOrder < b.assignedOrder end
+        return tostring(a.link.linkId) < tostring(b.link.linkId)
+    end)
+    return rows
+end
+
+local function organizerFreeSpace(job, desired, currentRow)
+    local targetItems = safeCall(desired.container, "getItems", nil)
+    local size = Storage.integer(safeCall(targetItems, "size", 0), 0)
+    local movedBlockers = 0
+    for index = size - 1, 0, -1 do
+        if movedBlockers >= 8 then break end
+        local blocker = safeCall(targetItems, "get", nil, index)
+        local blockerId = tostring(Storage.itemId(blocker) or "")
+        local blockerRow = job.itemById[blockerId]
+        if blockerRow and blockerRow.processed ~= true and blocker ~= currentRow.item and not Storage.isProtected(blocker) then
+            local buffers = organizerBufferRoutes(job, blocker, desired.link, desired.container)
+            for i = 1, #buffers do
+                local ok = organizerMove(job, blockerRow, buffers[i].link, buffers[i].container)
+                if ok then
+                    job.stats.buffered = job.stats.buffered + 1
+                    movedBlockers = movedBlockers + 1
+                    local accepted = Storage.containerAccepts(desired.container, job.player, currentRow.item)
+                    if accepted then return true end
+                    break
+                end
+            end
+        end
+    end
+    return Storage.containerAccepts(desired.container, job.player, currentRow.item) == true
+end
+
+local function finishOrganizer(job, state, reason)
+    job.state = state
+    job.reason = reason
+    job.finishedAtMs = Storage.nowMs()
+    Manager.runtime.organizerByNetwork[job.networkId] = job.jobId
+    if job.stats.moved > 0 or job.stats.buffered > 0 then
+        local network = Manager.getNetwork(job.networkId)
+        if network then
+            network.revision = Storage.integer(network.revision, 0) + 1
+            Manager.save(network)
+        end
+    end
+    if job.callback then
+        local ok, err = pcall(job.callback, organizerPayload(job))
+        if not ok then print("[GodSystemStorage] organizer callback failed: " .. tostring(err)) end
+    end
+end
+
+local function stepOrganizer(job)
+    if job.stopRequested then finishOrganizer(job, "stopped", "stopped"); return true end
+    local started = Storage.nowMs()
+    local budget = 20
+    while job.cursor <= #job.items and budget > 0 and Storage.nowMs() - started < Storage.IndexBudgetMs do
+        local row = job.items[job.cursor]
+        job.cursor = job.cursor + 1
+        budget = budget - 1
+        job.processed = job.processed + 1
+        if not Storage.containerContains(row.source, row.item) then
+            job.stats.skipped = job.stats.skipped + 1
+        else
+            local routes = Storage.routeCandidates(job.connected, job.player, row.item, true)
+            local desired = routes[1]
+            if not desired then
+                job.stats.skipped = job.stats.skipped + 1
+            elseif desired.container == row.source then
+                job.stats.unchanged = job.stats.unchanged + 1
+            else
+                local available = desired.available == true
+                if not available then available = organizerFreeSpace(job, desired, row) end
+                if available then
+                    local ok = organizerMove(job, row, desired.link, desired.container)
+                    if ok then job.stats.moved = job.stats.moved + 1
+                    else job.stats.failed = job.stats.failed + 1 end
+                else
+                    job.stats.noBuffer = job.stats.noBuffer + 1
+                    job.stats.skipped = job.stats.skipped + 1
+                end
+            end
+        end
+        row.processed = true
+    end
+    if job.cursor > #job.items then finishOrganizer(job, "completed", nil); return true end
+    if job.callback and Storage.nowMs() - Storage.number(job.lastProgressAtMs, 0) >= 500 then
+        job.lastProgressAtMs = Storage.nowMs()
+        pcall(job.callback, organizerPayload(job))
+    end
+    return false
+end
+
+function Manager.startOrganizer(player, coreArgs, callback)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
+    if not network then return false, reason end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    if Manager.isOrganizing(network.networkId) then
+        return false, "organizerRunning", Manager.organizerStatus(network.networkId)
+    end
+    local connected = Manager.connectedNetwork(network, coreObject)
+    local items, itemById, incomplete = organizerItemRows(connected)
+    local jobId = Storage.newId("organizer", network.networkId)
+    local job = {
+        jobId = jobId,
+        networkId = network.networkId,
+        player = player,
+        connected = connected,
+        coreX = Storage.integer(network.coreHost and network.coreHost.x, 0),
+        coreY = Storage.integer(network.coreHost and network.coreHost.y, 0),
+        coreZ = Storage.integer(network.coreHost and network.coreHost.z, 0),
+        items = items,
+        itemById = itemById,
+        total = #items,
+        cursor = 1,
+        processed = 0,
+        incomplete = incomplete,
+        state = "running",
+        startedAtMs = Storage.nowMs(),
+        lastProgressAtMs = 0,
+        callback = callback,
+        stats = { moved = 0, unchanged = 0, skipped = 0, failed = 0, buffered = 0, noBuffer = 0 },
+    }
+    Manager.runtime.organizers[jobId] = job
+    Manager.runtime.organizerByNetwork[network.networkId] = jobId
+    if #items == 0 then finishOrganizer(job, "completed", nil) end
+    return true, nil, organizerPayload(job)
+end
+
+function Manager.stopOrganizer(player, coreArgs)
+    local network, _, _, reason = Manager.resolveCoreHost(player, coreArgs)
+    if not network then return false, reason end
+    if not Manager.canManage(player, network) then return false, "manageDenied" end
+    local jobId = Manager.runtime.organizerByNetwork[network.networkId]
+    local job = jobId and Manager.runtime.organizers[jobId] or nil
+    if not job or job.state ~= "running" then return true, nil, organizerPayload(job) end
+    job.stopRequested = true
+    return true, nil, organizerPayload(job)
 end
 
 function Manager.processJobs()
@@ -1004,9 +1191,25 @@ function Manager.processJobs()
         end
     end
     for i = 1, #completed do Manager.runtime.jobs[completed[i]] = nil end
+    local organizerCount = 0
+    for _, job in pairs(Manager.runtime.organizers) do
+        if organizerCount >= 1 then break end
+        if job.state == "running" then
+            organizerCount = organizerCount + 1
+            stepOrganizer(job)
+        end
+    end
     local cutoff = Storage.nowMs() - 300000
     for snapshotId, job in pairs(Manager.runtime.snapshotJobs) do
         if Storage.number(job and job.finishedAtMs, 0) < cutoff then Manager.runtime.snapshotJobs[snapshotId] = nil end
+    end
+    for jobId, job in pairs(Manager.runtime.organizers) do
+        if job.state ~= "running" and Storage.number(job.finishedAtMs, 0) < cutoff then
+            if Manager.runtime.organizerByNetwork[job.networkId] == jobId then
+                Manager.runtime.organizerByNetwork[job.networkId] = nil
+            end
+            Manager.runtime.organizers[jobId] = nil
+        end
     end
 end
 
@@ -1029,6 +1232,7 @@ function Manager.deposit(player, coreArgs, args)
     args = type(args) == "table" and args or {}
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     local connected = Manager.connectedNetwork(network, coreObject)
     local mode = tostring(args.mode or "")
     if mode ~= "selected" and mode ~= "sourceAll" then return false, "invalidMode" end
@@ -1082,11 +1286,11 @@ function Manager.deposit(player, coreArgs, args)
                 failItem(row.itemId, itemReason)
             end
         else
-            local routes, downgraded = Storage.routeCandidates(connected, player, row.item)
+            local routes, category = Storage.routeCandidates(connected, player, row.item)
             if #routes == 0 then
                 failItem(row.itemId, "noRoute")
             else
-                local moved = false
+                local moved, usedRoute = false, nil
                 local transferReason = "targetAddFailed"
                 for j = 1, #routes do
                     local route = routes[j]
@@ -1103,13 +1307,15 @@ function Manager.deposit(player, coreArgs, args)
                     local ok, moveReason = Storage.transferItem(player, row.item, row.container, route.container,
                         fallbackSquare, sourceValidator, targetValidator)
                     transferReason = moveReason or transferReason
-                    if ok then moved = true; break end
+                    if ok then moved = true; usedRoute = route; break end
                     if not Storage.containerContains(row.container, row.item) then break end
                 end
                 if moved then
                     stats.success = stats.success + 1
                     stats.successItemIds[#stats.successItemIds + 1] = row.itemId
-                    if downgraded then stats.coldDowngrade = stats.coldDowngrade + 1 end
+                    if category == "perishable" and (not usedRoute or usedRoute.cold ~= true) then
+                        stats.coldDowngrade = stats.coldDowngrade + 1
+                    end
                 else
                     failItem(row.itemId, transferReason)
                 end
@@ -1128,6 +1334,7 @@ function Manager.withdraw(player, coreArgs, args)
     args = type(args) == "table" and args or {}
     local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
     if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
     local connected = Manager.connectedNetwork(network, coreObject)
     local job = Manager.latestJob(network.networkId, args.snapshotId)
     if not job then return false, "snapshotExpired" end

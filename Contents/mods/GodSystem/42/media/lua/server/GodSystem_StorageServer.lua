@@ -113,7 +113,7 @@ local function fingerprint(command, args)
         tostring(args and args.sprite or ""),
         tostring(args and args.name or ""),
         tostring(args and args.role or ""),
-        tostring(args and args.priority or ""),
+        tostring(args and args.priorityTier or args and args.priority or ""),
         tostring(args and args.radius or ""),
         tostring(args and args.maxLinks or ""),
         tostring(args and args.forceRecovery == true),
@@ -143,11 +143,6 @@ local function fingerprint(command, args)
     end
     table.sort(requestParts)
     for i = 1, #requestParts do parts[#parts + 1] = "request:" .. requestParts[i] end
-    for i = 1, #Storage.Categories do
-        local category = Storage.Categories[i]
-        parts[#parts + 1] = "a:" .. category .. ":" .. tostring(type(args and args.allowCategories) == "table" and args.allowCategories[category] == true)
-        parts[#parts + 1] = "d:" .. category .. ":" .. tostring(type(args and args.denyCategories) == "table" and args.denyCategories[category] == true)
-    end
     return table.concat(parts, "|")
 end
 
@@ -284,7 +279,7 @@ function Commands.link(player, args)
             sprite = args.sprite,
             name = args.name,
             role = args.role,
-            priority = args.priority,
+            priorityTier = args.priorityTier or args.priority,
         })
     end)
 end
@@ -334,6 +329,27 @@ function Commands.withdraw(player, args)
     operation(player, "withdraw", args, function()
         return Manager.withdraw(player, coreArgs(args), args)
     end)
+end
+
+function Commands.organizerStart(player, args)
+    operation(player, "organizerStart", args, function()
+        return Manager.startOrganizer(player, coreArgs(args), function(status)
+            send(player, "organizerStatus", status)
+        end)
+    end, false)
+end
+
+function Commands.organizerStop(player, args)
+    operation(player, "organizerStop", args, function()
+        return Manager.stopOrganizer(player, coreArgs(args))
+    end, false)
+end
+
+function Commands.organizerStatus(player, args)
+    local network, _, _, reason = Manager.resolveCoreHost(player, coreArgs(args))
+    if not network then fail(player, "organizerStatus", reason); return end
+    if not Manager.canUse(player, network) then fail(player, "organizerStatus", "notAllowed"); return end
+    send(player, "organizerStatus", Manager.organizerStatus(network.networkId))
 end
 
 function Commands.takeOver(player, args)
