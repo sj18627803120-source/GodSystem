@@ -11,6 +11,7 @@ require "GodSystem_CarryCapacity"
 require "GodSystem_TransactionOps"
 require "GodSystem_TerminalUpgrades"
 require "GodSystem_ShopVariants"
+require "GodSystem_Storage"
 
 if not (isServer and isServer()) then return end
 
@@ -1733,6 +1734,9 @@ local function shopById(data, id)
     for i = 1, #(GodSystemConfig.ShopItems or {}) do
         local row = GodSystemConfig.ShopItems[i]
         if tostring(row.id or "") == id then
+            if row.featureKey and GodSystemAdminConfig.isFeatureEnabled(row.featureKey) == false then
+                return nil, "disabled"
+            end
             local items = row.items or {}
             for j = 1, #items do
                 if items[j].fullType and GodSystemAdminConfig.isShopItemEnabled(items[j].fullType, true) == false then
@@ -1834,7 +1838,8 @@ end
 local function recycleValue(item, allowContainers)
     if not item or not item.getFullType then return 0 end
     local fullType = item:getFullType()
-    if isAutoRecyclerContainer(item) or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return 0 end
+    if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item)
+        or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return 0 end
     if GodSystemAdminConfig.isRecycleItemEnabled(fullType, true) == false then return 0 end
     if allowContainers ~= true and GodSystemConfig.AllowRecycleContainers ~= true and itemHasInventory(item) then return 0 end
     if isLooseAmmoRecycleItem(fullType, item) then return 1 end
@@ -1876,7 +1881,7 @@ end
 local function canContextRecycleItem(item)
     if not item or not item.getFullType then return false, "invalid" end
     local fullType = item:getFullType()
-    if isAutoRecyclerContainer(item) then return false, "protected" end
+    if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then return false, "protected" end
     if (GodSystemConfig.RecycleBlacklist or {})[fullType] or isKeyItem(item) then return false, "protected" end
     if GodSystem.isEconomicItemAllowed and GodSystem.isEconomicItemAllowed(fullType, "recycle") == false then
         return false, "invalid"
@@ -1905,7 +1910,8 @@ end
 local function canRecycleItem(item, waistOnly)
     if not item or not item.getFullType then return false end
     local fullType = item:getFullType()
-    if isAutoRecyclerContainer(item) or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return false end
+    if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item)
+        or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return false end
     if item.isFavorite then
         local ok, favorite = pcall(item.isFavorite, item)
         if ok and favorite then return false end
@@ -2343,10 +2349,14 @@ end
 
 local function isTaskTemplateAvailable(template)
     if not template then return false end
-    if template.kind == "turnInItem" then return itemExists(template.item) end
+    local blacklist = GodSystemConfig.TaskItemBlacklist or {}
+    if template.kind == "turnInItem" then
+        return not blacklist[template.item] and itemExists(template.item)
+    end
     if template.kind == "turnInAnyItem" then
         for i = 1, #(template.items or {}) do
-            if itemExists(template.items[i]) then return true end
+            local fullType = template.items[i]
+            if not blacklist[fullType] and itemExists(fullType) then return true end
         end
         return false
     end
@@ -4776,5 +4786,39 @@ Events.OnClientCommand.Add(function(module, command, player, args)
         sendState(player)
     end
 end)
+
+function GodSystemServer.storageControllerCharge(player, cost)
+    local data = playerData(player)
+    local paid, fromBank, fromCash = spendCurrency(player, data, cost)
+    if not paid then return false, nil end
+    return true, {
+        data = data,
+        fromBank = fromBank,
+        fromCash = fromCash,
+    }
+end
+
+function GodSystemServer.storageControllerRefund(player, receipt)
+    receipt = type(receipt) == "table" and receipt or {}
+    return GodSystemServer.refundCurrencySources(
+        player,
+        receipt.data or playerData(player),
+        receipt.fromBank or 0,
+        receipt.fromCash or 0
+    )
+end
+
+function GodSystemServer.storageControllerCommit(player, cost, recovered, receipt)
+    local data = type(receipt) == "table" and receipt.data or playerData(player)
+    cost = math.max(0, floor(cost, 0))
+    if cost > 0 then
+        data.stats = data.stats or {}
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+    end
+    appendHistory(data, historyEntry("storage", recovered and "StorageControllerRecovered" or "StorageControllerClaimed", { cost }))
+    sendState(player)
+end
+
+require "GodSystem_StorageServer"
 
 return Commands

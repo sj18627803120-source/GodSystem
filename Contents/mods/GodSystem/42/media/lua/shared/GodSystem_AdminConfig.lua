@@ -36,6 +36,7 @@ local SETTING_META = {
     { key = "TerminalReliefUpgradeCost", group = "base", type = "integer", default = Config.TerminalReliefUpgradeCost or 2000, min = 0, max = 100000000, target = "TerminalReliefUpgradeCost", labelKey = "AdminSetting_TerminalReliefUpgradeCost", descKey = "AdminSetting_TerminalReliefUpgradeCost_Desc" },
     { key = "TerminalReliefPerLevel", group = "base", type = "integer", default = Config.TerminalReliefPerLevel or 5, min = 1, max = 5000, target = "TerminalReliefPerLevel", labelKey = "AdminSetting_TerminalReliefPerLevel", descKey = "AdminSetting_TerminalReliefPerLevel_Desc" },
     { key = "TerminalReliefMaxOffset", group = "base", type = "integer", default = Config.TerminalReliefMaxOffset or 2000, min = 0, max = 5000, target = "TerminalReliefMaxOffset", labelKey = "AdminSetting_TerminalReliefMaxOffset", descKey = "AdminSetting_TerminalReliefMaxOffset_Desc" },
+    { key = "AutoLoaderAmmoCapacity", group = "base", type = "integer", default = Config.AutoLoaderAmmoCapacity or 2000, min = 100, max = 10000, target = "AutoLoaderAmmoCapacity", labelKey = "AdminSetting_AutoLoaderAmmoCapacity", descKey = "AdminSetting_AutoLoaderAmmoCapacity_Desc" },
 
     { key = "ShopBuyPriceMultiplier", group = "economy", type = "number", default = 1, min = 0.01, max = 100, labelKey = "AdminSetting_ShopBuyPriceMultiplier", descKey = "AdminSetting_ShopBuyPriceMultiplier_Desc" },
     { key = "RecycleSellPriceMultiplier", group = "economy", type = "number", default = 1, min = 0, max = 100, labelKey = "AdminSetting_RecycleSellPriceMultiplier", descKey = "AdminSetting_RecycleSellPriceMultiplier_Desc" },
@@ -88,6 +89,7 @@ local SETTING_META = {
     { key = "EnableBankInvestments", group = "features", type = "boolean", default = true, labelKey = "AdminSetting_EnableBankInvestments", descKey = "AdminSetting_EnableBankInvestments_Desc" },
     { key = "EnableCompanion", group = "features", type = "boolean", default = true, singlePlayerOnly = true, labelKey = "AdminSetting_EnableCompanion", descKey = "AdminSetting_EnableCompanion_Desc" },
     { key = "EnableAttributes", group = "features", type = "boolean", default = true, labelKey = "AdminSetting_EnableAttributes", descKey = "AdminSetting_EnableAttributes_Desc" },
+    { key = "EnableAutoLoaderShop", group = "features", type = "boolean", default = true, labelKey = "AdminSetting_EnableAutoLoaderShop", descKey = "AdminSetting_EnableAutoLoaderShop_Desc" },
 }
 
 local META_BY_KEY = {}

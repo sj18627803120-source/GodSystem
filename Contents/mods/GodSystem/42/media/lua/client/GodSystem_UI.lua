@@ -2,6 +2,7 @@ require "GodSystem_Config"
 require "GodSystem_Core"
 require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
+require "GodSystem_StorageContext"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -742,6 +743,12 @@ function GodSystemShortcutWindow:getActions()
     actions[#actions + 1] = { action = "recycleWaistOnly", label = GodSystem.text("Shortcut_RecycleWaistOnly", "Waist recycle") }
     actions[#actions + 1] = { action = "recycleWaistAndList", label = GodSystem.text("Shortcut_RecycleWaistAndList", "Waist recycle and list") }
     actions[#actions + 1] = { action = "depositAllCash", label = GodSystem.text("Shortcut_DepositAllCash", "Deposit cash") }
+    local connectMode = GodSystemStorageContext and GodSystemStorageContext.connectMode == true
+    actions[#actions + 1] = {
+        action = "storageConnectMode",
+        label = GodSystem.text(connectMode and "Storage_ConnectModeOff" or "Storage_ConnectModeOn",
+            connectMode and "Disable connection mode" or "Enable connection mode"),
+    }
     return actions
 end
 
@@ -829,6 +836,11 @@ function GodSystemShortcutWindow:performAction(action)
         return self:finishShortcutCommand(GodSystem.recycleWaistSpaceItemsAndUnlock(nil))
     elseif action == "depositAllCash" then
         return self:finishShortcutCommand(GodSystem.performBankAction("depositAllCash"))
+    elseif action == "storageConnectMode" then
+        if not (GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode) then return false end
+        GodSystemStorageContext.toggleConnectMode()
+        self:refreshActions(true)
+        return true
     end
     return false
 end
@@ -1878,6 +1890,7 @@ function GodSystemWindow:createChildren()
         { id = "shop", label = GodSystem.text("Tab_Shop", "Shop") },
         { id = "bank", label = GodSystem.text("Tab_Bank", "Bank") },
         { id = "waist", label = GodSystem.text("Tab_WaistSpace", "Waist") },
+        { id = "storage", label = GodSystem.text("Tab_StorageNetwork", "Storage") },
         { id = "home", label = GodSystem.text("Tab_Home", "Home/Teleport") },
         { id = "traits", label = GodSystem.text("Tab_Traits", "Traits") },
         { id = "upgrades", label = GodSystem.text("Tab_Upgrades", "Upgrades") },
@@ -3252,7 +3265,9 @@ function GodSystemWindow:populateShop()
     for i = 1, #GodSystemConfig.ShopItems do
         local item = GodSystemConfig.ShopItems[i]
         local available, reason, availableItems, missingItems = GodSystem.shopItemIsAvailable(item)
-        if available and (not missingItems or #missingItems == 0) then
+        local featureEnabled = not item.featureKey
+            or GodSystemAdminConfig.isFeatureEnabled(item.featureKey) ~= false
+        if featureEnabled and available and (not missingItems or #missingItems == 0) then
             table.insert(shopItems, item)
         end
     end
@@ -3539,6 +3554,116 @@ function GodSystemWindow:populateWaistSpace()
     if skipped and skipped > 0 then
         self:setDetailText(GodSystem.text("Waist_Skipped", "Skipped protected items: ") .. tostring(skipped))
     end
+end
+
+function GodSystemWindow:populateStorageNetwork()
+    local status = GodSystemStorageClient and GodSystemStorageClient.requestCoreStatus(false) or nil
+    self.storagePrimaryAction = nil
+    self.storageSecondaryAction = nil
+    self.storageThirdAction = "connectMode"
+    self.primaryButton.enable = false
+    self.secondaryButton.enable = false
+    self.secondaryButton:setVisible(false)
+    if not status then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_CoreSyncing", "Storage core status syncing"))
+    elseif status.state == "unclaimed" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_ClaimCoreFree", "Claim storage core for free"))
+        self.primaryButton.enable = true
+        self.storagePrimaryAction = "claim"
+    elseif status.state == "kit" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_CoreOwned", "Storage core is in your inventory"))
+    elseif status.state == "installed" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_CoreInstalled", "Storage core already installed"))
+        gsSetButtonTitle(self.secondaryButton, gsFormatTemplate(
+            GodSystem.text("Storage_ForceRecoverCore", "Recover storage core ({1})"),
+            { status.recoveryCost or 2000 }
+        ))
+        self.secondaryButton:setVisible(true)
+        self.secondaryButton.enable = true
+        self.storageSecondaryAction = "forceRecover"
+    else
+        gsSetButtonTitle(self.primaryButton, gsFormatTemplate(
+            GodSystem.text("Storage_RecoverCorePaid", "Recover storage core ({1})"),
+            { status.recoveryCost or 2000 }
+        ))
+        self.primaryButton.enable = true
+        self.storagePrimaryAction = "recover"
+    end
+    if GodSystemStorageClient and GodSystemStorageClient.pending then
+        for _, pending in pairs(GodSystemStorageClient.pending) do
+            if pending.command == "claimCore" then
+                self.primaryButton.enable = false
+                self.secondaryButton.enable = false
+                gsSetButtonTitle(self.primaryButton, GodSystem.text("Storage_CoreProcessing", "Processing storage core request"))
+                break
+            end
+        end
+    end
+    local connectMode = GodSystemStorageContext and GodSystemStorageContext.connectMode == true
+    gsSetButtonTitle(self.thirdButton, connectMode
+        and GodSystem.text("Storage_ConnectModeOff", "Close connection mode")
+        or GodSystem.text("Storage_ConnectModeOn", "Open connection mode"))
+    self.thirdButton.enable = true
+    self.thirdButton:setVisible(true)
+    self.fourthButton:setVisible(false)
+    self.fifthButton:setVisible(false)
+    self.sixthButton:setVisible(false)
+    self.seventhButton:setVisible(false)
+    local storageActions = {
+        { id = "primary", width = 210 },
+    }
+    if self.storageSecondaryAction then
+        storageActions[#storageActions + 1] = { id = "secondary", width = 210 }
+    end
+    storageActions[#storageActions + 1] = { id = "third", width = 210 }
+    self:setActionBar(storageActions)
+    self:addListItem(GodSystem.text("Storage_Manual_Title", "User guide"), {
+        kind = "storageInfo",
+        detail = GodSystem.text("Storage_Manual_Detail", "Claim the first storage core for free. Enable connection mode and mark fixed containers, then install the core into any marked furniture, including a non-empty multi-slot fixture. The host remains a normal network container and participates in indexing and routing. Use the three-column storage window to move selected items between the current character container and the warehouse. Retrieve the core before moving furniture; recovery costs 2000 if it is lost.")
+    })
+    if status then
+        local stateKey = "Storage_CoreState_" .. tostring(status.state or "missing")
+        local stateText = GodSystem.text(stateKey, tostring(status.state or "missing"))
+        self:addListItem(gsFormatTemplate(
+            GodSystem.text("Storage_CoreStatus", "Storage core status: {1}"),
+            { stateText }
+        ), {
+            kind = "storageInfo",
+            detail = status.claimedOnce
+                and gsFormatTemplate(GodSystem.text("Storage_RecoveryRule", "Future recovery costs {1} system coins."), { status.recoveryCost or 2000 })
+                or GodSystem.text("Storage_FirstClaimRule", "The first storage core is free."),
+        })
+    end
+end
+
+function GodSystemWindow:confirmStorageRecovery(forceRecovery)
+    local status = GodSystemStorageClient and GodSystemStorageClient.claimState or nil
+    local cost = status and status.recoveryCost or 2000
+    local message = gsFormatTemplate(
+        GodSystem.text("Storage_ConfirmRecovery", "Spend {1} system coins to recover the storage core?\nThe previous core will expire. Its loaded host is unlocked immediately; an unloaded host is unlocked when it loads. Network marks and stored items are not deleted."),
+        { cost }
+    )
+    if ISModalDialog then
+        local x = math.max(80, (getCore():getScreenWidth() / 2) - 260)
+        local y = math.max(80, (getCore():getScreenHeight() / 2) - 140)
+        local player = getPlayer()
+        local playerNum = player and player:getPlayerNum() or 0
+        local modal = ISModalDialog:new(x, y, 520, 280, message, true, self, self.onStorageRecoveryConfirm, playerNum, {
+            forceRecovery = forceRecovery == true,
+        })
+        modal:initialise()
+        modal:addToUIManager()
+    else
+        self:onStorageRecoveryConfirm({ internal = "YES" }, { forceRecovery = forceRecovery == true })
+    end
+end
+
+function GodSystemWindow:onStorageRecoveryConfirm(button, payload)
+    if not button or button.internal ~= "YES" then return end
+    if GodSystemStorageClient then
+        GodSystemStorageClient.claimCore(payload and payload.forceRecovery == true)
+    end
+    self:requestDeferredPopulate(1)
 end
 
 function GodSystemWindow:populateBank()
@@ -4263,6 +4388,8 @@ function GodSystemWindow:populateList()
         self:populateRecycle()
     elseif self.mode == "waist" then
         self:populateWaistSpace()
+    elseif self.mode == "storage" then
+        self:populateStorageNetwork()
     elseif self.mode == "bank" then
         self:populateBank()
     elseif self.mode == "traits" then
@@ -4395,6 +4522,8 @@ function GodSystemWindow:updateDetail()
             self:setDetailText(GodSystem.text("Hint_Lottery", "Choose all-category or a category, then draw 1, 10, or a custom count. Results are granted directly."))
         elseif self.mode == "waist" then
             self:setDetailText(GodSystem.text("Hint_WaistSpace", "The space terminal reads the system space terminal. Click rows to select, then sell selected or sell all."))
+        elseif self.mode == "storage" then
+            self:setDetailText(GodSystem.text("Hint_StorageNetwork", "Claim a storage core here. Mark fixed containers in connection mode, then install the core into one completely empty marked furniture to create the storage entrance."))
         elseif self.mode == "bank" then
             self:setDetailText(GodSystem.text("Hint_Bank", "Deposit cash into current account, move current balance into fixed deposits, and withdraw when needed. Death penalty only deducts current account."))
         elseif self.mode == "traits" then
@@ -4428,7 +4557,7 @@ function GodSystemWindow:updateDetail()
             GodSystem.text("Price_Buy", "Buy ") .. tostring(item.buyPrice or 0) .. GodSystem.text("Unit_CoinShort", "c"))
     elseif payload.kind == "lotteryResult" then
         self:setDetailText(self:formatLotteryResultDetail(payload.data))
-    elseif payload.kind == "lotteryInfo" or payload.kind == "lotteryHeader" then
+    elseif payload.kind == "lotteryInfo" or payload.kind == "lotteryHeader" or payload.kind == "storageInfo" then
         self:setDetailText(payload.detail or "")
     elseif payload.kind == "recycle" then
         local group = payload.data
@@ -5216,6 +5345,15 @@ function GodSystemWindow:onPrimaryAction()
         self:finishMultiplayerCommand(sent)
         return
     end
+    if self.mode == "storage" then
+        if self.storagePrimaryAction == "claim" and GodSystemStorageClient then
+            GodSystemStorageClient.claimCore(false)
+        elseif self.storagePrimaryAction == "recover" then
+            self:confirmStorageRecovery(false)
+        end
+        self:requestDeferredPopulate(1)
+        return
+    end
     if self.mode == "traits" then
         if not payload or payload.kind ~= "trait" then
             GodSystem.notify(GodSystem.text("Notify_SelectTrait", "Select a trait first"))
@@ -5425,6 +5563,12 @@ function GodSystemWindow:onListRightMouseUp(x, y)
 end
 
 function GodSystemWindow:onSecondaryAction()
+    if self.mode == "storage" then
+        if self.storageSecondaryAction == "forceRecover" then
+            self:confirmStorageRecovery(true)
+        end
+        return
+    end
     if self.mode == "attribute" then
         self:showAttributeNextLevelConfirm(self:getSelectedPayload())
         return
@@ -5526,6 +5670,13 @@ end
 
 function GodSystemWindow:onThirdAction()
     local payload = self:getSelectedPayload()
+    if self.mode == "storage" then
+        if GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode then
+            GodSystemStorageContext.toggleConnectMode()
+        end
+        self:requestDeferredPopulate(1)
+        return
+    end
     if self.mode == "companion" then
         if GodSystemCompanionUI and GodSystemCompanionUI.toggleShortcut then GodSystemCompanionUI.toggleShortcut(self) end
         self:populateList()

@@ -9,6 +9,7 @@ require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
 require "GodSystem_TerminalUpgrades"
 require "GodSystem_ShopVariants"
+require "GodSystem_Storage"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
@@ -1281,6 +1282,22 @@ function GodSystem.refundCurrencySources(fromBank, fromCash)
     if GodSystem.giveCurrency(cashAmount) then return true end
     bank.current = (bank.current or 0) + cashAmount
     return false
+end
+
+function GodSystem.recordStorageControllerClaim(cost, recovered)
+    local data = GodSystem.getData()
+    cost = math.max(0, math.floor(tonumber(cost) or 0))
+    data.stats = data.stats or {}
+    if cost > 0 then
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+    end
+    local key = recovered and "History_StorageControllerRecovered" or "History_StorageControllerClaimed"
+    local fallback = recovered and "Storage controller recovered" or "Storage controller claimed"
+    local suffix = cost > 0 and (" -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins")) or ""
+    gsAppendHistory(data, {
+        kind = "storage",
+        text = GodSystem.text(key, fallback) .. suffix,
+    })
 end
 
 function GodSystem.restoreRemovedCurrencyOrBank(removed)
@@ -6019,6 +6036,10 @@ function GodSystem.buyShopItem(shopItem, quantity)
     if not shopItem then
         return false
     end
+    if shopItem.featureKey and GodSystemAdminConfig.isFeatureEnabled(shopItem.featureKey) == false then
+        GodSystem.notify("Shop item disabled")
+        return false
+    end
     local data = GodSystem.getData()
     if shopItem.unlocked == true then
         local variantKey = shopItem.variantKey or GodSystemShopVariants.getKey(shopItem.fullType, shopItem.worldSprite)
@@ -6082,7 +6103,7 @@ local function gsGetRecycleValue(item, allowContainers)
         return 0
     end
     local fullType = item:getFullType()
-    if GodSystem.isAutoRecyclerContainer(item) then
+    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then
         return 0
     end
     if GodSystemConfig.RecycleBlacklist[fullType] then
@@ -6133,7 +6154,7 @@ end
 function GodSystem.canContextRecycleItem(item)
     if not item or not item.getFullType then return false, "invalid" end
     local fullType = item:getFullType()
-    if GodSystem.isAutoRecyclerContainer(item) then return false, "protected" end
+    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then return false, "protected" end
     if (GodSystemConfig.RecycleBlacklist or {})[fullType] or gsIsKeyItem(item) then return false, "protected" end
     if GodSystem.isEconomicItemAllowed and GodSystem.isEconomicItemAllowed(fullType, "recycle") == false then
         return false, "invalid"
@@ -6176,7 +6197,7 @@ function GodSystem.canAutoRecycleItem(item)
         return false
     end
     local fullType = item:getFullType()
-    if GodSystem.isAutoRecyclerContainer(item) then
+    if GodSystem.isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item) then
         return false
     end
     if GodSystemConfig.RecycleBlacklist[fullType] then
@@ -7052,13 +7073,14 @@ function GodSystem.isTaskTemplateAvailable(template)
     if not template then
         return false
     end
+    local blacklist = GodSystemConfig.TaskItemBlacklist or {}
     if template.kind == "turnInItem" then
-        return GodSystem.itemExists(template.item)
+        return not blacklist[template.item] and GodSystem.itemExists(template.item)
     end
     if template.kind == "turnInAnyItem" then
         local items = template.items or {}
         for i = 1, #items do
-            if GodSystem.itemExists(items[i]) then
+            if not blacklist[items[i]] and GodSystem.itemExists(items[i]) then
                 return true
             end
         end

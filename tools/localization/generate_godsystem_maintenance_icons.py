@@ -92,9 +92,33 @@ def vehicle_repair_module() -> None:
     finish(image, "Item_SystemVehicleRepairModule.png")
 
 
+def system_auto_loader() -> None:
+    image, draw = canvas()
+    rect(draw, (4, 5, 28, 27), (24, 31, 39, 255), (7, 11, 16, 255), 2)
+    rect(draw, (7, 8, 25, 16), (7, 35, 51, 255), (50, 165, 204, 255), 1)
+    rect(draw, (9, 10, 23, 14), (13, 72, 93, 255), (111, 226, 235, 255), 1)
+    for x in (10, 14, 18):
+        rect(draw, (x, 11, x + 2, 13), (126, 224, 228, 255))
+    rect(draw, (22, 11, 23, 13), (218, 171, 54, 255))
+
+    rect(draw, (7, 18, 25, 24), (42, 49, 57, 255), (70, 101, 119, 255), 1)
+    for x in (9, 13, 17):
+        rect(draw, (x, 19, x + 2, 22), (188, 134, 45, 255), (239, 202, 103, 255), 1)
+        rect(draw, (x + 1, 18, x + 2, 19), (229, 202, 129, 255))
+
+    draw.polygon(points([(20, 17), (25, 17), (25, 23), (23, 26), (20, 26)]),
+                 fill=(12, 21, 29, 255), outline=(76, 180, 211, 255))
+    rect(draw, (21, 19, 24, 21), (35, 121, 151, 255))
+    rect(draw, (9, 25, 14, 28), (18, 24, 30, 255), (55, 151, 189, 255), 1)
+    rect(draw, (18, 25, 23, 28), (18, 24, 30, 255), (55, 151, 189, 255), 1)
+    line(draw, [(5, 17), (3, 17), (3, 22), (5, 22)], (80, 190, 218, 255), 1)
+    finish(image, "Item_SystemAutoLoader.png")
+
+
 if __name__ == "__main__":
     repair_kit()
     durability_core()
     system_space_terminal()
     vehicle_repair_module()
+    system_auto_loader()
     print(f"generated maintenance icons in {OUTPUT}")
