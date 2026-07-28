@@ -1,19 +1,20 @@
-# 神级系统 v1.16.71 Workshop 上传包说明
+# 神级系统 v1.16.72 Workshop 上传包说明
 
 上传时选择本目录，也就是包含 `workshop.txt`、`preview.png`、`Contents` 的这一层。
 
 正确结构：
 
 ```text
-GodSystemWorkshopUpload_v1.16.71\workshop.txt
-GodSystemWorkshopUpload_v1.16.71\preview.png
-GodSystemWorkshopUpload_v1.16.71\Contents\mods\GodSystem\mod.info
-GodSystemWorkshopUpload_v1.16.71\Contents\mods\GodSystem\42\mod.info
-GodSystemWorkshopUpload_v1.16.71\Contents\mods\GodSystem\42\media\...
+GodSystemWorkshopUpload_v1.16.72\workshop.txt
+GodSystemWorkshopUpload_v1.16.72\preview.png
+GodSystemWorkshopUpload_v1.16.72\Contents\mods\GodSystem\mod.info
+GodSystemWorkshopUpload_v1.16.72\Contents\mods\GodSystem\42\mod.info
+GodSystemWorkshopUpload_v1.16.72\Contents\mods\GodSystem\42\media\...
 ```
 
 ## 本次更新
 
+- v1.16.72（正式版）：新增售价 1000 的“系统自动装填机”，把不同 `fullType` 的散装弹药保存为独立数字账本，每种默认上限 2000；支持存入全部散装弹药、手动装填随身独立弹匣、快速换弹后自动补充、多个装填机低余额优先和一次取出 1-500 发。继承并正式纳入 v1.16.71 仓库核心容器与三栏交互，修复人物长列表裁剪、滚动状态、右键上下文链、连接模式五秒刷新、快捷栏末尾入口和 Kahlua `next()` 导致的仓库存入红字。用户已确认本版发布并可作为正式基线。
 - v1.16.71：仓库核心宿主恢复为正常网络容器，安装不再要求清空或锁定容量；旧 v1.16.70 宿主会一次性恢复原容量。仓库页为人物库存、网络仓库和详情三栏，支持当前人物容器来源、折叠分组、Ctrl/Shift 多选、一个/一半/全部存取及装备失败恢复。实机反馈修复补充存入后强制重建快照、容器标记后即时更新连通颜色、管理页选中高亮、短来源名称、单一动态取出按钮和 SP 隐藏管理员接管。连接标识使用绿色核心宿主、蓝色已连通容器、红色未连通标记，同格对象以短箭头居中后左右展开，右键按低/中/高区分并支持临时高亮。该版本仍需完成 B42.19 SP/MP 复测后才能作为稳定版发布。
 - v1.16.68：控制器恢复为保留自身名称的普通地面物品，修复显示为“奥兹博士游戏机”、单人打开/刷新/收回坐标错位、使用说明空白和仓储列表 `__lt` 红字；连接模式改用绿色/蓝色轻量符号，不再让容器红色闪烁。该版本仍需完成 B42.19 单人和多人实机后才能作为稳定版发布。
 - v1.16.67：系统仓库容器改为上下左右紧贴或同格堆叠时自动连通，控制器作为访问入口和桥接节点；该版 Moveable 街机贴图路线已由 v1.16.68 撤销。

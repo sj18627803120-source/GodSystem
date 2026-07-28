@@ -18,6 +18,8 @@ When working in GodSystem, start with the repository's [reference MOD research i
 
 Read the repository's [official B42 development reference](../../../../../docs/PZ_B42_OFFICIAL_DEVELOPMENT_CN.md) before relying on community summaries.
 
+Use the repository's [B42.19 vanilla API navigation reference](../../../../../docs/PZ_B42_游戏本体API技术参考.md) to locate likely objects, events, and same-version call sites when the game installation is unavailable. Treat its tables as search guidance rather than proof: verify overloads and SP/MP availability before coding. In particular, a server-directory Lua file loading in SP does not imply `isServer()` is true in SP.
+
 - The Indie Stone's published migration guide targets 42.13, which introduced the registry and multiplayer Inventory Item architecture still used by 42.19. It is strong architectural evidence, but not a substitute for current 42.19 method signatures.
 - `media/registries.lua` must have that exact path and name and loads before scripts and ordinary Lua. Register custom `ItemType`, `ItemTag`, `ItemBodyLocation`, trait/profession IDs, and other listed identifiers before script use.
 - B42 item scripts use `ItemType`, not the old `Type`; item display names come from translation keys rather than a script `DisplayName` field.
