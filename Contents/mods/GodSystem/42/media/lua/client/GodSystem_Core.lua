@@ -775,20 +775,6 @@ function GodSystem.updateKillTaskProgress(delta, baselineKills)
     return changed
 end
 
-function GodSystem.normalizeKillTaskProgress(task)
-    local player = gsPlayer()
-    local kills = player and player.getZombieKills and player:getZombieKills() or 0
-    return gsEnsureKillTaskProgress(task, kills)
-end
-
-function GodSystem.setKillTaskProgress(task, progress)
-    if not task or task.kind ~= "kill" then
-        return 0
-    end
-    task.killProgress = math.max(0, math.floor(tonumber(progress) or 0))
-    return task.killProgress
-end
-
 function GodSystem.normalizeActiveKillTasks(baselineKills)
     local data = GodSystem.getData()
     local player = gsPlayer()
@@ -1391,36 +1377,6 @@ function GodSystem.purchaseCompanionNode(nodeId)
     return true
 end
 
-function GodSystem.addToBankCurrent(amount, reasonText)
-    amount = math.max(0, math.floor(tonumber(amount) or 0))
-    if amount <= 0 then
-        return false
-    end
-    local data = GodSystem.getData()
-    local bank = GodSystem.getBank()
-    bank.current = (bank.current or 0) + amount
-    if reasonText and reasonText ~= "" then
-        gsAppendHistory(data, { kind = "bank", text = tostring(reasonText) .. " +" .. tostring(amount) .. GodSystem.text("Unit_Coin", " coins") })
-    end
-    GodSystem.save()
-    return true
-end
-
-function GodSystem.getBankFixedTerms()
-    return GodSystemConfig.BankFixedTerms or {}
-end
-
-function GodSystem.getBankTerm(termId)
-    termId = tostring(termId or "")
-    local terms = GodSystem.getBankFixedTerms()
-    for i = 1, #terms do
-        if tostring(terms[i].id or "") == termId then
-            return terms[i]
-        end
-    end
-    return nil
-end
-
 function GodSystem.getBankFixedEntry(entryId)
     entryId = tostring(entryId or "")
     local bank = GodSystem.getBank()
@@ -1451,29 +1407,6 @@ function GodSystem.getBankFixedPayout(entry)
     end
     local penalty = math.max(0, math.floor(principal * (GodSystemConfig.BankEarlyWithdrawPenaltyRatio or 0.05)))
     return math.max(0, principal - penalty), -penalty, false
-end
-
-function GodSystem.createBankFixedEntry(bank, termId, amount)
-    amount = math.max(1, math.floor(tonumber(amount) or 0))
-    local term = GodSystem.getBankTerm(termId)
-    if not term then
-        return nil
-    end
-    bank = bank or GodSystem.getBank()
-    local id = "F" .. tostring(bank.nextId or 1)
-    bank.nextId = (bank.nextId or 1) + 1
-    local hours = math.max(1, math.floor(tonumber(term.hours) or ((tonumber(term.days) or 1) * 24)))
-    local entry = {
-        id = id,
-        termId = tostring(term.id or termId),
-        principal = amount,
-        startHour = gsNowHours(),
-        matureHour = gsNowHours() + hours,
-        rate = tonumber(term.interestRate) or 0,
-        days = math.max(1, math.floor(tonumber(term.days) or math.ceil(hours / 24))),
-    }
-    table.insert(bank.fixed, entry)
-    return entry
 end
 
 function GodSystem.getBankInvestmentProfiles()
@@ -2220,65 +2153,6 @@ function GodSystem.withdrawBankCurrent(amount)
     return true
 end
 
-function GodSystem.createBankFixed(termId, amount)
-    if GodSystemConfig.BankAllowNewFixedDeposits ~= true then
-        GodSystem.notify(GodSystem.text("Notify_BankFixedCreationClosed", "New fixed deposits are no longer available"))
-        return false
-    end
-    amount = math.max(1, math.floor(tonumber(amount) or 0))
-    if not GodSystem.getBankTerm(termId) then
-        GodSystem.notify(GodSystem.text("Notify_BankSelectTerm", "Select a fixed term first"))
-        return false
-    end
-    local data = GodSystem.getData()
-    local bank = GodSystem.getBank()
-    if (bank.current or 0) < amount then
-        GodSystem.notify(GodSystem.text("Notify_BankCurrentNotEnough", "Current account balance is not enough"))
-        return false
-    end
-    bank.current = (bank.current or 0) - amount
-    local entry = GodSystem.createBankFixedEntry(bank, termId, amount)
-    if not entry then
-        bank.current = (bank.current or 0) + amount
-        GodSystem.notify(GodSystem.text("Notify_BankSelectTerm", "Select a fixed term first"))
-        return false
-    end
-    data.stats.bankDeposited = (data.stats.bankDeposited or 0) + amount
-    gsAppendHistory(data, { kind = "bank", text = GodSystem.text("History_BankFixedCreate", "Fixed deposit created ") .. tostring(amount) .. GodSystem.text("Unit_Coin", " coins") })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_BankFixedCreate", "Fixed deposit created"))
-    return true
-end
-
-function GodSystem.createBankFixedFromCash(termId, amount)
-    if GodSystemConfig.BankAllowNewFixedDeposits ~= true then
-        GodSystem.notify(GodSystem.text("Notify_BankFixedCreationClosed", "New fixed deposits are no longer available"))
-        return false
-    end
-    amount = math.max(1, math.floor(tonumber(amount) or 0))
-    if not GodSystem.getBankTerm(termId) then
-        GodSystem.notify(GodSystem.text("Notify_BankSelectTerm", "Select a fixed term first"))
-        return false
-    end
-    if not GodSystem.removeCurrency(amount) then
-        GodSystem.notify(GodSystem.text("Notify_CurrencyNotEnough", "Not enough currency"))
-        return false
-    end
-    local data = GodSystem.getData()
-    local bank = GodSystem.getBank()
-    local entry = GodSystem.createBankFixedEntry(bank, termId, amount)
-    if not entry then
-        GodSystem.giveCurrency(amount)
-        GodSystem.notify(GodSystem.text("Notify_BankSelectTerm", "Select a fixed term first"))
-        return false
-    end
-    data.stats.bankDeposited = (data.stats.bankDeposited or 0) + amount
-    gsAppendHistory(data, { kind = "bank", text = GodSystem.text("History_BankFixedCreate", "Fixed deposit created ") .. tostring(amount) .. GodSystem.text("Unit_Coin", " coins") })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_BankFixedCreateCash", "Fixed deposit created from carried cash"))
-    return true
-end
-
 function GodSystem.withdrawBankFixed(entryId)
     local data = GodSystem.getData()
     local bank = GodSystem.getBank()
@@ -2316,10 +2190,6 @@ function GodSystem.performBankAction(action, amount, termId, entryId)
         return GodSystem.toggleBankAutoDeposit()
     elseif action == "withdraw" then
         return GodSystem.withdrawBankCurrent(amount)
-    elseif action == "createFixed" then
-        return GodSystem.createBankFixed(termId, amount)
-    elseif action == "createFixedFromCash" then
-        return GodSystem.createBankFixedFromCash(termId, amount)
     elseif action == "withdrawFixed" then
         return GodSystem.withdrawBankFixed(entryId)
     elseif action == "investFromCurrent" then
@@ -3896,19 +3766,6 @@ function GodSystem.getAutoRecyclerLevel()
     return GodSystemTerminalUpgrades.getLevel(GodSystem.getData(), "capacity")
 end
 
-function GodSystem.getTerminalUpgradeInfo(upgradeType)
-    return GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), upgradeType)
-end
-
-function GodSystem.getAutoRecyclerNextUpgradeCost()
-    local level = GodSystem.getAutoRecyclerLevel()
-    if level >= GodSystem.getAutoRecyclerMaxLevel() then
-        return nil
-    end
-    local nextData = GodSystem.getAutoRecyclerLevelData(level + 1)
-    return nextData.upgradeCost or 0
-end
-
 function GodSystem.getAutoRecyclerRecoverCost()
     local level = GodSystemTerminalUpgrades.getRecoveryLevel(GodSystem.getData())
     local costs = GodSystemConfig.AutoRecyclerRecoverCosts or {}
@@ -3962,7 +3819,7 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     local data = GodSystem.getItemModData(item)
     if data then
         data[GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"] = true
-        data[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"] = level
+        data[GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel"] = level
     end
     if item.setName then
         pcall(function() item:setName(GodSystem.getAutoRecyclerDisplayName(level)) end)
@@ -3978,26 +3835,9 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     return applied == true
 end
 
-function GodSystem.migrateLegacyTerminalWear(player)
-    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return false end
-    player = player or gsPlayer()
-    if not player or not player.getWornItem or not ItemBodyLocation or not ItemBodyLocation.NECKLACE then return false end
-    local okItem, item = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
-    if not okItem or not item or not item.getFullType or not GodSystem.isAutoRecyclerFullType(item:getFullType()) then return false end
-    if not pcall(player.removeWornItem, player, item) then return false end
-    local verifyOk, stillWorn = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
-    if verifyOk and stillWorn == item then return false end
-    if item.setJobDelta then pcall(item.setJobDelta, item, 0) end
-    if item.setJobType then pcall(item.setJobType, item, "") end
-    if triggerEvent then pcall(triggerEvent, "OnClothingUpdated", player) end
-    print("[GodSystem][TerminalWear] legacy-unwear success item=" .. tostring(item.getID and item:getID() or "?") .. " slot=base:necklace")
-    GodSystem.notify(GodSystem.text("Notify_TerminalWearReset", "The system space terminal moved to its independent equipment slot. Please equip it again."))
-    return true
-end
-
 function GodSystem.getAutoRecyclerItemLevel(item)
     local data = GodSystem.getItemModData(item)
-    local level = data and (data[GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel"] or data[GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"]) or nil
+    local level = data and data[GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel"] or nil
     return math.max(1, math.min(math.floor(tonumber(level) or GodSystem.getAutoRecyclerLevel()), GodSystem.getAutoRecyclerMaxLevel()))
 end
 
@@ -4122,7 +3962,6 @@ function GodSystem.getCachedAutoRecyclerContainer()
     if item and GodSystem.isAutoRecyclerContainer(item) and GodSystem.isAutoRecyclerOwnedByPlayer(item) then
         return { item = item, container = item.getContainer and item:getContainer() or nil }
     end
-    if item then GodSystemTerminalUpgrades.restoreTerminal(item) end
     GodSystem.autoRecyclerCache = nil
     return nil
 end
@@ -4163,10 +4002,6 @@ function GodSystem.getAutoRecyclerContainer(forceSearch)
 end
 
 function GodSystem.refreshAutoRecyclerContainers(forceSearch)
-    local player = gsPlayer()
-    if player and not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
-        GodSystemLegacyCompressionCleanup.restorePlayerInventory(player, GodSystem.getData())
-    end
     local entry = GodSystem.getAutoRecyclerContainer(forceSearch == true)
     return entry
 end
@@ -4405,10 +4240,6 @@ function GodSystem.getShopCategoryLabel(categoryKey)
     end
     local _, label = gsShopCategoryFromRaw(categoryKey)
     return label or categoryKey
-end
-
-function GodSystem.hasExplicitItemBuyPrice(fullType)
-    return fullType ~= nil and GodSystemConfig.VanillaItemBuyPrices ~= nil and GodSystemConfig.VanillaItemBuyPrices[fullType] ~= nil
 end
 
 function GodSystem.getPricingCategoryKey(fullType, item)
@@ -4760,11 +4591,6 @@ function GodSystem.getConfiguredShopKeySet()
     return GodSystem.configuredShopKeySet or {}
 end
 
-function GodSystem.getShopListingState(fullType, itemOrSprite)
-    local data = GodSystem.getData()
-    return GodSystemShopVariants.isListingKnown(data, GodSystem.getConfiguredShopKeySet(), fullType, itemOrSprite)
-end
-
 function GodSystem.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
     if not GodSystem.isAutoShopUnlockAllowed(fullType) then
         return false
@@ -4941,10 +4767,6 @@ function GodSystem.deleteShopItem(variantKey)
     GodSystem.save()
     GodSystem.notify(GodSystem.text("Notify_ShopItemDeleted", "Delisted shop item: ") .. tostring(label))
     return true
-end
-
-function GodSystem.removeUnlockedShopItem(variantKey)
-    return GodSystem.setShopItemHidden(variantKey, true)
 end
 
 function GodSystem.getConfiguredShopFullTypeSet()
@@ -5250,55 +5072,6 @@ function GodSystem.getShopLotteryCandidates(categoryKey)
         return tostring(a.label or a.fullType) < tostring(b.label or b.fullType)
     end)
     return result
-end
-
-function GodSystem.getShopLotteryCategories()
-    local candidates = GodSystem.getShopLotteryCandidates("all")
-    local counts = {}
-    for i = 1, #candidates do
-        local key = candidates[i].categoryKey or "normal"
-        counts[key] = (counts[key] or 0) + 1
-    end
-    local result = {}
-    for key, count in pairs(counts) do
-        table.insert(result, {
-            key = key,
-            label = GodSystem.getShopCategoryLabel(key),
-            lotteryCount = count,
-        })
-    end
-    table.sort(result, function(a, b)
-        return tostring(a.label) < tostring(b.label)
-    end)
-    return result
-end
-
-function GodSystem.getShopLotteryPreview(categoryKey)
-    local candidates = GodSystem.getShopLotteryCandidates(categoryKey)
-    local minCost = nil
-    local maxCost = nil
-    for i = 1, #candidates do
-        local cost = candidates[i].lotteryCost or GodSystem.getShopLotteryCost(candidates[i].fullType)
-        if not minCost or cost < minCost then
-            minCost = cost
-        end
-        if not maxCost or cost > maxCost then
-            maxCost = cost
-        end
-    end
-    categoryKey = tostring(categoryKey or "all")
-    return {
-        categoryKey = categoryKey,
-        categoryLabel = GodSystem.getShopCategoryLabel(categoryKey),
-        count = #candidates,
-        minCost = minCost or 0,
-        maxCost = maxCost or 0,
-        candidates = candidates,
-    }
-end
-
-function GodSystem.performShopLottery(categoryKey)
-    return GodSystem.performLotteryDraw("category", categoryKey, 1)
 end
 
 local function gsCurrentPosition()
@@ -6365,7 +6138,6 @@ function GodSystem.claimOrRecoverAutoRecycler()
     end
 
     data.autoRecyclerClaimed = true
-    data.autoRecyclerLevel = GodSystem.getAutoRecyclerLevel()
     GodSystem.markAutoRecyclerContainer(addedItems[1])
     local historyKey = cost > 0 and "History_AutoRecyclerRecovered" or "History_AutoRecyclerClaimed"
     local notifyKey = cost > 0 and "Notify_AutoRecyclerRecovered" or "Notify_AutoRecyclerClaimed"
@@ -7593,8 +7365,6 @@ function GodSystem.onPlayerDeath(player)
     if player and type(player) ~= "number" and player ~= gsPlayer() then
         return
     end
-    local cached = GodSystem.autoRecyclerCache and GodSystem.autoRecyclerCache.item or nil
-    if cached then GodSystemTerminalUpgrades.restoreTerminal(cached) end
     GodSystem.autoRecyclerCache = nil
     GodSystemCarryCapacity.clearRuntime(type(player) == "number" and nil or player)
     GodSystem.normalizeActiveKillTasks()
@@ -7603,7 +7373,6 @@ end
 
 function GodSystem.onGameStart()
     local data = GodSystem.getData()
-    GodSystem.migrateLegacyTerminalWear(gsPlayer())
     GodSystem.applyCarryCapacity(gsPlayer(), data)
     GodSystem.ensureCurrencyInitialized()
     GodSystem.generateDailyTasks(false)
@@ -7621,8 +7390,6 @@ function GodSystem.onInitGlobalModData()
 end
 
 function GodSystem.onGameExit()
-    local cached = GodSystem.autoRecyclerCache and GodSystem.autoRecyclerCache.item or nil
-    if cached then GodSystemTerminalUpgrades.restoreTerminal(cached) end
     GodSystem.autoRecyclerCache = nil
 end
 

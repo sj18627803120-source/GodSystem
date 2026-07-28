@@ -201,22 +201,31 @@ for i = 1, #snapshot.containers do if snapshot.containers[i].isCoreHost then hos
 assert(hostSummary and hostSummary.objectId == Storage.getObjectId(host, false),
     "container summaries must expose host object identity")
 
-local marker = Storage.getCoreHostMarker(host)
-marker.hostVersion = nil
-marker.capacityMode = nil
-host.slots[1]:setCapacity(0)
-host.slots[2]:setCapacity(0)
-local resolved, _, migratedMarker, resolveReason = Manager.resolveCoreHost(player, coreArgs)
-assert(resolved and not resolveReason, tostring(resolveReason))
-assert(host.slots[1]:getCapacity() == 50 and host.slots[2]:getCapacity() == 20,
-    "opening an old v1.16.70 host must restore its original capacities")
-assert(migratedMarker.hostVersion == Storage.CoreHostVersion, "old host migration must be one-time and versioned")
+if arg[2] ~= "v11673" then
+    local marker = Storage.getCoreHostMarker(host)
+    marker.hostVersion = nil
+    marker.capacityMode = nil
+    host.slots[1]:setCapacity(0)
+    host.slots[2]:setCapacity(0)
+    local resolved, _, migratedMarker, resolveReason = Manager.resolveCoreHost(player, coreArgs)
+    assert(resolved and not resolveReason, tostring(resolveReason))
+    assert(host.slots[1]:getCapacity() == 50 and host.slots[2]:getCapacity() == 20,
+        "opening an old v1.16.70 host must restore its original capacities")
+    assert(migratedMarker.hostVersion == Storage.CoreHostVersion, "old host migration must be one-time and versioned")
+end
 
 local unlinkOk, unlinkReason = Manager.unlinkContainer(player, coreArgs, hostLinkId)
 assert(not unlinkOk and unlinkReason == "coreInstalled", "core-host links must not be removable")
 local updateOk, updateReason = Manager.updateLink(player, coreArgs, { linkId = hostLinkId, priority = 80, role = "material" })
 assert(updateOk, tostring(updateReason))
-assert(Storage.getNetworkContainerMarker(host).priority == 80, "core host must retain routing controls")
+if arg[2] == "v11673" then
+    local hostLink = view.links[hostLinkId]
+    local settings = Storage.getContainerSettings(host, hostLink.slotIndex, false)
+    assert(settings and settings.priorityTier == "high" and settings.role == "material",
+        "core-host slot must retain v1.16.73 routing controls")
+else
+    assert(Storage.getNetworkContainerMarker(host).priority == 80, "core host must retain routing controls")
+end
 
 local favorite = item("Base.Saw", "Favorite Saw", { favorite = true })
 local key = item("Base.Key1", "Key", { category = "Key" })

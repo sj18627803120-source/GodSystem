@@ -792,15 +792,6 @@ function GodSystemServer.restoreRemovedCurrencyOrBank(player, removed)
     return ok, failedValue
 end
 
-local function bankTerm(termId)
-    termId = tostring(termId or "")
-    local terms = GodSystemConfig.BankFixedTerms or {}
-    for i = 1, #terms do
-        if tostring(terms[i].id or "") == termId then return terms[i] end
-    end
-    return nil
-end
-
 local function bankFixedEntry(bank, entryId)
     entryId = tostring(entryId or "")
     for i = 1, #(bank.fixed or {}) do
@@ -825,25 +816,6 @@ local function bankFixedPayout(entry)
     end
     local penalty = math.max(0, math.floor(principal * (GodSystemConfig.BankEarlyWithdrawPenaltyRatio or 0.05)))
     return math.max(0, principal - penalty), -penalty, false
-end
-
-local function createBankFixedEntry(bank, term, amount)
-    if not bank or not term then return nil end
-    amount = math.max(1, floor(amount, 1))
-    local id = "F" .. tostring(bank.nextId or 1)
-    bank.nextId = (bank.nextId or 1) + 1
-    local hours = math.max(1, floor(term.hours, (term.days or 1) * 24))
-    local entry = {
-        id = id,
-        termId = tostring(term.id or ""),
-        principal = amount,
-        startHour = nowHours(),
-        matureHour = nowHours() + hours,
-        rate = n(term.interestRate, 0),
-        days = math.max(1, floor(term.days, math.ceil(hours / 24))),
-    }
-    table.insert(bank.fixed, entry)
-    return entry
 end
 
 local function bankInvestmentProfiles()
@@ -2115,12 +2087,6 @@ function GodSystemServer.syncTerminalApplyReport(item, report, forceSync)
         if sendItemStats then pcall(sendItemStats, changedItem) end
         if changedItem.transmitModData then pcall(changedItem.transmitModData, changedItem) end
     end
-    for i = 1, #((report.restoredItems) or {}) do
-        local restoredItem = report.restoredItems[i]
-        if restoredItem and restoredItem.syncItemFields then pcall(function() restoredItem:syncItemFields() end) end
-        if sendItemStats then pcall(sendItemStats, restoredItem) end
-        if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
-    end
     if report.terminalChanged == true or forceSync == true then
         if item and item.syncItemFields then pcall(function() item:syncItemFields() end) end
         if item and item.transmitModData then pcall(item.transmitModData, item) end
@@ -2202,7 +2168,7 @@ local function markAutoRecycler(data, item, player, preappliedReport, deferSync)
     local md = item.getModData and item:getModData() or nil
     if md then
         local markerKey = GodSystemConfig.AutoRecyclerMarkerKey or "GodSystemAutoRecycler"
-        local levelKey = GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel"
+        local levelKey = GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel"
         if md[markerKey] ~= true then
             md[markerKey] = true
             terminalChanged = true
@@ -2221,30 +2187,6 @@ local function markAutoRecycler(data, item, player, preappliedReport, deferSync)
     report.terminalChanged = terminalChanged
     if deferSync ~= true then GodSystemServer.syncTerminalApplyReport(item, report) end
     return true, report
-end
-
-function GodSystemServer.migrateLegacyTerminalWear(player)
-    if not player or not player.getWornItem or not ItemBodyLocation or not ItemBodyLocation.NECKLACE then return false end
-    local okItem, item = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
-    if not okItem or not item or not isAutoRecyclerContainer(item) then return false end
-    local itemId = item.getID and tostring(item:getID()) or "?"
-    local removed = pcall(player.removeWornItem, player, item)
-    if not removed then
-        print("[GodSystem][TerminalWear] legacy-unwear failed item=" .. itemId)
-        return false
-    end
-    local verifyOk, stillWorn = pcall(player.getWornItem, player, ItemBodyLocation.NECKLACE)
-    if verifyOk and stillWorn == item then
-        print("[GodSystem][TerminalWear] legacy-unwear verification-failed item=" .. itemId)
-        return false
-    end
-    if not verifyOk then print("[GodSystem][TerminalWear] legacy-unwear verification-unavailable item=" .. itemId) end
-    if item.setJobDelta then pcall(item.setJobDelta, item, 0) end
-    if item.setJobType then pcall(item.setJobType, item, "") end
-    if sendEquip then pcall(sendEquip, player) end
-    print("[GodSystem][TerminalWear] legacy-unwear success item=" .. itemId .. " slot=base:necklace")
-    notifyCode(player, "TerminalWearReset")
-    return true
 end
 
 function GodSystemServer.giveConfiguredTerminal(player, data)
@@ -2269,16 +2211,6 @@ function GodSystemServer.giveConfiguredTerminal(player, data)
     return true, item, report
 end
 
-function GodSystemServer.restoreTerminalWeights(terminal)
-    local ok, restoredItems = GodSystemTerminalUpgrades.restoreTerminal(terminal)
-    for i = 1, #(restoredItems or {}) do
-        local restoredItem = restoredItems[i]
-        if sendItemStats then pcall(sendItemStats, restoredItem) end
-        if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
-    end
-    return ok == true
-end
-
 function GodSystemServer.isTerminalOwnedByPlayer(player, item)
     if not player or not item then return false end
     local root = player.getInventory and player:getInventory() or nil
@@ -2297,12 +2229,6 @@ function GodSystemServer.isTerminalOwnedByPlayer(player, item)
 end
 
 local function findAutoRecycler(data, player)
-    local _, restoredItems = GodSystemLegacyCompressionCleanup.restorePlayerInventory(player, data)
-    for i = 1, #(restoredItems or {}) do
-        local restoredItem = restoredItems[i]
-        if sendItemStats then pcall(sendItemStats, restoredItem) end
-        if restoredItem.transmitModData then pcall(restoredItem.transmitModData, restoredItem) end
-    end
     local key = userKey(player)
     local cached = GodSystemServer.terminalCache[key]
     if cached and cached.item and isAutoRecyclerContainer(cached.item) and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
@@ -2310,7 +2236,6 @@ local function findAutoRecycler(data, player)
         markAutoRecycler(data, cached.item, player)
         return cached.item, cached.item.getContainer and cached.item:getContainer() or nil
     end
-    if cached and cached.item then GodSystemServer.restoreTerminalWeights(cached.item) end
     GodSystemServer.terminalCache[key] = nil
     local aliases = GodSystemConfig.AutoRecyclerFullTypes or { [GodSystemConfig.AutoRecyclerFullType or "GodSystem.SystemSpaceTerminal"] = true }
     for fullType, enabled in pairs(aliases) do
@@ -2717,7 +2642,6 @@ local Commands = {}
 
 function Commands.hello(_, _, player)
     local data = playerData(player)
-    GodSystemServer.migrateLegacyTerminalWear(player)
     if not data.currencyInitialized then
         local grant = 0
         if data.points and data.points > 0 then grant = floor(data.points, 0)
@@ -2903,37 +2827,6 @@ function Commands.bank(_, _, player, args)
             data.stats.bankWithdrawn = (data.stats.bankWithdrawn or 0) + amount
             appendHistory(data, historyEntry("bank", "BankWithdraw", { amount }))
             return finish(player, true, "活期取出成功")
-        elseif action == "createFixed" then
-            if GodSystemConfig.BankAllowNewFixedDeposits ~= true then
-                return finishCode(player, false, "BankFixedCreationClosed")
-            end
-            local term = bankTerm(args and args.termId)
-            if not term then return finish(player, false, "请选择死期档位") end
-            if (bank.current or 0) < amount then return finish(player, false, "活期余额不足") end
-            bank.current = (bank.current or 0) - amount
-            local entry = createBankFixedEntry(bank, term, amount)
-            if not entry then
-                bank.current = (bank.current or 0) + amount
-                return finish(player, false, "请选择死期档位")
-            end
-            data.stats.bankDeposited = (data.stats.bankDeposited or 0) + amount
-            appendHistory(data, historyEntry("bank", "BankFixedCreate", { amount, entry.days, math.floor((entry.rate or 0) * 100) }))
-            return finish(player, true, "死期存入成功")
-        elseif action == "createFixedFromCash" then
-            if GodSystemConfig.BankAllowNewFixedDeposits ~= true then
-                return finishCode(player, false, "BankFixedCreationClosed")
-            end
-            local term = bankTerm(args and args.termId)
-            if not term then return finish(player, false, "请选择死期档位") end
-            if not removeCurrency(player, amount) then return finish(player, false, "系统币不足") end
-            local entry = createBankFixedEntry(bank, term, amount)
-            if not entry then
-                giveCurrency(player, amount)
-                return finish(player, false, "请选择死期档位")
-            end
-            data.stats.bankDeposited = (data.stats.bankDeposited or 0) + amount
-            appendHistory(data, historyEntry("bank", "BankFixedCreate", { amount, entry.days, math.floor((entry.rate or 0) * 100) }))
-            return finish(player, true, "死期存入成功")
         elseif action == "borrowLoan" then
             local okLoan, msg = borrowBankLoan(player, data, bank, args and args.termId, amount)
             return finish(player, okLoan, msg or "")
@@ -3012,7 +2905,6 @@ end
 function Commands.death(_, _, player)
     local data = playerData(player)
     local terminalState = GodSystemServer.terminalCache[userKey(player)]
-    if terminalState and terminalState.item then GodSystemServer.restoreTerminalWeights(terminalState.item) end
     GodSystemServer.terminalCache[userKey(player)] = nil
     for i = 1, #(data.tasks or {}) do
         local task = data.tasks[i]
@@ -4602,13 +4494,6 @@ function Commands.deleteShopItem(_, _, player, args)
     end)
     unguard(player)
     if not ok then errorMessage(player, tostring(err)) end
-end
-
-function Commands.removeUnlocked(module, command, player, args)
-    return Commands.setShopItemHidden(module, command, player, {
-        variantKey = args and (args.variantKey or args.fullType),
-        hidden = true,
-    })
 end
 
 function Commands.lotteryDraw(_, _, player, args)

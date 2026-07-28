@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.61",
-    [switch]$SkipRuntime
+    [switch]$SkipRuntime,
+    [switch]$AllowRetiredRemoveUnlocked
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,7 +56,9 @@ Require-Text $protocol 'SetShopItemHidden\s*=\s*"setShopItemHidden"' 'New hidden
 Require-Text $network 'wrap\s*\(\s*"setShopItemHidden"' 'MP hidden-state client bridge is missing'
 Require-Text $network 'listOnlyAutoShopItem[\s\S]{0,240}itemId' 'Single listing command must carry an exact item id'
 Require-Text $server 'function\s+Commands\.setShopItemHidden\s*\(' 'Server hidden-state command is missing'
-Require-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}setShopItemHidden' 'Legacy remove command must delegate to hidden state'
+if (-not $AllowRetiredRemoveUnlocked) {
+    Require-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}setShopItemHidden' 'Legacy remove command must delegate to hidden state'
+}
 Reject-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}unlockedShopItems\[[^\]]+\]\s*=\s*nil' 'Legacy server command must not delete a committed listing'
 Require-Text $server 'listOnlyAutoShop[\s\S]{0,1800}itemId' 'MP listing must re-resolve an exact item instance'
 Require-Text $server 'shopById[\s\S]{0,1800}hidden' 'Server direct-buy lookup must reject hidden stale rows'

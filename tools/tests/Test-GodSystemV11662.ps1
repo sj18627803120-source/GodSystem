@@ -2,7 +2,8 @@ param(
     [string]$Root = "",
     [switch]$SkipRuntime,
     [string]$ExpectedVersion = "1.16.62",
-    [switch]$AllowRetiredCapacity
+    [switch]$AllowRetiredCapacity,
+    [switch]$AllowRetiredCompatibility
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,7 +27,7 @@ function Reject-Text([string]$Text, [string]$Pattern, [string]$Message) {
 $config = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Config.lua')
 $terminal = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_TerminalUpgrades.lua')
 $capacity = if (-not $AllowRetiredCapacity) { Read-Utf8 (Join-Path $Lua 'shared\GodSystem_TerminalCapacity.lua') } else { "" }
-$legacy = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_LegacyCompressionCleanup.lua')
+$legacy = if (-not $AllowRetiredCompatibility) { Read-Utf8 (Join-Path $Lua 'shared\GodSystem_LegacyCompressionCleanup.lua') } else { "" }
 $variants = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_ShopVariants.lua')
 $protocol = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Protocol.lua')
 $core = Read-Utf8 (Join-Path $Lua 'client\GodSystem_Core.lua')
@@ -82,14 +83,16 @@ Reject-Text $terminal 'compressItem|setActualWeight|setCustomWeight|terminalComp
 Reject-Text ($core + $network + $ui + $server) 'terminalCompression|upgradeTerminal\("compression"\)|compressionNextCost|compressionDiagnostics' 'Compression routes and UI must be removed'
 Reject-Text $core 'OnContainerUpdate|terminalRefreshPending|getAutoRecyclerContentSignature' 'Retired compression polling must be removed'
 
-Require-Text $legacy 'GodSystemCompressionBaseActualWeight' 'Legacy cleanup must recognize old weight metadata'
-Require-Text $legacy 'function\s+GodSystemLegacyCompressionCleanup\.restorePlayerInventory\s*\(' 'One-time player inventory migration is missing'
-Require-Text $legacy 'legacyCompressionMigrationVersion' 'Successful migration must be recorded'
-Require-Text $legacy 'GodSystemLegacyCompressionCleanupVersion' 'Terminal cleanup needs its own O(1) completion marker'
-Require-Text $legacy 'setActualWeight' 'Legacy cleanup must restore saved instance weight'
-Reject-Text $legacy 'DoParam|setScriptItem|definition:setActualWeight|definition:setWeight' 'Legacy cleanup must never modify shared item definitions'
-Require-Text $terminal 'canRestoreLegacyWeights' 'MP clients must not authoritatively restore legacy weights'
-Require-Text $server 'restorePlayerInventory[\s\S]{0,500}sendItemStats' 'Server migration must synchronize restored instances'
+if (-not $AllowRetiredCompatibility) {
+    Require-Text $legacy 'GodSystemCompressionBaseActualWeight' 'Legacy cleanup must recognize old weight metadata'
+    Require-Text $legacy 'function\s+GodSystemLegacyCompressionCleanup\.restorePlayerInventory\s*\(' 'One-time player inventory migration is missing'
+    Require-Text $legacy 'legacyCompressionMigrationVersion' 'Successful migration must be recorded'
+    Require-Text $legacy 'GodSystemLegacyCompressionCleanupVersion' 'Terminal cleanup needs its own O(1) completion marker'
+    Require-Text $legacy 'setActualWeight' 'Legacy cleanup must restore saved instance weight'
+    Reject-Text $legacy 'DoParam|setScriptItem|definition:setActualWeight|definition:setWeight' 'Legacy cleanup must never modify shared item definitions'
+    Require-Text $terminal 'canRestoreLegacyWeights' 'MP clients must not authoritatively restore legacy weights'
+    Require-Text $server 'restorePlayerInventory[\s\S]{0,500}sendItemStats' 'Server migration must synchronize restored instances'
+}
 
 Require-Text $variants 'function\s+GodSystemShopVariants\.deleteUnlocked\s*\(' 'Shared precise deletion helper is missing'
 Require-Text $core 'function\s+GodSystem\.deleteShopItem\s*\(' 'SP deletion API is missing'
@@ -100,7 +103,9 @@ Require-Text $server 'GodSystemShopVariants\.deleteUnlocked\s*\(' 'Server must d
 Require-Text $ui 'ShopHidden_Delete' 'Hidden manager delete button is missing'
 Require-Text $ui 'Confirm_ShopItemDelete' 'Deletion confirmation is missing'
 Require-Text $ui 'GodSystem\.deleteShopItem\s*\(' 'Confirmed deletion must call the dedicated API'
-Require-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}setShopItemHidden' 'Old removeUnlocked command must remain a hide-only compatibility alias'
+if (-not $AllowRetiredCompatibility) {
+    Require-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}setShopItemHidden' 'Old removeUnlocked command must remain a hide-only compatibility alias'
+}
 
 foreach ($key in @(
     'ShopHidden_Delete', 'Confirm_ShopItemDelete',

@@ -1,6 +1,7 @@
 param(
     [string]$Root = "",
-    [string]$ExpectedVersion = "1.16.71"
+    [string]$ExpectedVersion = "1.16.71",
+    [switch]$AllowStorageRoutingV11673
 )
 
 $ErrorActionPreference = 'Stop'
@@ -119,7 +120,7 @@ if (-not $luaExe) {
 }
 if (-not $luaExe) { throw 'Lua 5.1 runtime is required for v1.16.71 storage validation' }
 $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
-& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11671Runtime.lua') $Lua
+& $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11671Runtime.lua') $Lua $(if ($AllowStorageRoutingV11673) { 'v11673' } else { 'v11671' })
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.71 runtime test failed' }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11671ContextRuntime.lua') $Lua
 if ($LASTEXITCODE -ne 0) { throw 'v1.16.71 context runtime test failed' }

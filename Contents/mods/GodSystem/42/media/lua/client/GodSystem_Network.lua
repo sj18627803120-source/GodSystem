@@ -923,11 +923,6 @@ function GodSystemNetwork.updatePendingTerminalPageSync()
     GodSystemNetwork.requestTerminalState()
 end
 
-function GodSystemNetwork.hasPendingOperation()
-    checkPendingTimeout()
-    return pendingKeyCommand ~= nil
-end
-
 function GodSystemNetwork.getDiagnostics()
     checkPendingTimeout()
     local pendingElapsedMs = 0
@@ -1517,14 +1512,6 @@ end)
 
 wrap("deleteShopItem", function(variantKey)
     return send((Protocol.C2S and Protocol.C2S.DeleteShopItem) or "deleteShopItem", { variantKey = variantKey })
-end)
-
-wrap("removeUnlockedShopItem", function(variantKey)
-    return send((Protocol.C2S and Protocol.C2S.RemoveUnlocked) or "removeUnlocked", { variantKey = variantKey, fullType = variantKey })
-end)
-
-wrap("performShopLottery", function(categoryKey)
-    return send("shopLottery", { categoryKey = categoryKey }), nil, 0
 end)
 
 wrap("performLotteryDraw", function(mode, categoryKey, count)

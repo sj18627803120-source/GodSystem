@@ -1,7 +1,8 @@
 param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.70",
-    [switch]$AllowCoreHostStorage
+    [switch]$AllowCoreHostStorage,
+    [switch]$AllowRetiredMigrationCleanup
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,7 +79,9 @@ Reject-Text $storage 'function\s+Storage\.findNearbyWorldController' 'Active nea
 foreach ($name in @('coreStatus', 'claimCore', 'installCore', 'retrieveCore', 'resolveCoreHost', 'calibrateLoadedSquare')) {
     Require-Text $manager ('function\s+Manager\.' + $name) "Manager.$name is missing"
 }
-Require-Text $manager 'state\s*==\s*"migrationPending"' 'v1.16.69 installed-controller migration is missing'
+if (-not $AllowRetiredMigrationCleanup) {
+    Require-Text $manager 'state\s*==\s*"migrationPending"' 'v1.16.69 installed-controller migration is missing'
+}
 Require-Text $manager 'pendingCoreUnlock' 'Unloaded old-host recovery is missing'
 Require-Text $manager 'if\s+not\s+square\s+then\s+return\s+nil,\s+nil,\s+false\s+end' 'Unloaded host must not be treated as deleted'
 Reject-Text $manager 'function\s+Manager\.installController' 'Retired controller installer remains active'

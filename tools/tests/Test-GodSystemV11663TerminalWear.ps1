@@ -1,5 +1,6 @@
 param(
-    [string]$Root = ""
+    [string]$Root = "",
+    [switch]$AllowRetiredWearMigration
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,7 +54,9 @@ Require-Text $markBody 'return\s+true' 'MP read-only branch must stop before loc
 Require-Text $terminal 'terminalChanged' 'Terminal apply report must expose outer-item changes'
 Require-Text $terminal 'writeNumberMethod[\s\S]{0,700}math\.abs\(before\s*-\s*value\)' 'Terminal numeric writes must skip unchanged values'
 Require-Text $server 'report\.terminalChanged\s*==\s*true' 'Server must sync the outer terminal only when it changed'
-Require-Text $server 'migrateLegacyTerminalWear' 'Server must safely clear terminals still worn in the old necklace slot'
+if (-not $AllowRetiredWearMigration) {
+    Require-Text $server 'migrateLegacyTerminalWear' 'Server must safely clear terminals still worn in the old necklace slot'
+}
 Require-Text $server '\[GodSystem\]\[TerminalWear\]' 'Server terminal-wear diagnostics are missing'
 
 Require-Text $network 'ISTimedActionQueue\.getTimedActionQueue' 'Background refresh must inspect the vanilla timed-action queue'

@@ -1,6 +1,5 @@
 require "GodSystem_Config"
 require "GodSystem_TerminalRelief"
-require "GodSystem_LegacyCompressionCleanup"
 
 GodSystemTerminalUpgrades = GodSystemTerminalUpgrades or {}
 
@@ -54,10 +53,6 @@ local function upgradeTypeKey(upgradeType)
     return nil
 end
 
-local function canRestoreLegacyWeights()
-    return not (isClient and isClient()) or (isServer and isServer())
-end
-
 function GodSystemTerminalUpgrades.getLevels(upgradeType)
     upgradeType = upgradeTypeKey(upgradeType)
     if upgradeType == "capacity" then return GodSystemConfig.TerminalCapacityLevels or {} end
@@ -77,12 +72,10 @@ function GodSystemTerminalUpgrades.normalizeData(data)
     if type(data) ~= "table" then return data end
     local capacityLevels = GodSystemTerminalUpgrades.getLevels("capacity")
     local reductionLevels = GodSystemTerminalUpgrades.getLevels("reduction")
-    local legacy = normalizeLevel(data.autoRecyclerLevel, #capacityLevels)
-    if data.autoRecyclerCapacityLevel == nil then data.autoRecyclerCapacityLevel = legacy end
-    if data.autoRecyclerReductionLevel == nil then data.autoRecyclerReductionLevel = math.min(legacy, #reductionLevels) end
+    if data.autoRecyclerCapacityLevel == nil then data.autoRecyclerCapacityLevel = 1 end
+    if data.autoRecyclerReductionLevel == nil then data.autoRecyclerReductionLevel = 1 end
     data.autoRecyclerCapacityLevel = normalizeLevel(data.autoRecyclerCapacityLevel, #capacityLevels)
     data.autoRecyclerReductionLevel = normalizeLevel(data.autoRecyclerReductionLevel, #reductionLevels)
-    data.autoRecyclerLevel = data.autoRecyclerCapacityLevel
     GodSystemTerminalRelief.getLevel(data)
     return data
 end
@@ -104,7 +97,6 @@ function GodSystemTerminalUpgrades.setLevel(data, upgradeType, level)
     local levels = GodSystemTerminalUpgrades.getLevels(key)
     if not field or #levels <= 0 then return false end
     data[field] = normalizeLevel(level, #levels)
-    if key == "capacity" then data.autoRecyclerLevel = data[field] end
     return true
 end
 
@@ -201,14 +193,9 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
     if terminalData then
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel", GodSystemTerminalUpgrades.getLevel(data, "capacity")) or terminalDataChanged
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerReductionLevelKey or "GodSystemTerminalReductionLevel", GodSystemTerminalUpgrades.getLevel(data, "reduction")) or terminalDataChanged
-        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerLevelKey or "GodSystemAutoRecyclerLevel", GodSystemTerminalUpgrades.getLevel(data, "capacity")) or terminalDataChanged
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel", GodSystemTerminalRelief.getLevel(data)) or terminalDataChanged
     end
 
-    local migrationOk, restoredItems, migrationFailed = true, {}, 0
-    if canRestoreLegacyWeights() then
-        migrationOk, restoredItems, migrationFailed = GodSystemLegacyCompressionCleanup.restoreTerminal(terminal)
-    end
     local reliefOk, reliefReport = GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
     if not reliefOk then return false, { reason = "reliefApplyFailed", relief = reliefReport } end
 
@@ -217,14 +204,10 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
         reduction = reduction,
         reliefLevel = GodSystemTerminalRelief.getLevel(data),
         reliefOffset = GodSystemTerminalRelief.getOffset(data),
-        migrationOk = migrationOk,
-        migrationRestored = #(restoredItems or {}),
-        migrationFailed = migrationFailed or 0,
         items = reliefReport.items or {},
         addedItems = reliefReport.addedItems or {},
         removedItems = reliefReport.removedItems or {},
         inventory = reliefReport.inventory or inventory,
-        restoredItems = restoredItems or {},
         terminalChanged = outerCapacityChanged or innerCapacityChanged
             or outerReductionChanged or innerReductionChanged or terminalDataChanged,
         skipped = 0,
@@ -270,15 +253,6 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
         reliefApplied = expectedRelief <= 0 and #reliefStates == 0
             or (#reliefStates == 1 and math.abs(actualRelief - expectedRelief) <= math.max(0.05, expectedRelief * 0.0001)),
     }
-end
-
-function GodSystemTerminalUpgrades.restoreTerminal(terminal)
-    if not terminal then return true, {} end
-    if canRestoreLegacyWeights() then
-        local ok, restoredItems = GodSystemLegacyCompressionCleanup.restoreTerminal(terminal)
-        return ok, restoredItems or {}
-    end
-    return true, {}
 end
 
 return GodSystemTerminalUpgrades
