@@ -29,7 +29,7 @@ $patterns = @(
     (New-TextFromCodepoints @(0x952F, 0x65A4, 0x62F7))  # repeated replacement mojibake
 )
 
-$extensions = @("*.lua", "*.txt", "*.info", "*.ini")
+$extensions = @("*.lua", "*.txt", "*.info", "*.ini", "*.ps1")
 if ($IncludeDocs) {
     $extensions += @("*.md", "*.json", "*.html", "*.css")
 }
@@ -43,6 +43,16 @@ $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 
 foreach ($file in $files) {
     $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+    if ($bytes.Length -ge 3 -and
+        $bytes[0] -eq 0xEF -and
+        $bytes[1] -eq 0xBB -and
+        $bytes[2] -eq 0xBF) {
+        $bad.Add([pscustomobject]@{
+            Path = $file.FullName
+            Issue = "Contains UTF-8 BOM"
+            Detail = "EF BB BF"
+        })
+    }
     $text = $null
     try {
         $text = $utf8Strict.GetString($bytes)

@@ -1,4 +1,4 @@
-﻿# PZ B42 MOD Patterns
+# PZ B42 MOD Patterns
 
 ## Reference Priority
 

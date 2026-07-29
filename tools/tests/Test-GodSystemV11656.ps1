@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.56"
 )

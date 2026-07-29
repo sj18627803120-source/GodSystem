@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Root,
-    [string]$ExpectedVersion = "42.20.1.1"
+    [string]$ExpectedVersion = "42.20.1.1",
+    [string]$ExpectedWorkshopId = "3773949382"
 )
 
 $ErrorActionPreference = "Stop"
@@ -132,9 +133,14 @@ $version = [regex]::Escape($ExpectedVersion)
 $rootInfo = Read-Utf8 (Join-Path $Mod 'mod.info')
 $b42Info = Read-Utf8 (Join-Path $Mod '42\mod.info')
 $config = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Config.lua')
+$workshop = Read-Utf8 (Join-Path $RepoRoot 'workshop.txt')
 
 Require-Text $rootInfo ('(?m)^modversion=' + $version + '\r?$') "Root mod.info version must be $ExpectedVersion"
 Require-Text $b42Info ('(?m)^modversion=' + $version + '\r?$') "B42 mod.info version must be $ExpectedVersion"
 Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $version + '"') "Config version must be $ExpectedVersion"
+Require-Text $rootInfo '(?m)^id=GodSystem_CN\r?$' "Root mod.info must keep Mod ID GodSystem_CN"
+Require-Text $b42Info '(?m)^id=GodSystem_CN\r?$' "B42 mod.info must keep Mod ID GodSystem_CN"
+Require-Text $workshop ('(?m)^id=' + [regex]::Escape($ExpectedWorkshopId) + '\r?$') "Workshop ID must be $ExpectedWorkshopId"
+Require-Text ($rootInfo + $b42Info) 'Build 42\.20' "mod.info descriptions must target Build 42.20"
 
 Write-Output "Test-GodSystemV422011: ALL TESTS PASSED"
