@@ -1,6 +1,6 @@
-param(
+﻿param(
     [string]$Root = "",
-    [string]$ExpectedVersion = "1.16.73"
+    [string]$ExpectedVersion = "42.20.1.1"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,9 +93,9 @@ if (Test-Path -LiteralPath (Join-Path $Lua 'shared\GodSystem_LegacyCompressionCl
 
 Require-Text $workshop '100%.*AI' 'Personal author wording must remain in Workshop description'
 Require-Text $workshop 'mod' 'Personal balance note must remain in Workshop description'
-Require-Text $workshop 'v1\.16\.73' 'Workshop usage summary must cover the current release'
+Require-Text $workshop 'v42\.20\.1\.1' 'Workshop usage summary must cover the current release'
 Reject-Text $workshop '(?m)^description=v1\.16\.68' 'Workshop description must not contain the old version dump'
-Require-Text $readme 'GodSystemWorkshopUpload_v1\.16\.73' 'Full player usage guide is missing'
+Require-Text $readme 'GodSystemWorkshopUpload_v42\.20\.1\.1' 'Full player usage guide is missing'
 Require-Text $readme 'GodSystem\.ps1' 'Usage guide must include the validation command'
 
 $luaExe = Get-Command lua -ErrorAction SilentlyContinue
@@ -103,9 +103,9 @@ if (-not $luaExe) {
     $localLua = 'C:\Users\Administrator\AppData\Local\Programs\Lua51\5.1.5\lua.exe'
     if (Test-Path -LiteralPath $localLua) { $luaExe = Get-Item -LiteralPath $localLua }
 }
-if (-not $luaExe) { throw 'Lua 5.1 runtime is required for v1.16.73 validation' }
+if (-not $luaExe) { throw 'Lua 5.1 runtime is required for v42.20.1.1 validation' }
 $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV11673Runtime.lua') $Lua
-if ($LASTEXITCODE -ne 0) { throw 'v1.16.73 storage routing runtime test failed' }
+if ($LASTEXITCODE -ne 0) { throw 'v42.20.1.1 storage routing runtime test failed' }
 
 Write-Output 'Test-GodSystemV11673 passed'

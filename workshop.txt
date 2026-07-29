@@ -1,7 +1,7 @@
-version=1
+﻿version=1
 id=3743333332
 title=神级系统 / God System CN [SP/MP]
-description=v1.16.73
+description=v42.20.1.1
 description=
 description=由于一直想体验一下末世系统，但是没找到和我想的比较像的，就用AI做了一个。测试环境 B42.19 栀子合集，100%纯AI制作，修复维护听天由命。
 description=
@@ -59,6 +59,6 @@ description=【多人说明】
 description=商城、回收、银行、任务、升级、医疗、仓库存取和自动装填等关键操作由服务端重新验证，并带操作防重。
 description=建议服务器与所有客户端保持相同版本。大型整合包或游戏大版本更新后，先备份存档再测试。
 description=
-description=v1.16.73：修复仓库容器角色和优先级不参与实际存入的问题；设置改为具体储物格独立保存，补齐中文容器名称和五档优先级；新增手动整理仓库；清理已废弃的旧实验兼容路线。
+description=v42.20.1.1：修复仓库容器角色和优先级不参与实际存入的问题；设置改为具体储物格独立保存，补齐中文容器名称和五档优先级；新增手动整理仓库；清理已废弃的旧实验兼容路线。
 tags=Build 42
 visibility=public

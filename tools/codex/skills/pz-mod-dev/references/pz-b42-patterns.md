@@ -1,4 +1,4 @@
-# PZ B42 MOD Patterns
+﻿# PZ B42 MOD Patterns
 
 ## Reference Priority
 
@@ -198,7 +198,7 @@ Recommended trust split:
 - Migration: old marked shells may be removed once on startup. After migration, the companion runtime must not call `addZombiesInOutfit()`, rebuild `ItemVisual`, or expose appearance/shape-switch endpoints.
 - Position safety: choose same-floor, visible, non-solid target squares. Smooth toward low-frequency orbit targets and recall after floor changes, teleport, vehicle transitions, or excessive distance.
 - Light lifecycle: `IsoLightSource.new(x,y,z,r,g,b,radius)` plus `cell:addLamppost(light)` works in B42.19 references. Recreate only after tile/radius changes and remove with the same cell's `removeLamppost(light)` on hide, vehicle entry, death, world exit, or rebuild.
-- Rendering: do not infer Kahlua-callable overloads from Java signatures or commented vanilla Lua. In B42.19, GodSystem successfully loaded a `Texture` but `SpriteRenderer.render(Texture,Double...)` still raised `No implementation found`. For compact visual companions and effects, use the already verified `mask_white.png + renderline()` path from `OnPreUIDraw`; only use `render()` after a live same-version call has been proven.
+- Rendering: do not infer Kahlua-callable overloads from Java signatures or commented vanilla Lua. In B42.19, GodSystem successfully loaded a `Texture` but `SpriteRenderer.render(Texture,Double...)` still raised `No implementation found`. For compact visual companions and effects, use the already verified `GodSystem_WhitePixel.png + renderline()` path from `OnPreUIDraw`; only use `render()` after a live same-version call has been proven.
 - Direct kills: set the attacker, subtract health, and call `zombie:Kill(player)` when lethal so original death events run. Read the player's kill count before the hit and only use `setZombieKills(old+1)` as a fallback when `Kill(player)` did not increment it.
 - Damage layering: send direct hits, damage-over-time, chains, and area splash through one kill-ownership helper. Pass an explicit flag that suppresses all on-hit effects for secondary damage, so chain and blast targets cannot recurse into additional chains, blasts, marks, or status refreshes.
 - Performance: throttle no-target attack searches, skip guardian scanning during cooldown, detect the guardian threshold in a fixed 7x7 area with early exit, and gather/cap sight targets only on manual activation.

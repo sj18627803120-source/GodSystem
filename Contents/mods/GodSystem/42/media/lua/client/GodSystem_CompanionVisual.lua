@@ -278,7 +278,7 @@ function Visual.getLineTexture(now)
     now = tonumber(now) or nowMs()
     if now < nextTextureAttemptMs then return nil end
     nextTextureAttemptMs = now + TEXTURE_RETRY_MS
-    cachedTexture = getTexture and getTexture("media/textures/mask_white.png") or nil
+    cachedTexture = getTexture and getTexture("media/textures/GodSystem_WhitePixel.png") or nil
     return cachedTexture
 end
 

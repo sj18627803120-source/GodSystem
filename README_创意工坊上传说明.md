@@ -1,9 +1,9 @@
-# 神级系统 v1.16.73 创意工坊上传与使用说明
+﻿# 神级系统 v42.20.1.1 创意工坊上传与使用说明
 
 上传时选择本目录，也就是同时包含 `workshop.txt`、`preview.png` 和 `Contents` 的这一层。
 
 ```text
-GodSystemWorkshopUpload_v1.16.73\
+GodSystemWorkshopUpload_v42.20.1.1\
 ├─ workshop.txt
 ├─ preview.png
 └─ Contents\
@@ -17,7 +17,7 @@ GodSystemWorkshopUpload_v1.16.73\
 
 ## 这次更新
 
-v1.16.73 主要修复系统仓库的实际分流：
+v42.20.1.1 B42.20 最小纹理修复：
 
 - 容器角色直接使用系统现有的物品分类，系统把物品识别为“材料”，它在仓库路由中就按材料处理。
 - 设置从整件家具改为每个具体储物格独立保存，冰箱、冰柜和其他多储物格家具不会互相覆盖。

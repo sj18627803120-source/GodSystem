@@ -189,7 +189,7 @@ function Context.renderMarkers()
     local renderer = getRenderer and getRenderer() or nil
     if not renderer then return end
     if not Context.lineTexture then
-        Context.lineTexture = getTexture and getTexture("media/textures/mask_white.png") or nil
+        Context.lineTexture = getTexture and getTexture("media/textures/GodSystem_WhitePixel.png") or nil
     end
     if not Context.lineTexture then return end
     for _, marker in pairs(Context.markers) do

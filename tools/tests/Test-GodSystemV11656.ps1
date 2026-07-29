@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Root = "",
     [string]$ExpectedVersion = "1.16.56"
 )
@@ -88,7 +88,7 @@ if ($compiledSegmentCount -gt $declaredSegmentBudget) {
 Require-Text $visual 'local particles\s*=\s*\{\}' 'Fixed particle pool storage is missing'
 Require-Text $visual 'for index\s*=\s*1,\s*Visual\.ParticleCap' 'Particle pool must be preallocated'
 Require-Text $visual 'nextParticle\s*=\s*nextParticle\s*%\s*Visual\.ParticleCap\s*\+\s*1' 'Particle pool must recycle slots'
-Require-Text $visual 'cachedTexture\s*=\s*getTexture\s+and\s+getTexture\("media/textures/mask_white\.png"\)' 'Line texture must be cached by the visual module'
+Require-Text $visual 'cachedTexture\s*=\s*getTexture\s+and\s+getTexture\("media/textures/GodSystem_WhitePixel\.png"\)' 'Line texture must be cached by the visual module'
 Reject-Text $visual 'math\.random\s*\(' 'B42 companion visuals must use ZombRandFloat instead of math.random'
 Reject-Text $companion '(?i)Robot.*\.png|getTexture\([^\r\n]*Robot' 'Companion runtime must not depend on a robot PNG'
 
