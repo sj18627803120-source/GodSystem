@@ -15,6 +15,7 @@ function Bootstrap.create(options)
         protocolVersion = tostring(options.protocolVersion or options.version or ""),
         environment = tostring(options.environment or "unknown"),
         adapters = options.adapters or {},
+        bindings = options.bindings or {},
     }
     runtime.diagnostics = GodSystemDiagnostics.new({
         version = runtime.version,
@@ -45,6 +46,7 @@ function Bootstrap.create(options)
             version = self.version,
             protocolVersion = self.protocolVersion,
             environment = self.environment,
+            binding = self.bindings[moduleId],
             state = self.state:scoped(moduleId, descriptor and descriptor.stateVersion or 1),
         }
         context.events = {
