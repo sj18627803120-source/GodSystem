@@ -170,6 +170,11 @@ adapter:poll()
 assert(target.organizer.state == "completed" and target.organizer.moved == 1)
 
 assert(adapter:stop())
-assert(target.setNetworkContainer == nil)
+assert(type(target.setNetworkContainer) == "function")
+assert(target.setNetworkContainer({
+    object = object,
+    enabled = false,
+    name = "Wooden Crate",
+}), "storage adapter was removed during stop")
 
 print("Test-GodSystemV422012StorageAdapterRuntime passed")

@@ -1,5 +1,4 @@
 require "GodSystem/Runtime/PZClient"
-require "GodSystem_RuntimeMode"
 require "GodSystem/Platform/Companion/PZVisuals"
 require "GodSystem/UI/Facade"
 require "GodSystem/UI/ShellAdapter"
@@ -18,11 +17,26 @@ GodSystemModularClient = GodSystemModularClient or {
     actions = nil,
     storage = nil,
     autoloader = nil,
+    retryStore = nil,
 }
 
 function GodSystemModularClient.start()
     if GodSystemModularClient.instance then return true end
     local multiplayer = type(isClient) == "function" and isClient() == true
+    GodSystemModularClient.retryStore = nil
+    local function retryStore()
+        if GodSystemModularClient.retryStore then
+            return GodSystemModularClient.retryStore
+        end
+        local actor = getPlayer and getPlayer() or nil
+        if not actor or type(actor.getModData) ~= "function" then return nil end
+        local modData = actor:getModData()
+        modData.GodSystem422012Retry =
+            type(modData.GodSystem422012Retry) == "table"
+            and modData.GodSystem422012Retry or {}
+        GodSystemModularClient.retryStore = modData.GodSystem422012Retry
+        return GodSystemModularClient.retryStore
+    end
     local visuals
     if not multiplayer then
         visuals = GodSystemCompanionPZVisualsPlatform.create({}, {})
@@ -33,6 +47,7 @@ function GodSystemModularClient.start()
     local instance = GodSystemPZClientRuntime.new({
         multiplayer = multiplayer,
         visuals = visuals and visuals.public or nil,
+        retryStore = retryStore,
         onResult = function()
             if GodSystemUI.window and GodSystemUI.window.requestDeferredPopulate then
                 GodSystemUI.window:requestDeferredPopulate(1)
@@ -98,10 +113,17 @@ function GodSystemModularClient.start()
     facade:refresh(GodSystemUIFacade.defaultQueries({
         includeCompanion = not multiplayer,
     }))
+    GodSystemUI.onGameStart()
+    if not multiplayer and GodSystemCompanionUI
+        and GodSystemCompanionUI.restoreShortcut
+    then
+        GodSystemCompanionUI.restoreShortcut()
+    end
     return true
 end
 
 function GodSystemModularClient.stop(reason)
+    if GodSystemUI and GodSystemUI.stop then GodSystemUI.stop() end
     if GodSystemModularClient.autoloader then
         GodSystemModularClient.autoloader:stop()
     end
@@ -130,6 +152,7 @@ function GodSystemModularClient.stop(reason)
     GodSystemModularClient.actions = nil
     GodSystemModularClient.storage = nil
     GodSystemModularClient.autoloader = nil
+    GodSystemModularClient.retryStore = nil
 end
 
 function GodSystemModularClient.receive(moduleName, command, packet)
@@ -147,13 +170,11 @@ GodSystemModularClient.lifecycleInstalled =
 
 function GodSystemModularClient.installLifecycle()
     if GodSystemModularClient.lifecycleInstalled then return true end
-    if not GodSystemRuntimeMode
-        or GodSystemRuntimeMode.modularEnabled ~= true
-    then
-        return false
-    end
     local function startRuntime(_, actor)
-        GodSystemModularClient.start()
+        local started, code = GodSystemModularClient.start()
+        if started == false then
+            error("GodSystem modular client start failed: " .. tostring(code))
+        end
         local instance = GodSystemModularClient.instance
         local runtime = instance and instance.runtime
         if runtime and runtime.coordinator then

@@ -333,6 +333,7 @@ function Coordinator.new(options)
         callModule("feature.bank", "execute", {
             actor = row.actor,
             action = "syncInvestmentHours",
+            hours = 1,
             operationId = operation(row, "bank-investments", hour),
         })
         callModule("feature.bank", "execute", {
@@ -376,6 +377,16 @@ function Coordinator.new(options)
 
     local function saveAll()
         for _, row in pairs(instance.actors) do flush(row) end
+        return save() == true
+    end
+
+    local function actorDisconnected(actor)
+        if actor == nil then return false end
+        local key = actorKey(actor)
+        local row = instance.actors[key]
+        if not row then return false end
+        flush(row)
+        instance.actors[key] = nil
         return save() == true
     end
 
@@ -442,6 +453,7 @@ function Coordinator.new(options)
         return true
     end
     instance.actorDeath = death
+    instance.actorDisconnected = actorDisconnected
     instance.minute = minute
     instance.hour = hourly
     instance.tick = tick

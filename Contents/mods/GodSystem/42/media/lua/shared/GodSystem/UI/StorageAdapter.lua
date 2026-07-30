@@ -453,9 +453,6 @@ function StorageAdapter.new(options)
 
     function instance:stop()
         if not self.installed then return true end
-        for name, callback in pairs(replacements) do
-            if target[name] == callback then target[name] = originals[name] end
-        end
         self.snapshotId = nil
         self.indexing = false
         self.installed = false

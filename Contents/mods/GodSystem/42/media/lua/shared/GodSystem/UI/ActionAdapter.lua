@@ -330,6 +330,12 @@ function ActionAdapter.new(options)
         saveAdminSettings = function(settings)
             return request("admin.save", { settings = settings })
         end,
+        getAdminConfigSnapshot = function()
+            local data = facade:data()
+            return type(data) == "table"
+                and type(data.adminConfig) == "table"
+                and data.adminConfig or {}
+        end,
         saveItemOverride = function(fullType, override)
             return request("admin.itemOverride", {
                 fullType = fullType,
@@ -360,6 +366,15 @@ function ActionAdapter.new(options)
         recall = function()
             return request("companion.recall")
         end,
+        saveShortcutPreference = function(visible, x, y)
+            return request("companion.preference", {
+                ui = {
+                    shortcutVisible = visible == true,
+                    shortcutX = x,
+                    shortcutY = y,
+                },
+            })
+        end,
     }
 
     function instance:install()
@@ -380,12 +395,6 @@ function ActionAdapter.new(options)
 
     function instance:stop()
         if not self.installed then return true end
-        for name in pairs(replacements) do target[name] = originals[name] end
-        if type(companion) == "table" then
-            for name in pairs(companionReplacements) do
-                companion[name] = companionOriginals[name]
-            end
-        end
         self.installed = false
         return true
     end

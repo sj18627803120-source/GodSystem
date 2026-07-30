@@ -1,6 +1,5 @@
 require "TimedActions/ISBaseTimedAction"
 require "GodSystem_AutoLoader"
-require "GodSystem_RuntimeMode"
 
 ISGodSystemAutoLoaderDepositAction = ISBaseTimedAction:derive("ISGodSystemAutoLoaderDepositAction")
 
@@ -42,26 +41,16 @@ function ISGodSystemAutoLoaderDepositAction:perform()
 end
 
 function ISGodSystemAutoLoaderDepositAction:complete()
-    if GodSystemRuntimeMode.legacyBusinessEnabled() ~= true then
-        if GodSystemModularServer and GodSystemModularServer.execute then
-            return GodSystemModularServer.execute(
-                "autoloader.depositBatch", {
-                    sessionId = self.sessionId,
-                    batchIndex = self.batchIndex,
-                }, self.character, "autoloader.result")
-        end
-        if GodSystemAutoLoaderClient
-            and GodSystemAutoLoaderClient.completeLocalDepositBatch
-        then
-            return GodSystemAutoLoaderClient.completeLocalDepositBatch(
-                self.character, self.sessionId, self.batchIndex)
-        end
-        return false
+    if GodSystemModularServer and GodSystemModularServer.execute then
+        return GodSystemModularServer.execute(
+            "autoloader.depositBatch", {
+                sessionId = self.sessionId,
+                batchIndex = self.batchIndex,
+            }, self.character, "autoloader.result")
     end
-    if GodSystemAutoLoaderServer and GodSystemAutoLoaderServer.completeDepositBatch then
-        return GodSystemAutoLoaderServer.completeDepositBatch(self.character, self.sessionId, self.batchIndex)
-    end
-    if GodSystemAutoLoaderClient and GodSystemAutoLoaderClient.completeLocalDepositBatch then
+    if GodSystemAutoLoaderClient
+        and GodSystemAutoLoaderClient.completeLocalDepositBatch
+    then
         return GodSystemAutoLoaderClient.completeLocalDepositBatch(self.character, self.sessionId, self.batchIndex)
     end
     return false

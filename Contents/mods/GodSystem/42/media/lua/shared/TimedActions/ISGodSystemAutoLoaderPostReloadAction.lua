@@ -1,5 +1,4 @@
 require "TimedActions/ISBaseTimedAction"
-require "GodSystem_RuntimeMode"
 
 ISGodSystemAutoLoaderPostReloadAction = ISBaseTimedAction:derive("ISGodSystemAutoLoaderPostReloadAction")
 
@@ -12,24 +11,14 @@ function ISGodSystemAutoLoaderPostReloadAction:perform()
 end
 
 function ISGodSystemAutoLoaderPostReloadAction:complete()
-    if GodSystemRuntimeMode.legacyBusinessEnabled() ~= true then
-        if GodSystemModularServer and GodSystemModularServer.execute then
-            return GodSystemModularServer.execute(
-                "autoloader.reload", {}, self.character,
-                "autoloader.result", self.opId)
-        end
-        if GodSystemAutoLoaderClient
-            and GodSystemAutoLoaderClient.completeLocalPostReload
-        then
-            return GodSystemAutoLoaderClient.completeLocalPostReload(
-                self.character, self.opId)
-        end
-        return false
+    if GodSystemModularServer and GodSystemModularServer.execute then
+        return GodSystemModularServer.execute(
+            "autoloader.reload", {}, self.character,
+            "autoloader.result", self.opId)
     end
-    if GodSystemAutoLoaderServer and GodSystemAutoLoaderServer.completePostReload then
-        return GodSystemAutoLoaderServer.completePostReload(self.character, self.opId)
-    end
-    if GodSystemAutoLoaderClient and GodSystemAutoLoaderClient.completeLocalPostReload then
+    if GodSystemAutoLoaderClient
+        and GodSystemAutoLoaderClient.completeLocalPostReload
+    then
         return GodSystemAutoLoaderClient.completeLocalPostReload(self.character, self.opId)
     end
     return false

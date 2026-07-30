@@ -1,5 +1,6 @@
+if not (isServer and isServer()) then return end
+
 require "GodSystem/Runtime/PZServer"
-require "GodSystem_RuntimeMode"
 
 GodSystemModularServer = GodSystemModularServer or { instance = nil }
 GodSystemModularServer.sequence = GodSystemModularServer.sequence or 0
@@ -52,13 +53,11 @@ GodSystemModularServer.lifecycleInstalled =
 
 function GodSystemModularServer.installLifecycle()
     if GodSystemModularServer.lifecycleInstalled then return true end
-    if not GodSystemRuntimeMode
-        or GodSystemRuntimeMode.modularEnabled ~= true
-    then
-        return false
-    end
     local function startRuntime()
-        GodSystemModularServer.start()
+        local started, code = GodSystemModularServer.start()
+        if started == false then
+            error("GodSystem modular server start failed: " .. tostring(code))
+        end
     end
     local function stopRuntime()
         GodSystemModularServer.stop("serverStopped")

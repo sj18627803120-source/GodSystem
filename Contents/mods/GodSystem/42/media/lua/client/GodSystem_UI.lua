@@ -5890,12 +5890,33 @@ function GodSystemUI.onGameStart()
     end
 end
 
-if Events.OnGameStart then
-    Events.OnGameStart.Add(GodSystemUI.onGameStart)
-end
-if Events.OnDisconnect then
-    Events.OnDisconnect.Add(GodSystemUI.closeShopHiddenWindow)
-end
-if Events.OnMainMenuEnter then
-    Events.OnMainMenuEnter.Add(GodSystemUI.closeShopHiddenWindow)
+function GodSystemUI.stop()
+    GodSystemUI.closeShopHiddenWindow()
+    if GodSystemUI.window then GodSystemUI.window:close() end
+    if GodSystemUI.shortcutWindow then GodSystemUI.shortcutWindow:close() end
+    if GodSystemUI.taskTracker then
+        GodSystemUI.taskTracker:setVisible(false)
+        if GodSystemUI.taskTracker.removeFromUIManager then
+            GodSystemUI.taskTracker:removeFromUIManager()
+        end
+        GodSystemUI.taskTracker = nil
+    end
+    if GodSystemUI.floating then
+        GodSystemUI.floating:setVisible(false)
+        if GodSystemUI.floating.removeFromUIManager then
+            GodSystemUI.floating:removeFromUIManager()
+        end
+        GodSystemUI.floating = nil
+    end
+    if GodSystemCompanionUI and GodSystemCompanionUI.shortcutWindow then
+        local window = GodSystemCompanionUI.shortcutWindow
+        if GodSystemCompanion and GodSystemCompanion.saveShortcutPreference then
+            GodSystemCompanion.saveShortcutPreference(true,
+                math.floor(window.x or 0), math.floor(window.y or 0))
+        end
+        window:setVisible(false)
+        if window.removeFromUIManager then window:removeFromUIManager() end
+        GodSystemCompanionUI.shortcutWindow = nil
+    end
+    return true
 end

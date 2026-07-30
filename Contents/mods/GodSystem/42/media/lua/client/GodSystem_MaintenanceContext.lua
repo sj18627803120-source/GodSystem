@@ -1,17 +1,10 @@
 require "GodSystem_Core"
 require "GodSystem_Maintenance"
-require "GodSystem_Protocol"
 require "ISUI/ISModalDialog"
 
 GodSystemMaintenanceContext = GodSystemMaintenanceContext or {}
 
 local Context = GodSystemMaintenanceContext
-local Protocol = GodSystemProtocol or {}
-local MODULE = Protocol.Module or "GodSystem"
-
-local function traceVehicle(message)
-    print("[GodSystem][VehicleRepair][Client] " .. tostring(message or ""))
-end
 
 local function text(key, fallback)
     if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
@@ -48,21 +41,6 @@ local function numberText(value)
     value = tonumber(value) or 0
     if math.abs(value - math.floor(value)) < 0.0001 then return tostring(math.floor(value)) end
     return string.format("%.2f", value)
-end
-
-local function containsItem(container, target)
-    if not container or not container.getItems then return false end
-    local items = container:getItems()
-    if not items or not items.size then return false end
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        if item == target then return true end
-        if item and item.getInventory then
-            local ok, child = pcall(function() return item:getInventory() end)
-            if ok and child and containsItem(child, target) then return true end
-        end
-    end
-    return false
 end
 
 local function selectedUtility(items)
@@ -118,88 +96,6 @@ local function buildConfirmMessage(action, target, before)
     return table.concat(lines, "\n")
 end
 
-local function removeConsumable(player, consumable)
-    if not player or not consumable or not containsItem(player:getInventory(), consumable) then return false end
-    local container = consumable:getContainer()
-    if not container then return false end
-    local ok = pcall(function() container:Remove(consumable) end)
-    if not ok or containsItem(player:getInventory(), consumable) then return false end
-    if container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
-    if triggerEvent then pcall(triggerEvent, "OnContainerUpdate") end
-    return true
-end
-
-function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
-    local player = getPlayer and getPlayer() or nil
-    if action == "repairVehicle" then
-        local vehicleId = math.floor(tonumber(targetItemId) or -1)
-        local consumableItemId = GodSystemMaintenance.itemId(consumable)
-        traceVehicle("request vehicleId=" .. tostring(vehicleId))
-        if not player or vehicleId < 0 then
-            notifyCode("VehicleRepairInvalid")
-            return false
-        end
-        if not consumableItemId or not consumable or not containsItem(player:getInventory(), consumable)
-            or consumable:getFullType() ~= GodSystemMaintenance.VehicleRepairItemType then
-            notifyCode("MaintenanceConsumableMissing")
-            return false
-        end
-        local args = {
-            action = action,
-            consumableItemId = consumableItemId,
-            vehicleId = vehicleId,
-        }
-        local command = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
-        if sendClientCommand then
-            local dispatched = pcall(sendClientCommand, player, MODULE, command, args)
-            traceVehicle("sendClientCommand dispatched=" .. tostring(dispatched))
-            if dispatched then return true end
-        end
-        traceVehicle("sendClientCommand unavailable or failed")
-        notifyCode("MaintenanceFailed")
-        return false
-    end
-    local target = player and player:getPrimaryHandItem() or nil
-    if not target then
-        notifyCode("MaintenanceNoHeldItem")
-        return false
-    end
-    if tostring(GodSystemMaintenance.itemId(target) or "") ~= tostring(targetItemId or "") then
-        notifyCode("MaintenanceTargetChanged")
-        return false
-    end
-    if not consumable or not containsItem(player:getInventory(), consumable) then
-        notifyCode("MaintenanceConsumableMissing")
-        return false
-    end
-    local expectedAction = actionForItem(consumable)
-    if expectedAction ~= action then
-        notifyCode("MaintenanceInvalidTarget")
-        return false
-    end
-
-    local applied, code, result, before = GodSystemMaintenance.apply(target, action)
-    if not applied then
-        notifyCode(code)
-        return false
-    end
-    if not removeConsumable(player, consumable) then
-        GodSystemMaintenance.rollback(target, before)
-        notifyCode("MaintenanceFailed")
-        return false
-    end
-    notifyCode(code, { displayName(target), numberText(result.after.condition), numberText(result.after.conditionMax) })
-    return true
-end
-
-function Context.onServerCommand(module, command, args)
-    if (isClient and isClient()) or (isServer and isServer()) then return end
-    if module ~= MODULE or command ~= ((Protocol.S2C and Protocol.S2C.Result) or "result") then return end
-    local payload = args and args.payload or nil
-    if not payload or payload.kind ~= "maintenanceItem" or payload.action ~= "repairVehicle" then return end
-    notifyCode(args.code or (args.ok == true and "VehicleRepaired" or "VehicleRepairFailed"), args.args or {})
-end
-
 function Context:onConfirm(button, payload)
     if not button or button.internal ~= "YES" or not payload then return end
     GodSystem.useMaintenanceItem(payload.action, payload.consumable, payload.targetItemId)
@@ -253,7 +149,3 @@ function Context.fillInventoryMenu(playerNum, context, items)
 end
 
 Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)
-if Events.OnServerCommand then
-    Events.OnServerCommand.Remove(Context.onServerCommand)
-    Events.OnServerCommand.Add(Context.onServerCommand)
-end

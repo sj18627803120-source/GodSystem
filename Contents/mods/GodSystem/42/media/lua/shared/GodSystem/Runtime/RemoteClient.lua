@@ -29,6 +29,7 @@ function RemoteClient.new(options)
     local diagnostics = options.diagnostics
     local sequence = 0
     local pending = {}
+    local retryable = {}
     local completed = {}
     local completedOrder = {}
     local instance = {
@@ -63,13 +64,18 @@ function RemoteClient.new(options)
         end
     end
 
-    local function complete(requestId, result, packet)
-        local row = pending[requestId]
+    local function complete(requestId, result, packet, canRetry)
+        local row = pending[requestId] or retryable[requestId]
         if not row then return false, "requestUnknown" end
         pending[requestId] = nil
+        retryable[requestId] = nil
         local value = GodSystemResult.normalize(Payload.copy(result),
             "runtime.remote", row.operationId)
-        remember(requestId, value)
+        if canRetry == true then
+            retryable[requestId] = row
+        else
+            remember(requestId, value)
+        end
         local ok, message = invoke(row.callback, value, Payload.copy(packet))
         if not ok then
             record({
@@ -118,8 +124,42 @@ function RemoteClient.new(options)
             end
             return requestId
         end
+        existing = retryable[requestId]
+        if existing then
+            if existing.operationId ~= operationId
+                or existing.fingerprint ~= fingerprint
+            then
+                return nil, GodSystemResult.fail("runtime.remote",
+                    "requestMismatch", nil, operationId)
+            end
+            retryable[requestId] = nil
+            existing.callback = requestOptions.callback or existing.callback
+            existing.attempts = existing.attempts + 1
+            existing.sentAt = now()
+            existing.deadline = existing.sentAt + timeoutMs
+            pending[requestId] = existing
+            local sent, reason = send(existing.command, existing.packet)
+            if not sent then
+                pending[requestId] = nil
+                retryable[requestId] = existing
+                return nil, GodSystemResult.fail("runtime.remote",
+                    "transportFailed", { message = reason }, operationId)
+            end
+            return requestId
+        end
         if completed[requestId] then
-            return requestId, Payload.copy(completed[requestId])
+            local value = Payload.copy(completed[requestId])
+            local ok, message = invoke(requestOptions.callback, value, nil)
+            if not ok then
+                record({
+                    moduleId = "runtime.remote",
+                    stage = "callback",
+                    code = "callbackFailed",
+                    operationId = operationId,
+                    message = tostring(message),
+                })
+            end
+            return requestId, value
         end
         local packet = {
             protocol = protocolVersion,
@@ -193,7 +233,8 @@ function RemoteClient.new(options)
             return false, "commandUnknown"
         end
         local requestId = Payload.identifier(packet.requestId)
-        local row = requestId and pending[requestId] or nil
+        local row = requestId
+            and (pending[requestId] or retryable[requestId]) or nil
         if not row then
             self.rejected = self.rejected + 1
             return false, "requestUnknown"
@@ -228,7 +269,7 @@ function RemoteClient.new(options)
                     attempts = row.attempts,
                     timeoutMs = timeoutMs,
                 }, row.operationId)
-                complete(requestId, value)
+                complete(requestId, value, nil, true)
                 results[#results + 1] = value
             end
         end
@@ -248,7 +289,7 @@ function RemoteClient.new(options)
                 complete(requestId, GodSystemResult.fail(
                     "runtime.remote", "disconnected", {
                         reason = tostring(reason or "disconnect"),
-                    }, row.operationId))
+                    }, row.operationId), nil, true)
             end
         end
         return #ids
@@ -264,12 +305,19 @@ function RemoteClient.new(options)
         return count
     end
 
+    function instance:retryableCount()
+        local count = 0
+        for _ in pairs(retryable) do count = count + 1 end
+        return count
+    end
+
     function instance:status()
         return {
             connected = self.connected,
             protocol = protocolVersion,
             serverProtocol = self.serverProtocol,
             pending = self:pendingCount(),
+            retryable = self:retryableCount(),
             sent = self.sent,
             received = self.received,
             timedOut = self.timedOut,

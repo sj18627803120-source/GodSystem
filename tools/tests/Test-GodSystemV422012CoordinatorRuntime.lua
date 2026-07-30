@@ -23,12 +23,14 @@ function events:unsubscribeModule(moduleId)
 end
 
 local actor = { id = "player-one", x = 0, y = 0, z = 0, kills = 4 }
+local actorTwo = { id = "player-two", x = 10, y = 10, z = 0, kills = 0 }
 local metrics = { zombieKills = 4, moveDistance = 0 }
 local calls = {
     initialized = 0,
     generated = 0,
     claimed = 0,
     bank = {},
+    bankHours = {},
     cleared = 0,
     storage = 0,
     carryRefresh = 0,
@@ -50,7 +52,8 @@ local modules = {
     },
     ["feature.system"] = {
         ensureInitialized = function(request)
-            assert(request.actor == actor and request.operationId, "system initialize request")
+            assert((request.actor == actor or request.actor == actorTwo)
+                and request.operationId, "system initialize request")
             calls.initialized = calls.initialized + 1
             return { ok = true, code = "initialized" }
         end,
@@ -125,6 +128,7 @@ local modules = {
     ["feature.bank"] = {
         execute = function(request)
             calls.bank[#calls.bank + 1] = request.action
+            calls.bankHours[#calls.bankHours + 1] = request.hours
             return { ok = true, code = request.action }
         end,
     },
@@ -215,6 +219,8 @@ assert(calls.generated == 2 and calls.claimed == 1,
 assert(#calls.bank == 3 and calls.bank[1] == "syncInvestmentHours"
     and calls.bank[2] == "updateLoan"
     and calls.bank[3] == "processAutoDeposit", "bank periodic actions changed")
+assert(calls.bankHours[1] == 1,
+    "investment progress did not use one online world hour")
 assert(calls.cleared == 1 and calls.saves == 2,
     "hour pass did not clear safe zone and save once")
 
@@ -237,8 +243,19 @@ assert(#diagnostics.rows >= 1, "runtime callback failure was not diagnosed")
 
 handlers.OnSave()
 assert(calls.saves == 4, "save event did not persist once")
+handlers.OnCreatePlayer(1, actorTwo)
+assert(coordinator:health().data.actors == 2,
+    "second online actor was not tracked")
+assert(coordinator.actorDisconnected(actor),
+    "disconnected actor was not removed")
+local recycleBeforeDisconnectPass = calls.autoRecycle
+handlers.EveryOneMinute()
+assert(calls.autoRecycle == recycleBeforeDisconnectPass + 1,
+    "offline actor still received periodic processing")
+assert(coordinator:health().data.actors == 1,
+    "disconnect removed wrong actor or retained stale actor")
 assert(coordinator:stop(), "coordinator stop")
-assert(calls.saves == 5, "coordinator stop did not flush state")
+assert(calls.saves == 7, "disconnect, minute, or stop state was not saved")
 assert(coordinator:health().code == "stopped", "coordinator health after stop")
 
 print("Test-GodSystemV422012CoordinatorRuntime passed")

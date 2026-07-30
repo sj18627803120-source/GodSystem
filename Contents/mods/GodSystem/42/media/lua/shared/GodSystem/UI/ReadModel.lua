@@ -76,6 +76,11 @@ function ReadModel.new(options)
     handlers["system.preference"] = function(data)
         if tostring(data.key or "") ~= "" then instance.value.ui[data.key] = copy(data.value) end
     end
+    handlers["system.preferences"] = function(data)
+        for key, value in pairs(type(data.values) == "table" and data.values or {}) do
+            instance.value.ui[tostring(key)] = copy(value)
+        end
+    end
     handlers["system.history"] = function(data)
         instance.value.history = copy(data)
     end
@@ -149,6 +154,14 @@ function ReadModel.new(options)
     handlers["companion.state"] = function(data)
         instance.value.companion = copy(data.persistent or {})
         instance.value.modular.companionRuntime = copy(data.runtime or {})
+    end
+    handlers["companion.preference"] = function(data)
+        instance.value.companion.ui =
+            type(instance.value.companion.ui) == "table"
+            and instance.value.companion.ui or {}
+        for key, value in pairs(type(data.ui) == "table" and data.ui or {}) do
+            instance.value.companion.ui[tostring(key)] = copy(value)
+        end
     end
     handlers["admin.snapshot"] = function(data)
         instance.value.adminConfig = copy(data)

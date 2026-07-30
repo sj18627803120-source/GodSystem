@@ -136,12 +136,9 @@ function GodSystemCompanionShortcutWindow:onAction(button)
 end
 
 function GodSystemCompanionShortcutWindow:close()
-    local data = GodSystem.getCompanionData()
-    if data and data.ui then
-        data.ui.shortcutVisible = false
-        data.ui.shortcutX = math.floor(self.x or 0)
-        data.ui.shortcutY = math.floor(self.y or 0)
-        GodSystem.save()
+    if Companion.saveShortcutPreference then
+        Companion.saveShortcutPreference(false,
+            math.floor(self.x or 0), math.floor(self.y or 0))
     end
     self:setVisible(false)
     if self.removeFromUIManager then self:removeFromUIManager() end
@@ -153,9 +150,13 @@ function UI.setShortcutVisible(visible, owner)
     if not data or not data.unlocked then return false end
     visible = visible == true
     if not visible then
-        if UI.shortcutWindow then UI.shortcutWindow:close() end
-        data.ui.shortcutVisible = false
-        GodSystem.save()
+        if UI.shortcutWindow then
+            UI.shortcutWindow:close()
+        elseif Companion.saveShortcutPreference then
+            Companion.saveShortcutPreference(false,
+                data.ui and data.ui.shortcutX,
+                data.ui and data.ui.shortcutY)
+        end
         return true
     end
     if UI.shortcutWindow and UI.shortcutWindow:getIsVisible() then return true end
@@ -169,8 +170,9 @@ function UI.setShortcutVisible(visible, owner)
     window:addToUIManager()
     window:setVisible(true)
     UI.shortcutWindow = window
-    data.ui.shortcutVisible = true
-    GodSystem.save()
+    if Companion.saveShortcutPreference then
+        Companion.saveShortcutPreference(true, x, y)
+    end
     return true
 end
 
@@ -178,11 +180,9 @@ function UI.toggleShortcut(owner)
     return UI.setShortcutVisible(not (UI.shortcutWindow and UI.shortcutWindow:getIsVisible()), owner)
 end
 
-local function restoreShortcut()
+function UI.restoreShortcut()
     local data = GodSystem.getCompanionData()
     if data and data.unlocked and data.ui and data.ui.shortcutVisible then UI.setShortcutVisible(true, nil) end
 end
-
-if Events.OnGameStart then Events.OnGameStart.Add(restoreShortcut) end
 
 return GodSystemCompanionUI

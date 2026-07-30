@@ -1,5 +1,4 @@
 require "GodSystem_Config"
-require "GodSystem_RuntimeMode"
 require "GodSystem_Prices"
 require "GodSystem_ItemEligibility"
 require "GodSystem_Localization"
@@ -499,10 +498,10 @@ function GodSystem.isFeatureEnabled(key)
 end
 
 function GodSystem.saveAdminSettings(settings)
-    settings = GodSystemAdminConfig.sanitizeSettings(settings or {})
     if isClient and isClient() then
-        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminConfigSet", { settings = settings })
+        error("modular admin adapter is not installed")
     end
+    settings = GodSystemAdminConfig.sanitizeSettings(settings or {})
     local data = GodSystem.getData()
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.settings = settings
@@ -515,13 +514,13 @@ function GodSystem.saveAdminSettings(settings)
 end
 
 function GodSystem.saveItemOverride(fullType, override)
+    if isClient and isClient() then
+        error("modular admin adapter is not installed")
+    end
     fullType = tostring(fullType or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if fullType == "" then return false end
     local clean = GodSystemAdminConfig.sanitizeItemOverride(override or {})
     if not clean then return false end
-    if isClient and isClient() then
-        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminItemOverrideSet", { fullType = fullType, override = clean })
-    end
     local data = GodSystem.getData()
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
@@ -532,11 +531,11 @@ function GodSystem.saveItemOverride(fullType, override)
 end
 
 function GodSystem.clearItemOverride(fullType)
+    if isClient and isClient() then
+        error("modular admin adapter is not installed")
+    end
     fullType = tostring(fullType or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if fullType == "" then return false end
-    if isClient and isClient() then
-        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminItemOverrideClear", { fullType = fullType })
-    end
     local data = GodSystem.getData()
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
@@ -1929,10 +1928,6 @@ function GodSystem.getBankLoanSummary()
     local creditTotal, creditAvailable, creditGrowth, creditUsed = gsBankLoanCredit(data, bank)
     local freezeLeft = math.max(0, math.ceil((tonumber(bank.loanFrozenUntilHour) or 0) - now))
     local graceHours = math.max(1, math.floor(tonumber(GodSystemConfig.BankLoanBankruptcyGraceHours) or 240))
-    if loan and not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) and amounts.overdueStartHour and now - amounts.overdueStartHour >= graceHours then
-        GodSystem.applyBankLoanBankruptcy(bank, loan, amounts.unpaidTotal + penalty)
-        return GodSystem.getBankLoanSummary()
-    end
     return {
         creditTotal = creditTotal,
         creditAvailable = creditAvailable,
@@ -2973,18 +2968,13 @@ function GodSystem.getAttributeQuote(perkIndex, mode, value)
 end
 
 function GodSystem.performAttributePurchase(perkIndex, mode, value)
+    if isClient and isClient() then
+        error("modular attribute adapter is not installed")
+    end
     if GodSystemAttributes.isEnabled() ~= true then
         GodSystem.notify(GodSystem.text("Notify_AttributesDisabled", "Attribute purchases are disabled"))
         return false
     end
-    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true and GodSystemNetwork.send then
-        return GodSystemNetwork.send((GodSystemProtocol and GodSystemProtocol.C2S and GodSystemProtocol.C2S.Attribute) or "attribute", {
-            perkIndex = math.floor(tonumber(perkIndex) or -1),
-            mode = tostring(mode or "amount"),
-            value = math.floor(tonumber(value) or 0),
-        })
-    end
-
     local player = gsPlayer()
     local quote, reason = GodSystemAttributes.quote(player, perkIndex, mode, value, GodSystemAttributes.getXpPerCoin())
     if not quote then
@@ -3763,9 +3753,7 @@ end
 
 function GodSystem.applyAutoRecyclerContainerStats(item, level)
     if not item then return false end
-    if (isClient and isClient()) or (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
-        return true
-    end
+    if isClient and isClient() then return false end
     local data = GodSystem.getData()
     return GodSystemTerminalUpgrades.applyTerminal(item, data, gsPlayer())
 end
@@ -3777,7 +3765,7 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     if not GodSystem.isAutoRecyclerFullType(item:getFullType()) then
         return false
     end
-    if (isClient and isClient()) or (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+    if isClient and isClient() then
         GodSystem.autoRecyclerCache = { item = item }
         return true
     end
@@ -3794,7 +3782,7 @@ function GodSystem.markAutoRecyclerContainer(item, level)
     if item.setCustomName then
         pcall(function() item:setCustomName(true) end)
     end
-    if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true) then
+    if not (isClient and isClient()) then
         GodSystemTerminalRelief.removeEscapedFromPlayer(gsPlayer(), item)
     end
     local applied = GodSystem.applyAutoRecyclerContainerStats(item)
@@ -3935,10 +3923,7 @@ end
 
 function GodSystem.getAutoRecyclerContainer(forceSearch)
     local cached = GodSystem.getCachedAutoRecyclerContainer()
-    if cached then
-        GodSystem.markAutoRecyclerContainer(cached.item)
-        return cached
-    end
+    if cached then return cached end
     if forceSearch == false then return nil end
     local found = GodSystem.findAutoRecyclerCandidates()
     local candidates = {}
@@ -3960,11 +3945,7 @@ function GodSystem.getAutoRecyclerContainer(forceSearch)
         return gsItemInventoryCount(a.item) > gsItemInventoryCount(b.item)
     end)
     local primary = candidates[1]
-    local data = GodSystem.getData()
-    local level = math.max(GodSystem.getAutoRecyclerItemLevel(primary.item), GodSystem.getAutoRecyclerLevel())
-    data.autoRecyclerClaimed = true
-    GodSystemTerminalUpgrades.setLevel(data, "capacity", level)
-    GodSystem.markAutoRecyclerContainer(primary.item)
+    GodSystem.autoRecyclerCache = { item = primary.item }
     return primary
 end
 
@@ -7264,119 +7245,4 @@ function GodSystem.handlePlayerDeath()
         GodSystem.save()
     end
     return changed
-end
-
-function GodSystem.updateMoveDistance(player)
-    player = player or gsPlayer()
-    if not player or not player.getX or not player.getY then
-        return
-    end
-
-    local data = GodSystem.getData()
-    local x = player:getX()
-    local y = player:getY()
-    local z = player.getZ and player:getZ() or 0
-    if not data.lastMoveX or not data.lastMoveY then
-        data.lastMoveX = x
-        data.lastMoveY = y
-        data.lastMoveZ = z
-        return
-    end
-
-    if z ~= data.lastMoveZ then
-        data.lastMoveX = x
-        data.lastMoveY = y
-        data.lastMoveZ = z
-        return
-    end
-
-    local dx = x - data.lastMoveX
-    local dy = y - data.lastMoveY
-    local distance = math.sqrt((dx * dx) + (dy * dy))
-    data.lastMoveX = x
-    data.lastMoveY = y
-    data.lastMoveZ = z
-
-    if distance > 0.05 and distance < 80 then
-        data.stats = data.stats or {}
-        data.stats.moveDistance = (data.stats.moveDistance or 0) + distance
-    end
-end
-
-function GodSystem.onPlayerUpdate(player)
-    if not player or player ~= gsPlayer() then
-        return
-    end
-    GodSystem.updateTicks = (GodSystem.updateTicks or 0) + 1
-    if GodSystem.updateTicks % 60 ~= 0 then
-        return
-    end
-    GodSystem.updateMoveDistance(player)
-    GodSystem.generateDailyTasks(false)
-    GodSystem.updateKillRewards()
-    GodSystem.updateTaskTimeouts()
-    if GodSystem.updateTicks % 300 == 0 then
-        GodSystem.refreshAutoRecyclerContainers(false)
-    end
-    GodSystem.updateAutoRecycler()
-    GodSystem.processAutoTaskClaim()
-    GodSystem.processBankAutoDeposit()
-    GodSystem.updateBankInvestments()
-    GodSystem.updateHomeSafeZone()
-end
-
-function GodSystem.onPlayerDeath(player)
-    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then
-        return
-    end
-    if player and type(player) ~= "number" and player ~= gsPlayer() then
-        return
-    end
-    GodSystem.autoRecyclerCache = nil
-    GodSystemCarryCapacity.clearRuntime(type(player) == "number" and nil or player)
-    GodSystem.normalizeActiveKillTasks()
-    GodSystem.handlePlayerDeath()
-end
-
-function GodSystem.onGameStart()
-    local data = GodSystem.getData()
-    GodSystem.applyCarryCapacity(gsPlayer(), data)
-    GodSystem.ensureCurrencyInitialized()
-    GodSystem.generateDailyTasks(false)
-    GodSystem.refreshAutoRecyclerContainers(true)
-end
-
-function GodSystem.onCreatePlayer(_, player)
-    if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
-    GodSystemCarryCapacity.clearRuntime(player)
-    GodSystem.applyCarryCapacity(player or gsPlayer(), GodSystem.getData())
-end
-
-function GodSystem.onInitGlobalModData()
-    GodSystem.getData()
-end
-
-function GodSystem.onGameExit()
-    GodSystem.autoRecyclerCache = nil
-end
-
-if GodSystemRuntimeMode.legacyBusinessEnabled() then
-    if Events.OnInitGlobalModData then
-        Events.OnInitGlobalModData.Add(GodSystem.onInitGlobalModData)
-    end
-    if Events.OnGameStart then
-        Events.OnGameStart.Add(GodSystem.onGameStart)
-    end
-    if Events.OnCreatePlayer then
-        Events.OnCreatePlayer.Add(GodSystem.onCreatePlayer)
-    end
-    if Events.OnPlayerUpdate then
-        Events.OnPlayerUpdate.Add(GodSystem.onPlayerUpdate)
-    end
-    if Events.OnPlayerDeath then
-        Events.OnPlayerDeath.Add(GodSystem.onPlayerDeath)
-    end
-    if Events.OnGameExit then
-        Events.OnGameExit.Add(GodSystem.onGameExit)
-    end
 end

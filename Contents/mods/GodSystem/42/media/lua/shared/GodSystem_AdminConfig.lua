@@ -332,9 +332,6 @@ function GodSystemAdminConfig.applyRuntime(settings, itemOverrides)
         end
     end
 
-    if GodSystemProtocol and cleanSettings.MPBackgroundSyncMinutes then
-        GodSystemProtocol.BackgroundSyncMs = math.max(60000, math.floor(cleanSettings.MPBackgroundSyncMinutes * 60000))
-    end
     applyLotteryCategoryPrices(cleanSettings)
     applyBankInvestmentSettings(cleanSettings)
 

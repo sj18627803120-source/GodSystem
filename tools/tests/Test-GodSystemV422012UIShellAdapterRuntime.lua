@@ -13,8 +13,11 @@ local value = { ui = { windowX = 10, visible = true, nested = {} } }
 local preferences = {}
 local facade = {
     data = function() return value end,
-    setPreference = function(_, key, nextValue)
-        preferences[#preferences + 1] = { key = key, value = nextValue }
+    setPreferences = function(_, values, options)
+        preferences[#preferences + 1] = values
+        if options and options.callback then
+            options.callback({ ok = true, code = "preferencesChanged" })
+        end
         return { ok = true }
     end,
 }
@@ -28,19 +31,14 @@ local adapter = ShellAdapter.new({ facade = facade, target = target })
 assert(adapter:install(), "shell install")
 assert(target.getData() == value, "shell read model")
 value.ui.windowX = 20
-value.ui.visible = nil
+value.ui.visible = false
 value.ui.nested.changed = true
 assert(target.save() == 2, "shell preference change count")
-local changed = {}
-for index = 1, #preferences do
-    changed[preferences[index].key] = preferences[index].value == nil
-        and "<nil>" or preferences[index].value
-end
-assert(#preferences == 2 and changed.visible == "<nil>" and changed.windowX == 20,
-    "shell primitive preferences")
+assert(#preferences == 1 and preferences[1].visible == false
+    and preferences[1].windowX == 20,
+    "shell batched primitive preferences")
 assert(adapter:stop(), "shell stop")
-assert(target.getData() == oldData, "shell getData restoration")
-target.save()
-assert(saved == 1, "shell save restoration")
+assert(target.getData() == value, "shell reopened legacy data path")
+assert(saved == 0, "legacy save path was restored")
 
 print("Test-GodSystemV422012UIShellAdapterRuntime passed")

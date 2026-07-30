@@ -9,7 +9,10 @@ package.path = table.concat({
 
 local ActionAdapter = require "GodSystem/UI/ActionAdapter"
 
-local data = { autoTaskClaimEnabled = false }
+local data = {
+    autoTaskClaimEnabled = false,
+    adminConfig = { revision = 7 },
+}
 local calls = {}
 local facade = {
     data = function() return data end,
@@ -96,6 +99,12 @@ assert(calls[#calls].action == "shop.purchase"
     and calls[#calls].args.quantity == 3, "shop product mapping")
 assert(companion.toggleVisible(), "companion visibility accepted")
 assert(calls[#calls].action == "companion.visible", "companion visibility mapping")
+assert(companion.saveShortcutPreference(true, 120, 80),
+    "companion preference accepted")
+assert(calls[#calls].action == "companion.preference"
+    and calls[#calls].args.ui.shortcutVisible == true
+    and calls[#calls].args.ui.shortcutX == 120,
+    "companion preference mapping")
 assert(target.recycleInventoryItems("Base.Scrap", 2), "inventory recycle accepted")
 assert(calls[#calls].action == "recycle.execute"
     and calls[#calls].args.mode == "recycleAndList"
@@ -117,6 +126,8 @@ assert(calls[#calls].action == "recycle.preference"
     and calls[#calls].args.key == "waistAutoRecycleEnabled"
     and calls[#calls].args.value == true,
     "auto recycle preference mapping")
+assert(target.getAdminConfigSnapshot().revision == 7,
+    "admin snapshot must come from modular projection")
 assert(target.useMaintenanceItem("repairHeld", { id = "repair-kit" }, "axe-1"),
     "maintenance action accepted")
 assert(calls[#calls].action == "maintenance.execute"
@@ -128,7 +139,11 @@ assert(target.lastNotification == "Notify_MaintenanceRepairSuccess",
     "maintenance completion uses localized notification")
 
 assert(adapter:stop(), "action adapter stop")
-assert(target.performBankAction() == "old-bank", "bank action restored")
-assert(companion.toggleVisible() == "old-visible", "companion action restored")
+assert(target.performBankAction("deposit", 1), "legacy bank action reactivated")
+assert(calls[#calls].action == "bank.execute",
+    "bank adapter was removed during stop")
+assert(companion.toggleVisible(), "legacy companion action reactivated")
+assert(calls[#calls].action == "companion.visible",
+    "companion adapter was removed during stop")
 
 print("Test-GodSystemV422012UIActionAdapterRuntime passed")

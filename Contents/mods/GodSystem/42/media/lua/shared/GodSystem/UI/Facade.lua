@@ -23,6 +23,7 @@ local DEFAULT_QUERIES = {
 local REFRESH_AFTER = {
     ["system.initialize"] = { "system.snapshot", "wallet.balance" },
     ["system.preference"] = { "system.snapshot" },
+    ["system.preferences"] = { "system.snapshot" },
     ["wallet.consolidate"] = { "wallet.balance", "bank.summary", "system.history" },
     ["wallet.transfer"] = { "wallet.balance", "bank.summary" },
     ["bank.execute"] = { "wallet.balance", "bank.summary", "system.history" },
@@ -78,6 +79,7 @@ local REFRESH_AFTER = {
     ["companion.visible"] = { "companion.state" },
     ["companion.guardian"] = { "companion.state" },
     ["companion.recall"] = { "companion.state" },
+    ["companion.preference"] = { "companion.state" },
     ["attributes.purchase"] = { "wallet.balance", "system.history" },
     ["attributes.traitModify"] = { "wallet.balance", "system.history" },
     ["admin.save"] = { "admin.snapshot" },
@@ -152,6 +154,12 @@ function Facade.new(options)
 
     function instance:setPreference(key, value)
         return self:request("system.preference", { key = key, value = value })
+    end
+
+    function instance:setPreferences(values, requestOptions)
+        return self:request("system.preferences", {
+            values = type(values) == "table" and values or {},
+        }, requestOptions)
     end
 
     function instance:stop()

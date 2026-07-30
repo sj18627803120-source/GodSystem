@@ -115,16 +115,22 @@ Write-Output "  OK: No mask_white.png references in any Lua file"
 # === 4. Drawing logic preservation ===
 Write-Output "[4] Drawing logic preservation validation"
 
-$companionMain = Read-Utf8 (Join-Path $Lua 'client\GodSystem_Companion.lua')
+$companionEvents = Read-Utf8 `
+    (Join-Path $Lua 'shared\GodSystem\Platform\Companion\Events.lua')
+$companionPzVisuals = Read-Utf8 `
+    (Join-Path $Lua 'client\GodSystem\Platform\Companion\PZVisuals.lua')
 
-Require-Text $companionMain 'OnPreUIDraw' "OnPreUIDraw must remain in Companion"
+Require-Text $companionEvents 'OnPreUIDraw' `
+    "OnPreUIDraw must remain in the companion event adapter"
 Require-Text $storageContext 'OnPreUIDraw' "OnPreUIDraw must remain in StorageContext"
 
 Require-Text $storageContext 'renderer:renderline' "renderline must remain in StorageContext"
-Require-Text $companionVisual 'renderer:renderline' "renderline must remain in CompanionVisual"
+Require-Text $companionPzVisuals 'renderline' `
+    "renderline must remain in the companion PZ visual adapter"
 
 Require-Text $storageContext 'ISCoordConversion' "ISCoordConversion must remain in StorageContext"
-Require-Text $companionVisual 'ISCoordConversion' "ISCoordConversion must remain in CompanionVisual"
+Require-Text $companionPzVisuals 'ISCoordConversion' `
+    "ISCoordConversion must remain in the companion PZ visual adapter"
 
 # === 5. Version consistency ===
 Write-Output "[5] Version consistency validation"

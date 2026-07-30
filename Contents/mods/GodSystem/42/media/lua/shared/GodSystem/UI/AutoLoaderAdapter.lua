@@ -185,12 +185,6 @@ function AutoLoaderAdapter.new(options)
     function instance:stop()
         if not self.installed then return true end
         if target.uninstallReloadHook then target.uninstallReloadHook() end
-        for index = 1, #REPLACEMENTS do
-            local name = REPLACEMENTS[index]
-            if target[name] == replacements[name] then
-                target[name] = originals[name]
-            end
-        end
         target.clear()
         self.installed = false
         return true

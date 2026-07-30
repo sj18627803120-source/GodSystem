@@ -53,7 +53,14 @@ function Server.new(options)
         if not ok then return false, code end
         self.runtime.events:subscribe(
             "runtime.serverBridge", "OnDisconnect",
-            function(player) self.bridge:disconnect(player) end, 100)
+            function(player)
+                self.bridge:disconnect(player)
+                if self.runtime.coordinator
+                    and self.runtime.coordinator.actorDisconnected
+                then
+                    self.runtime.coordinator.actorDisconnected(player)
+                end
+            end, 100)
         self.started = true
         return true
     end

@@ -147,6 +147,8 @@ assert(adapter:receive({
 assert(#target.results == before, "duplicate pushed batch result must be ignored")
 
 assert(adapter:stop() and not target.reloadInstalled)
-assert(target.requestState == nil)
+assert(type(target.requestState) == "function")
+assert(target.requestState("loader-1"),
+    "auto-loader adapter was removed during stop")
 
 print("Test-GodSystemV422012AutoLoaderAdapterRuntime passed")

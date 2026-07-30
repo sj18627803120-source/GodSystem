@@ -186,6 +186,38 @@ function Descriptor.create(dependencies, context)
         }, request)
     end
 
+    local function setPreferences(request)
+        request = type(request) == "table" and request or {}
+        if not request.actor then return result(false, "actorRequired", nil, request) end
+        local values = type(request.values) == "table" and request.values or nil
+        if not values then return result(false, "preferenceValuesInvalid", nil, request) end
+        local clean, count = {}, 0
+        for preferenceKey, value in pairs(values) do
+            preferenceKey = tostring(preferenceKey or "")
+            if preferenceKey == "" or #preferenceKey > 80
+                or not preferenceKey:match("^[%w%._%-]+$")
+            then
+                return result(false, "preferenceKeyInvalid", nil, request)
+            end
+            local valueType = type(value)
+            if valueType ~= "string" and valueType ~= "number"
+                and valueType ~= "boolean" and valueType ~= "nil"
+            then
+                return result(false, "preferenceValueInvalid", nil, request)
+            end
+            clean[preferenceKey] = value
+            count = count + 1
+        end
+        local data = row(request.actor)
+        for preferenceKey, value in pairs(clean) do
+            data.ui[preferenceKey] = value
+        end
+        return result(true, "preferencesChanged", {
+            values = copy(clean),
+            count = count,
+        }, request)
+    end
+
     local function history(request)
         request = type(request) == "table" and request or {}
         if not request.actor then return result(false, "actorRequired", nil, request) end
@@ -197,6 +229,7 @@ function Descriptor.create(dependencies, context)
         ensureInitialized = ensureInitialized,
         snapshot = snapshot,
         setPreference = setPreference,
+        setPreferences = setPreferences,
         history = history,
     }
     function instance:start() self.started = true return true end

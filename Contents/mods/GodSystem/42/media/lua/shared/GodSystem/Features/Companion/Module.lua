@@ -684,11 +684,42 @@ function Descriptor.create(dependencies, context)
             local actor, owner, data, code = actorContext(request.actor)
             if not actor or not data.unlocked then return result(false, code or "projectionLocked", nil, request) end
             local runtime = store:runtime(owner)
-            local ok, resultCode = callback(actor, data, runtime)
+            local ok, resultCode, resultData = callback(actor, data, runtime)
             if ok == false then return result(false, resultCode or "controlInvalid", nil, request) end
             local saved, saveCode = store:save(owner, data)
             if not saved then return result(false, saveCode or "stateSaveFailed", nil, request) end
-            return result(true, resultCode or "updated", nil, request)
+            return result(true, resultCode or "updated", resultData, request)
+        end)
+    end
+
+    local function setPreference(request)
+        return mutateControl(request, function(_, data)
+            local ui = type(request.ui) == "table" and request.ui or {}
+            data.ui = type(data.ui) == "table" and data.ui or {}
+            if ui.shortcutVisible ~= nil then
+                data.ui.shortcutVisible = ui.shortcutVisible == true
+            end
+            if ui.shortcutX ~= nil then
+                local value = tonumber(ui.shortcutX)
+                if not value or value ~= value
+                    or value == math.huge or value == -math.huge
+                then
+                    return false, "preferenceValueInvalid"
+                end
+                data.ui.shortcutX = math.floor(value)
+            end
+            if ui.shortcutY ~= nil then
+                local value = tonumber(ui.shortcutY)
+                if not value or value ~= value
+                    or value == math.huge or value == -math.huge
+                then
+                    return false, "preferenceValueInvalid"
+                end
+                data.ui.shortcutY = math.floor(value)
+            end
+            return true, "preferenceChanged", {
+                ui = Rules.copy(data.ui),
+            }
         end)
     end
 
@@ -796,6 +827,7 @@ function Descriptor.create(dependencies, context)
             end)
         end,
         recall = recall,
+        setPreference = setPreference,
         getState = function(request)
             request = type(request) == "table" and request or {}
             local actor, owner, data, code = actorContext(request.actor)

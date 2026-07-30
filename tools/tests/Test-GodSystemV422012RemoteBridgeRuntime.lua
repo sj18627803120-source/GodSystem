@@ -141,12 +141,64 @@ local lateId = client:request("test.run", { value = 10 }, {
     callback = function(result) callbacks.late = result end,
 })
 assert(lateId ~= nil, "timeout request was not queued")
+local latePacket = clientPackets[#clientPackets]
+server:receive(actorA, latePacket.moduleName, latePacket.command, latePacket.packet)
+local droppedReply = serverPackets[#serverPackets]
 now = 1200
 local expired = client:poll()
 assert(#expired == 1 and expired[1].code == "requestTimeout",
     "timeout was not reported")
 assert(callbacks.late.code == "requestTimeout" and client:pendingCount() == 0,
     "timeout did not clear pending request")
+assert(client:retryableCount() == 1, "timeout did not preserve retry identity")
+
+local retryId = client:request("test.run", { value = 10 }, {
+    requestId = lateId,
+    operationId = "late-operation",
+    callback = function(result) callbacks.retry = result end,
+})
+assert(retryId == lateId, "retry changed request identity")
+local retryPacket = clientPackets[#clientPackets]
+server:receive(actorA, retryPacket.moduleName, retryPacket.command, retryPacket.packet)
+local retryReply = serverPackets[#serverPackets]
+assert(client:receive(retryReply.moduleName, retryReply.command, retryReply.packet) == true,
+    "retry replay response was rejected")
+assert(callbacks.retry.ok and callbacks.retry.data.value == 10,
+    "retry replay result was not delivered")
+assert(executions["alice|late-operation"] == 1,
+    "timed out operation executed more than once")
+assert(client:retryableCount() == 0, "successful retry identity was not retired")
+assert(client:receive(droppedReply.moduleName, droppedReply.command, droppedReply.packet)
+        == false,
+    "duplicate late response was accepted")
+
+local arrivalId = client:request("test.run", { value = 12 }, {
+    operationId = "arrival-operation",
+    callback = function(result) callbacks.arrival = result end,
+})
+local arrivalPacket = clientPackets[#clientPackets]
+server:receive(actorA, arrivalPacket.moduleName, arrivalPacket.command,
+    arrivalPacket.packet)
+local arrivalReply = serverPackets[#serverPackets]
+now = 1400
+client:poll()
+assert(callbacks.arrival.code == "requestTimeout"
+    and client:retryableCount() == 1,
+    "late-arrival setup did not time out")
+assert(client:receive(arrivalReply.moduleName, arrivalReply.command,
+    arrivalReply.packet) == true, "valid late response was rejected")
+assert(callbacks.arrival.ok and client:retryableCount() == 0,
+    "late success did not retire retry identity")
+local beforeCached = #clientPackets
+local cachedCallback
+local cachedId = client:request("test.run", { value = 12 }, {
+    requestId = arrivalId,
+    operationId = "arrival-operation",
+    callback = function(result) cachedCallback = result end,
+})
+assert(cachedId == arrivalId and cachedCallback and cachedCallback.ok,
+    "completed retry did not invoke callback synchronously")
+assert(#clientPackets == beforeCached, "completed retry was sent again")
 
 local disconnectId = client:request("test.run", { value = 11 }, {
     operationId = "disconnect-operation",

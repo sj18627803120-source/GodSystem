@@ -48,6 +48,7 @@ function Client.new(options)
                 actor = actor,
                 protocolVersion = GodSystemProtocol422012.Version,
                 onResult = options.onResult,
+                retryStore = options.retryStore,
             })
             if options.hello ~= false then
                 self.remote:hello({

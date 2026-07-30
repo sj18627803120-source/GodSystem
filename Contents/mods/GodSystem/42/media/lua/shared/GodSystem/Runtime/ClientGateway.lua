@@ -1,9 +1,11 @@
 require "GodSystem/Core/Result"
+require "GodSystem/Runtime/Payload"
 require "GodSystem/Runtime/Protocol422012"
 
 GodSystemClientGateway = GodSystemClientGateway or {}
 
 local Gateway = GodSystemClientGateway
+local Payload = GodSystemRuntimePayload
 
 local function copy(value, seen)
     if type(value) ~= "table" then return value end
@@ -22,20 +24,47 @@ function Gateway.new(options)
     local actor = type(options.actor) == "function" and options.actor or function() return nil end
     local protocol = tostring(options.protocolVersion or GodSystemProtocol422012.Version)
     local onResult = options.onResult
+    local retryStoreOption = options.retryStore
     local observers = {}
     if type(onResult) == "function" then observers[1] = onResult end
     local sequence = 0
+    local sessionId = Payload.identifier(options.sessionId)
+        or ("session-" .. tostring(
+            type(getTimestampMs) == "function" and getTimestampMs()
+                or ((os.time and os.time() or 0) * 1000))
+            .. "-" .. tostring(options):gsub("[^%w]", ""))
     local instance = {
         cache = {},
         pending = {},
         completed = 0,
         failures = 0,
+        retry = {},
     }
+
+    local function retryStore()
+        if type(retryStoreOption) == "function" then
+            local value = retryStoreOption()
+            return type(value) == "table" and value or nil
+        end
+        return type(retryStoreOption) == "table" and retryStoreOption or nil
+    end
+
+    local function loadRetry(action)
+        local store = retryStore()
+        return instance.retry[action] or (store and store[action]) or nil
+    end
+
+    local function saveRetry(action, row)
+        instance.retry[action] = row and copy(row) or nil
+        local store = retryStore()
+        if store then store[action] = row and copy(row) or nil end
+    end
 
     local function nextId(action)
         sequence = sequence + 1
         return table.concat({
             "ui",
+            sessionId,
             tostring(action or ""):gsub("[^%w%._%-]", "_"),
             tostring(sequence),
         }, ":")
@@ -43,6 +72,29 @@ function Gateway.new(options)
 
     local function complete(action, result, callback)
         result = GodSystemResult.normalize(result, "runtime.client")
+        local row = instance.pending[action]
+        local retry = loadRetry(action)
+        if row and (result.code == "requestTimeout"
+            or result.code == "disconnected")
+        then
+            saveRetry(action, {
+                requestId = row.requestId,
+                operationId = row.operationId,
+                fingerprint = row.fingerprint,
+            })
+        elseif row then
+            if retry and retry.operationId == row.operationId then
+                saveRetry(action, nil)
+            end
+        elseif retry and retry.operationId == result.operationId
+            and result.code ~= "requestTimeout"
+            and result.code ~= "disconnected"
+        then
+            -- A valid response may arrive after the local timeout callback.
+            -- It still completes the original operation and must retire the
+            -- persisted retry identity.
+            saveRetry(action, nil)
+        end
         instance.cache[action] = copy(result)
         instance.pending[action] = nil
         instance.completed = instance.completed + 1
@@ -63,11 +115,44 @@ function Gateway.new(options)
                     action = action,
                 }), requestOptions.callback)
         end
+        if instance.pending[action] then
+            local value = GodSystemResult.fail("runtime.client",
+                "actionPending", { action = action },
+                requestOptions.operationId)
+            instance.completed = instance.completed + 1
+            instance.failures = instance.failures + 1
+            if type(requestOptions.callback) == "function" then
+                requestOptions.callback(copy(value))
+            end
+            for index = 1, #observers do
+                observers[index](action, copy(value))
+            end
+            return nil, value
+        end
         local requestId = tostring(requestOptions.requestId or nextId(action))
-        local operationId = tostring(requestOptions.operationId or requestId)
+        local argsTable = copy(type(args) == "table" and args or {})
+        local fingerprint, fingerprintError = Payload.fingerprint(action, argsTable)
+        if not fingerprint then
+            return nil, complete(action,
+                GodSystemResult.fail("runtime.client", fingerprintError),
+                requestOptions.callback)
+        end
+        local retry = loadRetry(action)
+        local reuseRetry = not requestOptions.requestId
+            and type(retry) == "table"
+            and retry.fingerprint == fingerprint
+        if reuseRetry then
+            requestId = tostring(retry.requestId)
+        elseif type(retry) == "table" and retry.fingerprint ~= fingerprint then
+            saveRetry(action, nil)
+        end
+        local operationId = tostring((reuseRetry and retry.operationId)
+            or requestOptions.operationId
+            or requestId)
         instance.pending[action] = {
             requestId = requestId,
             operationId = operationId,
+            fingerprint = fingerprint,
         }
         if runtime and type(runtime.dispatch) == "function" then
             local result = runtime:dispatch({
@@ -75,13 +160,13 @@ function Gateway.new(options)
                 requestId = requestId,
                 operationId = operationId,
                 action = action,
-                args = copy(type(args) == "table" and args or {}),
+                args = argsTable,
             }, actor())
             return complete(action, result, requestOptions.callback)
         end
         if remote and type(remote.request) == "function" then
             local id, failure = remote:request(action,
-                copy(type(args) == "table" and args or {}), {
+                argsTable, {
                     requestId = requestId,
                     operationId = operationId,
                     callback = function(result)
@@ -90,6 +175,9 @@ function Gateway.new(options)
                 })
             if not id then
                 return nil, complete(action, failure, requestOptions.callback)
+            end
+            if not instance.pending[action] then
+                return copy(instance.cache[action])
             end
             return {
                 ok = true,
@@ -122,6 +210,11 @@ function Gateway.new(options)
                 pending = pending,
                 completed = self.completed,
                 failures = self.failures,
+                retryable = (function()
+                    local count = 0
+                    for _ in pairs(self.retry) do count = count + 1 end
+                    return count
+                end)(),
             },
             moduleId = "runtime.client",
         }

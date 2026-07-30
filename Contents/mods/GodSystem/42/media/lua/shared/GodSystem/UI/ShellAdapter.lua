@@ -31,13 +31,21 @@ function ShellAdapter.new(options)
         for key in pairs(last) do keys[key] = true end
         for key in pairs(current) do keys[key] = true end
         local changed = 0
+        local values = {}
         for key in pairs(keys) do
             if current[key] ~= last[key] then
-                facade:setPreference(key, current[key])
+                values[key] = current[key]
                 changed = changed + 1
             end
         end
+        if changed <= 0 then return 0 end
+        local previous = last
         last = current
+        facade:setPreferences(values, {
+            callback = function(result)
+                if not result or result.ok ~= true then last = previous end
+            end,
+        })
         return changed
     end
 
@@ -52,8 +60,6 @@ function ShellAdapter.new(options)
     function instance:stop()
         if not self.installed then return true end
         self:flushPreferences()
-        target.getData = originalGetData
-        target.save = originalSave
         self.installed = false
         return true
     end

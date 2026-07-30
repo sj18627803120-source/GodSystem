@@ -225,6 +225,13 @@ do
     local state = f.instance.public.getState({ actor = f.actor })
     expect(state.data.runtime.pendingAttack == nil, "ceasefire did not cancel charge")
     expect(state.data.persistent.cooldowns.attack == 0, "ceasefire cancellation consumed cooldown")
+    local preference = f.instance.public.setPreference({
+        actor = f.actor,
+        ui = { shortcutVisible = true, shortcutX = 120, shortcutY = 80 },
+    })
+    expect(preference.ok and preference.data.ui.shortcutVisible == true
+        and preference.data.ui.shortcutX == 120,
+        "companion shortcut preference was not stored by companion module")
 
     f.instance.public.setCombatMode({ actor = f.actor, mode = "active" })
     f.now(201)

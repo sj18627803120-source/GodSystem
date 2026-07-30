@@ -478,12 +478,6 @@ function Context.reset()
     Context.clearHighlights()
 end
 
-function Context.onLoadGridSquare(square)
-    if not (isClient and isClient()) then
-        GodSystemStorageManager.calibrateLoadedSquare(square)
-    end
-end
-
 Events.OnFillWorldObjectContextMenu.Remove(Context.fillWorldMenu)
 Events.OnFillWorldObjectContextMenu.Add(Context.fillWorldMenu)
 Events.OnFillInventoryObjectContextMenu.Remove(Context.fillInventoryMenu)
@@ -504,9 +498,4 @@ if Events.OnMainMenuEnter then
     Events.OnMainMenuEnter.Remove(Context.reset)
     Events.OnMainMenuEnter.Add(Context.reset)
 end
-if Events.LoadGridsquare then
-    Events.LoadGridsquare.Remove(Context.onLoadGridSquare)
-    Events.LoadGridsquare.Add(Context.onLoadGridSquare)
-end
-
 return Context
