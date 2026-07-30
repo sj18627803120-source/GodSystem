@@ -12,6 +12,7 @@ $required = @(
     'shared\GodSystem\Services\Clock.lua',
     'shared\GodSystem\Services\Random.lua',
     'shared\GodSystem\Services\Operations.lua',
+    'shared\GodSystem\Platform\WalletAccounts.lua',
     'shared\GodSystem\Platform\WalletFunds.lua'
 )
 foreach ($relative in $required) {

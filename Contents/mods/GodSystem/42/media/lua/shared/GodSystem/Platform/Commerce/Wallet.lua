@@ -4,17 +4,16 @@ local Support = GodSystemCommercePlatformSupport
 
 GodSystemCommerceWalletPlatform = GodSystemCommerceWalletPlatform or {
     id = "commerce.wallet",
-    dependencies = { "commerce.actor.identity" },
+    dependencies = { "wallet.funds" },
     stateVersion = 1,
 }
 
-function GodSystemCommerceWalletPlatform.create(dependencies, context)
-    local identity = assert(dependencies["commerce.actor.identity"],
-        "commerce.actor.identity dependency missing")
-    local root = assert(context and context.state, "commerce.wallet context.state missing"):get()
-    root.accounts = type(root.accounts) == "table" and root.accounts or {}
-    local snapshot = type(context.configSnapshot) == "table" and context.configSnapshot or {}
-    local walletConfig = type(snapshot.wallet) == "table" and snapshot.wallet or {}
+function GodSystemCommerceWalletPlatform.create(dependencies)
+    local funds = assert(dependencies["wallet.funds"], "wallet.funds dependency missing")
+    assert(type(funds.balance) == "function", "wallet.funds.balance missing")
+    assert(type(funds.debit) == "function", "wallet.funds.debit missing")
+    assert(type(funds.credit) == "function", "wallet.funds.credit missing")
+    assert(type(funds.restore) == "function", "wallet.funds.restore missing")
     local instance = {
         started = false,
         charged = 0,
@@ -22,24 +21,11 @@ function GodSystemCommerceWalletPlatform.create(dependencies, context)
         restored = 0,
     }
 
-    local function account(actor)
-        local key = identity.key(actor)
-        local value = root.accounts[key]
-        if type(value) ~= "table" then
-            value = { balance = Support.integer(walletConfig.initialBalance, 0, 0) }
-            root.accounts[key] = value
-        end
-        value.balance = Support.integer(value.balance, 0, 0)
-        return value, key
-    end
-
     local function credit(actor, amount)
         amount = Support.integer(amount, 0, 0)
         if amount <= 0 then return false, "amountInvalid" end
-        local value, key = account(actor)
-        local receipt = { actorKey = key, kind = "credit", amount = amount, before = value.balance }
-        value.balance = value.balance + amount
-        receipt.after = value.balance
+        local ok, receipt = funds.credit(actor, amount, "cash")
+        if ok ~= true then return false, receipt or "creditFailed" end
         instance.credited = instance.credited + amount
         return true, receipt
     end
@@ -47,40 +33,27 @@ function GodSystemCommerceWalletPlatform.create(dependencies, context)
     local function charge(actor, amount)
         amount = Support.integer(amount, 0, 0)
         if amount <= 0 then return false, "amountInvalid" end
-        local value, key = account(actor)
-        if value.balance < amount then return false, "insufficientFunds" end
-        local receipt = { actorKey = key, kind = "charge", amount = amount, before = value.balance }
-        value.balance = value.balance - amount
-        receipt.after = value.balance
+        local ok, receipt = funds.debit(actor, amount, "spendable")
+        if ok ~= true then return false, receipt or "insufficientFunds" end
         instance.charged = instance.charged + amount
         return true, receipt
     end
 
     local function refund(actor, receipt)
-        if type(receipt) ~= "table" or receipt.kind ~= "charge" then return false end
-        local value, key = account(actor)
-        if receipt.actorKey ~= key then return false end
-        value.balance = value.balance + Support.integer(receipt.amount, 0, 0)
-        instance.restored = instance.restored + Support.integer(receipt.amount, 0, 0)
+        if type(receipt) == "table" and receipt.kind == "none" then return true end
+        local ok = funds.restore(actor, receipt)
+        if ok ~= true then return false end
+        instance.restored = instance.restored + Support.integer(receipt and receipt.amount, 0, 0)
         return true
     end
 
     local function revokeCredit(actor, receipt)
-        if type(receipt) ~= "table" or receipt.kind ~= "credit" then return false end
-        local value, key = account(actor)
-        local amount = Support.integer(receipt.amount, 0, 0)
-        if receipt.actorKey ~= key or value.balance < amount then return false end
-        value.balance = value.balance - amount
-        instance.restored = instance.restored + amount
-        return true
+        return refund(actor, receipt)
     end
 
     instance.public = {
-        balance = function(actor) return account(actor).balance end,
-        setBalance = function(actor, amount)
-            local value = account(actor)
-            value.balance = Support.integer(amount, 0, 0)
-            return true
+        balance = function(actor)
+            return Support.integer(funds.balance(actor, "spendable"), 0, 0)
         end,
         charge = charge,
         refund = refund,
@@ -88,17 +61,10 @@ function GodSystemCommerceWalletPlatform.create(dependencies, context)
         revokeCredit = revokeCredit,
         chargeUpTo = function(actor, amount)
             amount = Support.integer(amount, 0, 0)
-            local value, key = account(actor)
-            local paid = math.min(value.balance, amount)
-            local receipt = {
-                actorKey = key,
-                kind = "charge",
-                amount = paid,
-                before = value.balance,
-            }
-            value.balance = value.balance - paid
-            receipt.after = value.balance
-            instance.charged = instance.charged + paid
+            local paid = math.min(instance.public.balance(actor), amount)
+            if paid <= 0 then return true, { kind = "none", amount = 0 }, 0 end
+            local ok, receipt = charge(actor, paid)
+            if ok ~= true then return false, receipt, 0 end
             return true, receipt, paid
         end,
     }

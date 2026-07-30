@@ -11,6 +11,7 @@ require "GodSystem/Bootstrap"
 require "GodSystem/Services/Clock"
 require "GodSystem/Services/Random"
 require "GodSystem/Services/Operations"
+require "GodSystem/Platform/WalletAccounts"
 require "GodSystem/Platform/WalletFunds"
 require "GodSystem/Features/Wallet/Module"
 
@@ -75,6 +76,7 @@ local runtime = GodSystemBootstrap.create({
 assert(runtime:register(GodSystemClockService))
 assert(runtime:register(GodSystemRandomService))
 assert(runtime:register(GodSystemOperationsService))
+assert(runtime:register(GodSystemWalletAccountsPlatform))
 assert(runtime:register(GodSystemWalletFundsPlatform))
 assert(runtime:register(GodSystemWalletFeatureModule))
 assert(runtime:start().ok == true)
@@ -118,12 +120,12 @@ local refunded = wallet.refund(actor, chargeReceipt, {
 assert(refunded == true, "wallet refund failed")
 assert(wallet.getBalance(actor, "spendable") == 175, "wallet refund did not restore original sources")
 
-local snapshot = runtime.state:scoped("wallet.funds", 1):snapshot()
+local snapshot = runtime.state:scoped("wallet.accounts", 1):snapshot()
 snapshot.data.accounts["platform-test"].current = 999
 assert(funds.balance(actor, "current") == 50, "deep state snapshot leaked into live wallet state")
 
 local health = runtime:health()
-assert(#health.modules == 5, "platform service health report incomplete")
+assert(#health.modules == 6, "platform service health report incomplete")
 runtime:stop("test")
 
 print("Test-GodSystemV422012PlatformServicesRuntime passed")

@@ -5,6 +5,7 @@ require "GodSystem/Services/Operations"
 require "GodSystem/Services/Notifications"
 require "GodSystem/Platform/InventoryQuery"
 require "GodSystem/Platform/InventoryMutation"
+require "GodSystem/Platform/WalletAccounts"
 require "GodSystem/Platform/WalletFunds"
 require "GodSystem/Platform/AutoLoader/AmmoCatalog"
 require "GodSystem/Platform/AutoLoader/InventoryQuery"
@@ -35,6 +36,11 @@ require "GodSystem/Platform/Progression/HomeState"
 require "GodSystem/Platform/Progression/HomePosition"
 require "GodSystem/Platform/Progression/HomeWorld"
 require "GodSystem/Platform/Progression/HomeWallet"
+require "GodSystem/Platform/Companion/Query"
+require "GodSystem/Platform/Companion/Mutation"
+require "GodSystem/Platform/Companion/Events"
+require "GodSystem/Platform/Companion/Visuals"
+require "GodSystem/Platform/Bank/Descriptors"
 require "GodSystem/Features/Wallet/Module"
 require "GodSystem/Features/Wallet/PublicPort"
 require "GodSystem/Features/Maintenance/Rules"
@@ -47,6 +53,8 @@ require "GodSystem/Features/Upgrades/Module"
 require "GodSystem/Features/Upgrades/PublicPort"
 require "GodSystem/Features/Medical/Module"
 require "GodSystem/Features/Home/Module"
+require "GodSystem/Features/Companion/Module"
+require "GodSystem/Features/Bank/Module"
 
 GodSystemComposition = GodSystemComposition or {}
 
@@ -59,6 +67,7 @@ local BASE_DESCRIPTORS = {
     GodSystemNotificationsService,
     GodSystemInventoryQueryPlatform,
     GodSystemInventoryMutationPlatform,
+    GodSystemWalletAccountsPlatform,
     GodSystemWalletFundsPlatform,
     GodSystemAutoLoaderAmmoCatalogPlatform,
     GodSystemAutoLoaderInventoryQueryPlatform,
@@ -99,6 +108,16 @@ local BASE_DESCRIPTORS = {
     GodSystemHomePositionPlatform,
     GodSystemHomeWorldPlatform,
     GodSystemHomeWalletPlatform,
+    GodSystemCompanionQueryPlatform,
+    GodSystemCompanionMutationPlatform,
+    GodSystemCompanionEventsPlatform,
+    GodSystemCompanionVisualsPlatform,
+    GodSystemBankStatePlatform,
+    GodSystemBankClockPlatform,
+    GodSystemBankRandomPlatform,
+    GodSystemBankFeaturesPlatform,
+    GodSystemBankAuditPlatform,
+    GodSystemBankDebtPlatform,
     GodSystemWalletFeatureModule,
     GodSystemWalletPublicPort,
     GodSystemMaintenanceRulesFeature,
@@ -111,6 +130,8 @@ local BASE_DESCRIPTORS = {
     GodSystemUpgradesPublicPort,
     GodSystemMedicalFeatureModule,
     GodSystemHomeFeatureModule,
+    GodSystemCompanionFeatureModule,
+    GodSystemBankFeatureModule,
 }
 
 function Composition.create(options)

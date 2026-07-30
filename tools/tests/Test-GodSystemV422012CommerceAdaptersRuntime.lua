@@ -29,6 +29,9 @@ function sendRemoveItemFromContainer(container, item)
 end
 
 local registered = {
+    ["GodSystem.SystemCoin100"] = { name = "System Coin 100", category = "Currency" },
+    ["GodSystem.SystemCoin10"] = { name = "System Coin 10", category = "Currency" },
+    ["GodSystem.SystemCoin1"] = { name = "System Coin 1", category = "Currency" },
     ["Base.Scrap"] = { name = "Scrap", category = "Material" },
     ["Base.Bandage"] = { name = "Bandage", category = "Medical" },
     ["Base.KeyRing"] = { name = "Key Ring", category = "Key" },
@@ -198,6 +201,8 @@ require "GodSystem/Platform/Commerce/ShopIdentity"
 require "GodSystem/Services/Clock"
 require "GodSystem/Services/Random"
 require "GodSystem/Services/Operations"
+require "GodSystem/Platform/WalletAccounts"
+require "GodSystem/Platform/WalletFunds"
 require "GodSystem/Platform/Commerce/States"
 require "GodSystem/Platform/Commerce/ConfigSnapshots"
 require "GodSystem/Platform/Commerce/Inventory"
@@ -249,8 +254,16 @@ local recycleInventory = GodSystemRecycleInventoryPlatform.create({
 })
 assert(tasksInventory:start() and shopInventory:start() and recycleInventory:start())
 
+local accountsContext = context()
+accountsContext.binding = { initialBalance = function() return 500 end }
+local walletAccounts = GodSystemWalletAccountsPlatform.create({}, accountsContext)
+assert(walletAccounts:start())
+local walletFunds = GodSystemWalletFundsPlatform.create({
+    ["wallet.accounts"] = walletAccounts.public,
+}, context())
+assert(walletFunds:start())
 local commerceWallet = GodSystemCommerceWalletPlatform.create({
-    ["commerce.actor.identity"] = actorIdentity.public,
+    ["wallet.funds"] = walletFunds.public,
 }, context())
 assert(commerceWallet:start())
 local tasksWallet = GodSystemTasksWalletPlatform.create({
@@ -397,7 +410,7 @@ assert(sync.added >= 2 and sync.removed >= 2,
     "PZ container synchronization calls were not emitted")
 
 for _, instance in ipairs({
-    actorIdentity, shopIdentity, clock, random, operations,
+    actorIdentity, shopIdentity, clock, random, operations, walletAccounts, walletFunds,
     taskState, shopState, recycleState,
     tasksConfig, shopConfig, recycleConfig, eligibility,
     commerceInventory, tasksInventory, shopInventory, recycleInventory,
@@ -415,12 +428,21 @@ local composed = GodSystemComposition.create({
     environment = "test",
     configSnapshot = snapshot,
     adapters = {
+        events = {
+            add = function() return true end,
+            remove = function() return true end,
+        },
         state = {
             load = function() return composedState end,
             save = function(_, value)
                 composedState = value
                 return true
             end,
+        },
+    },
+    bindings = {
+        ["wallet.accounts"] = {
+            initialBalance = function() return 500 end,
         },
     },
 })

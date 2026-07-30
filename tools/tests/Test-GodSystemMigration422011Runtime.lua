@@ -217,27 +217,43 @@ expect(first.root.releaseVersion == "42.20.1.2", "target release version")
 expect(first.root.migration[Migration.MigrationId].completed == true, "migration completion marker")
 
 local modules = first.root.modules
-expect(modules.wallet.data.points == 8123, "wallet points")
-expect(modules.tasks.data.tasks[1].customTemplateField == "keep", "task row must be copied intact")
-expect(modules.shop.data.unlockedShopItems["Moveables.Moveable|furniture_bedding_01_35"].worldSprite == "furniture_bedding_01_35", "shop variant identity")
-expect(modules.recycle.data.waistAutoRecycleEnabled == true, "recycle state")
-expect(modules.upgrades.data.upgrades.carryCapacityLevel == 7, "upgrade state")
-expect(modules.upgrades.data.autoRecyclerReliefLevel == 4, "terminal relief level")
-expect(modules.bank.data.bank.loan.schedule[1].interestPart == 100, "bank loan schedule")
-expect(modules.home.data.homeSystem.home.x == 10, "home point")
-expect(modules.home.data.homeSystem.pendingTeleport == nil, "pending teleport must not migrate")
-expect(modules.companion.data.companion.levels.damage == 4, "companion state")
-expect(modules.admin.data.adminConfig.itemOverrides["Base.Bandage"].category == "medical", "admin overrides")
-expect(modules.system.data.stats.lotteryDraws == 8, "system stats")
-expect(modules.system.data.attributeSyncPending == true, "attribute sync pending")
-expect(modules.system.data.lastServerPushHour == nil, "derived push hour must not migrate")
-expect(modules.system.data.balance == nil, "derived balance must not migrate")
-expect(modules.system.data.serverDiagnostics == nil, "runtime diagnostics must not migrate")
+expect(modules["wallet.accounts"].data.accounts["local"].current == 6000,
+    "bank current must migrate to the single wallet account")
+expect(modules["tasks.state"].data.players["local"].tasks[1].customTemplateField == "keep",
+    "task row must be copied intact")
+expect(modules["shop.state"].data.players["local"].unlockedShopItems[
+    "Moveables.Moveable|furniture_bedding_01_35"].worldSprite
+    == "furniture_bedding_01_35", "shop variant identity")
+expect(modules["recycle.state"].data.players["local"].waistAutoRecycleEnabled == true,
+    "recycle state")
+expect(modules["upgrades.state"].data.players["local"].upgrades.carryCapacityLevel == 7,
+    "upgrade state")
+expect(modules["terminal.state"].data.players["local"].data.reliefLevel == 4,
+    "terminal relief level")
+expect(modules["bank.state"].data.players["local"].loan.schedule[1].interestPart == 100,
+    "bank loan schedule")
+expect(modules["bank.state"].data.players["local"].current == nil,
+    "bank state must not retain a second current balance")
+expect(modules["home.state"].data.players["local"].homeSystem.home.x == 10, "home point")
+expect(modules["home.state"].data.players["local"].homeSystem.pendingTeleport == nil,
+    "pending teleport must not migrate")
+expect(modules["feature.companion"].data.actors["local"].levels.damage == 4,
+    "companion state")
+expect(modules["admin.state"].data.itemOverrides["Base.Bandage"].category == "medical",
+    "admin overrides")
+local system = modules["system.state"].data.players["local"]
+expect(system.stats.lotteryDraws == 8, "system stats")
+expect(system.attributeSyncPending == true, "attribute sync pending")
+expect(system.pendingCurrencyGrant == 0,
+    "already initialized physical currency must not be duplicated")
+expect(system.lastServerPushHour == nil, "derived push hour must not migrate")
+expect(system.balance == nil, "derived balance must not migrate")
+expect(system.serverDiagnostics == nil, "runtime diagnostics must not migrate")
 
-local transactions = modules.system.data.operationCaches.transactionOperations
+local transactions = system.operationCaches.transactionOperations
 expect(transactions.alice.upgradeSystem.results.pending.status == "unknown", "processing transaction must become unknown")
 expect(transactions.alice.upgradeSystem.results.finished.status == "done", "done transaction must be preserved")
-local attributes = modules.system.data.operationCaches.attributeOperations
+local attributes = system.operationCaches.attributeOperations
 expect(attributes.alice.results.pending.status == "unknown", "processing attribute operation must become unknown")
 expect(attributes.alice.results.unknown.status == "unknown", "unknown operation must stay unknown")
 expect(legacy.transactionOperations.alice.upgradeSystem.results.pending.status == "processing", "legacy operation cache must not mutate")
@@ -252,6 +268,28 @@ local second = Migration.run(legacy, first.root)
 expect(second.ok == true, "repeat migration must succeed")
 expect(equal(first.root, second.root), "repeat migration must be idempotent")
 expect(equal(first.lazy, second.lazy), "lazy strategy must be idempotent")
+second.root.modules["tasks.state"].data.players["local"].lastKnownKills = 999
+local afterNewWrite = Migration.run(legacy, second.root)
+expect(afterNewWrite.root.modules["tasks.state"].data.players["local"].lastKnownKills == 999,
+    "repeat migration must not overwrite post-migration module state")
+
+local pendingCurrency = fixture()
+pendingCurrency.playerData.currencyInitialized = false
+pendingCurrency.playerData.points = 250
+local pendingResult = Migration.run(pendingCurrency)
+expect(pendingResult.root.modules["system.state"].data.players["local"].pendingCurrencyGrant == 250,
+    "unfinished legacy physical currency grant must remain pending")
+
+local anotherPlayer = fixture()
+anotherPlayer.playerData.bank.current = 700
+local multiActor = Migration.run(anotherPlayer, first.root, { actorKey = "alice" })
+expect(multiActor.root.modules["wallet.accounts"].data.accounts["local"].current == 6000,
+    "migrating another player must preserve the first account")
+expect(multiActor.root.modules["wallet.accounts"].data.accounts.alice.current == 700,
+    "migration must isolate accounts by actor")
+expect(multiActor.root.migration[Migration.MigrationId].actors["local"].completed == true
+    and multiActor.root.migration[Migration.MigrationId].actors.alice.completed == true,
+    "migration status must be tracked per actor")
 
 local corrupted = fixture()
 corrupted.playerData.bank = "corrupt-bank"
@@ -259,17 +297,24 @@ local corruptedBefore = clone(corrupted)
 local existing = {
     schemaVersion = 1,
     modules = {
-        bank = { version = 1, data = { preserved = "old-bank-slice" } },
+        ["bank.state"] = {
+            version = 1,
+            data = { players = { ["local"] = { preserved = "old-bank-slice" } } },
+        },
     },
 }
 local partial = Migration.run(corrupted, existing)
 expect(partial.ok == false, "corrupt module must yield partial migration")
 expect(partial.code == "migrationPartial", "partial migration result code")
-expect(partial.modules.bank.status == "failed", "bank module must fail independently")
-expect(partial.root.modules.bank.data.preserved == "old-bank-slice", "failed module must retain existing slice")
-expect(partial.modules.wallet.status == "done", "wallet must remain independent")
-expect(partial.modules.tasks.status == "done", "tasks must remain independent")
-expect(partial.root.modules.wallet.data.points == 8123, "successful module must commit")
+expect(partial.modules["bank.state"].status == "failed",
+    "bank module must fail independently")
+expect(partial.root.modules["bank.state"].data.players["local"].preserved == "old-bank-slice",
+    "failed module must retain existing slice")
+expect(partial.modules["wallet.accounts"].status == "done",
+    "wallet must remain independent")
+expect(partial.modules["tasks.state"].status == "done", "tasks must remain independent")
+expect(partial.root.modules["tasks.state"].data.players["local"].tasks[1].taskId == "task-1",
+    "successful module must commit")
 expect(partial.root.migration[Migration.MigrationId].completed == false, "partial marker")
 expect(equal(corrupted, corruptedBefore), "corrupt legacy snapshot must remain immutable")
 

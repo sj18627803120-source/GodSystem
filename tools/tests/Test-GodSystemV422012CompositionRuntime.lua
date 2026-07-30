@@ -51,6 +51,10 @@ local runtime = GodSystemComposition.create({
     descriptors = { broken, dependent, configConsumer },
     configSnapshot = { marker = "available" },
     adapters = {
+        events = {
+            add = function() return true end,
+            remove = function() return true end,
+        },
         state = {
             load = function() return stateRoot end,
             save = function(_, nextRoot)
@@ -73,6 +77,8 @@ assert(runtime.registry:status("feature.upgrades").state == "started", "upgrades
 assert(runtime.registry:status("upgrades.read").state == "started", "upgrade read port was not composed")
 assert(runtime.registry:status("feature.medical").state == "started", "medical was not composed")
 assert(runtime.registry:status("feature.home").state == "started", "home was not composed")
+assert(runtime.registry:status("feature.bank").state == "started", "bank was not composed")
+assert(runtime.registry:status("feature.companion").state == "started", "companion was not composed")
 assert(runtime.registry:status("test.broken").state == "failed", "broken module failure was not isolated")
 assert(runtime.registry:status("test.dependent").state == "blocked", "dependent module was not blocked")
 assert(runtime.registry:status("test.config").state == "started", "configuration consumer did not start")

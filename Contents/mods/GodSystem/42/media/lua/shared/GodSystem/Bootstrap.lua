@@ -55,6 +55,10 @@ function Bootstrap.create(options)
             subscribe = function(_, eventName, handler, priority)
                 return runtime.events:subscribe(moduleId, eventName, handler, priority)
             end,
+            unsubscribe = function()
+                runtime.events:unsubscribeModule(moduleId)
+                return true
+            end,
         }
         context.commands = {
             register = function(_, protocolModule, command, handler)

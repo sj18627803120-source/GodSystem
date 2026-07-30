@@ -3,7 +3,7 @@ GodSystemWalletFundsPlatform = GodSystemWalletFundsPlatform or {}
 local Descriptor = GodSystemWalletFundsPlatform
 
 Descriptor.id = "wallet.funds"
-Descriptor.dependencies = {}
+Descriptor.dependencies = { "wallet.accounts" }
 Descriptor.stateVersion = 1
 
 local DEFAULT_DENOMINATIONS = {
@@ -16,21 +16,6 @@ local function integer(value)
     value = tonumber(value)
     if not value or value ~= value or value == math.huge or value == -math.huge then return nil end
     return math.floor(value)
-end
-
-local function identity(actor, binding)
-    if binding and type(binding.identity) == "function" then
-        return tostring(binding.identity(actor))
-    end
-    if actor and type(actor.getUsername) == "function" then
-        local username = actor:getUsername()
-        if username and tostring(username) ~= "" then return tostring(username) end
-    end
-    if actor and type(actor.getOnlineID) == "function" then
-        local onlineId = actor:getOnlineID()
-        if onlineId ~= nil then return "id:" .. tostring(onlineId) end
-    end
-    return "local"
 end
 
 local function itemId(item)
@@ -121,11 +106,10 @@ local function syncRemoved(container, item)
     if type(sendRemoveItemFromContainer) == "function" then sendRemoveItemFromContainer(container, item) end
 end
 
-function Descriptor.create(_, context)
+function Descriptor.create(dependencies, context)
+    local accounts = assert(dependencies["wallet.accounts"], "wallet.accounts dependency missing")
     local binding = type(context.binding) == "table" and context.binding or {}
     local denominations = denominationMap(binding.denominations)
-    local state = context.state:get()
-    state.accounts = type(state.accounts) == "table" and state.accounts or {}
     local instance = { started = false, mutations = 0, failures = 0 }
     local public = {}
 
@@ -134,15 +118,9 @@ function Descriptor.create(_, context)
         return first, second, third
     end
 
-    local function account(actor)
-        local key = identity(actor, binding)
-        local row = state.accounts[key]
-        if type(row) ~= "table" then
-            row = { current = 0 }
-            state.accounts[key] = row
-        end
-        row.current = math.max(0, integer(row.current) or 0)
-        return row
+    local function currentBalance(actor)
+        local value = accounts.get(actor)
+        return math.max(0, integer(value) or 0)
     end
 
     local function cashBalance(actor)
@@ -152,7 +130,7 @@ function Descriptor.create(_, context)
 
     local function balance(actor, scope)
         scope = tostring(scope or "spendable")
-        local current = account(actor).current
+        local current = currentBalance(actor)
         local cash = cashBalance(actor)
         if scope == "cash" then return cash end
         if scope == "current" or scope == "bank" then return current end
@@ -255,23 +233,26 @@ function Descriptor.create(_, context)
         if not amount or amount <= 0 then return false, "amountInvalid" end
         scope = tostring(scope or "spendable")
         if balance(actor, scope) < amount then return false, "balanceInsufficient" end
-        local row = account(actor)
+        local current = currentBalance(actor)
         local fromCurrent = 0
         local fromCash = amount
         if scope == "current" or scope == "bank" then
             fromCurrent, fromCash = amount, 0
         elseif scope == "spendable" then
-            fromCurrent = math.min(row.current, amount)
+            fromCurrent = math.min(current, amount)
             fromCash = amount - fromCurrent
         elseif scope ~= "cash" then
             return false, "scopeInvalid"
         end
-        row.current = row.current - fromCurrent
+        if fromCurrent > 0 then
+            local debited = accounts.debit(actor, fromCurrent)
+            if debited ~= true then return false, "currentDebitFailed" end
+        end
         local cashReceipt = nil
         if fromCash > 0 then
             local ok, receiptOrCode = removeCurrency(actor, fromCash)
             if not ok then
-                row.current = row.current + fromCurrent
+                if fromCurrent > 0 then accounts.credit(actor, fromCurrent) end
                 instance.failures = instance.failures + 1
                 return false, receiptOrCode
             end
@@ -300,7 +281,8 @@ function Descriptor.create(_, context)
             scope = scope,
         }
         if scope == "current" or scope == "bank" then
-            account(actor).current = account(actor).current + amount
+            local credited = accounts.credit(actor, amount)
+            if credited ~= true then return false, "currentCreditFailed" end
             receipt.toCurrent = amount
         elseif scope == "cash" then
             local ok, added = addCurrency(actor, amount)
@@ -326,14 +308,19 @@ function Descriptor.create(_, context)
                     return false, "cashRestoreFailed"
                 end
             end
-            account(actor).current = account(actor).current + math.max(0, integer(receipt.fromCurrent) or 0)
+            local current = math.max(0, integer(receipt.fromCurrent) or 0)
+            if current > 0 and accounts.credit(actor, current) ~= true then
+                return false, "currentRestoreFailed"
+            end
             return true
         end
         if receipt.kind == "credit" then
             if receipt.added and not removeAdded(receipt.added) then return false, "creditRestoreFailed" end
             local current = math.max(0, integer(receipt.toCurrent) or 0)
-            if current > account(actor).current then return false, "creditRestoreFailed" end
-            account(actor).current = account(actor).current - current
+            if current > currentBalance(actor) then return false, "creditRestoreFailed" end
+            if current > 0 and accounts.debit(actor, current) ~= true then
+                return false, "creditRestoreFailed"
+            end
             return true
         end
         return false, "receiptInvalid"
