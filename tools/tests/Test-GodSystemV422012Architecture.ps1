@@ -15,6 +15,7 @@ $required = @(
     'shared\GodSystem\Platform\EventGateway.lua',
     'shared\GodSystem\Platform\CommandRouter.lua',
     'shared\GodSystem\State\Store.lua',
+    'shared\GodSystem\Services\OperationLedger.lua',
     'shared\GodSystem\Bootstrap.lua'
 )
 foreach ($relative in $required) {
@@ -46,4 +47,3 @@ $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
 if ($LASTEXITCODE -ne 0) { throw 'Modular architecture runtime test failed' }
 
 Write-Output 'Test-GodSystemV422012Architecture passed'
-

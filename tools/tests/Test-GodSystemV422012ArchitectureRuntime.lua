@@ -22,6 +22,7 @@ Events.OnTick = {
 }
 
 require "GodSystem/Bootstrap"
+require "GodSystem/Services/OperationLedger"
 
 local stateRoot = {}
 local stateAdapter = {
@@ -143,5 +144,23 @@ assert(cycleRuntime:register({ id = "a", dependencies = { "b" }, create = functi
 assert(cycleRuntime:register({ id = "b", dependencies = { "a" }, create = function() return {} end }))
 local cycleResult = cycleRuntime:start()
 assert(cycleResult.ok == false and cycleResult.code == "dependencyCycle", "dependency cycle was not rejected")
+
+local bucket = {
+    results = {
+        old = { status = "processing", fingerprint = "x" },
+    },
+    order = { "old" },
+}
+local ledger = GodSystemOperationLedger.new(bucket, { maxEntries = 20 })
+assert(bucket.results.old.status == "unknown", "persisted processing result was not recovered as unknown")
+local fingerprint = GodSystemOperationLedger.fingerprint("buy", { id = "a", count = 2 }, { "id", "count" })
+local operation, replay = ledger:begin("op-ledger", fingerprint)
+assert(operation and replay == nil and operation.status == "processing", "operation did not begin")
+local mismatchOperation, mismatchResult = ledger:begin("op-ledger", fingerprint .. "-changed")
+assert(mismatchOperation == nil and mismatchResult.code == "operationMismatch", "operation fingerprint mismatch was accepted")
+local finished = ledger:finish("op-ledger", GodSystemResult.ok("shop", "purchased", { count = 2 }))
+assert(finished.ok == true and bucket.results["op-ledger"].status == "done", "operation result was not persisted")
+local replayOperation, replayResult = ledger:begin("op-ledger", fingerprint)
+assert(replayOperation == bucket.results["op-ledger"] and replayResult.code == "operationReplay", "completed operation did not replay")
 
 print("Test-GodSystemV422012ArchitectureRuntime passed")
