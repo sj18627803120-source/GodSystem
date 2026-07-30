@@ -206,6 +206,12 @@ local function stageCompanion(context)
     return clone(source.companion or {})
 end
 
+local function stageAttributes(context)
+    return {
+        attributeSyncPending = context.player.attributeSyncPending == true,
+    }
+end
+
 local function stageAdmin(context)
     local source = context.adminConfig
     if source == nil then source = context.player.adminConfig end
@@ -234,7 +240,6 @@ local function stageSystem(context)
     local result = copyFields(source, {
         "version", "history", "ui", "started", "currencyInitialized",
         "lastMoveX", "lastMoveY", "lastMoveZ",
-        "attributeSyncPending",
     })
     result.pendingCurrencyGrant = source.currencyInitialized == true
         and 0 or math.max(0, math.floor(tonumber(source.points) or 0))
@@ -291,6 +296,8 @@ Migration.Modules = {
         stage = stageHome, validate = validateStaged, commit = commitStaged },
     { id = "feature.companion", version = 1, bucket = "actors",
         stage = stageCompanion, validate = validateStaged, commit = commitStaged },
+    { id = "feature.attributes", version = 1, bucket = "players",
+        stage = stageAttributes, validate = validateStaged, commit = commitStaged },
     { id = "admin.state", version = 1,
         stage = stageAdmin, validate = validateStaged, commit = commitStaged },
     { id = "system.state", version = 1, bucket = "players",

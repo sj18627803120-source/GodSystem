@@ -10,6 +10,7 @@ Descriptor.dependencies = {
     "medical.state",
     "medical.body",
     "medical.wallet",
+    "metrics",
     "clock",
     "operations",
     "notifications",
@@ -74,6 +75,7 @@ function Descriptor.create(dependencies, context)
     local state = requiredPort(dependencies, "medical.state", { "load", "save" })
     local body = requiredPort(dependencies, "medical.body", { "inspect", "snapshot", "apply", "restore" })
     local wallet = requiredPort(dependencies, "medical.wallet", { "charge", "refund" })
+    local metrics = requiredPort(dependencies, "metrics", { "increment" })
     local clock = requiredPort(dependencies, "clock", { "nowHours" })
     local operations = requiredPort(dependencies, "operations", { "begin", "finish" })
     local notifications = requiredPort(dependencies, "notifications", { "publish" })
@@ -130,7 +132,6 @@ function Descriptor.create(dependencies, context)
             return finish(id, makeResult(false,
                 loadCalled and (loadCode or "stateUnavailable") or "portError", nil, request), request)
         end
-        data.stats = type(data.stats) == "table" and data.stats or {}
         local inspectCalled, status, inspectCode = callPort(body.inspect, request.actor, request)
         if not inspectCalled or type(status) ~= "table" then
             return finish(id, makeResult(false,
@@ -173,7 +174,6 @@ function Descriptor.create(dependencies, context)
                     or "rollbackIncomplete", nil, request), request)
         end
         local before = copy(data)
-        data.stats.spentPoints = (safeCost(data.stats.spentPoints) or 0) + cost
         local timeCalled, now = callPort(clock.nowHours, request)
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
@@ -186,6 +186,27 @@ function Descriptor.create(dependencies, context)
             local stateRestored = save(request.actor, before, request)
             local rollbackOk = bodyCalled and bodyRestored ~= false and walletRestored and stateRestored
             return finish(id, makeResult(false, rollbackOk and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        if cost > 0 then
+            local metricCalled, counted, metricReceiptOrCode = callPort(
+                metrics.increment, request.actor, { spentPoints = cost }, request)
+            if not metricCalled or counted ~= true then
+                local bodyCalled, bodyRestored = callPort(
+                    body.restore, request.actor, bodySnapshot, request)
+                local walletRestored = true
+                if paymentReceipt then
+                    local refundCalled, refunded = callPort(
+                        wallet.refund, request.actor, paymentReceipt, request)
+                    walletRestored = refundCalled and refunded ~= false
+                end
+                local stateRestored = save(request.actor, before, request)
+                local rollbackOk = bodyCalled and bodyRestored ~= false
+                    and walletRestored and stateRestored
+                return finish(id, makeResult(false,
+                    rollbackOk and (metricCalled
+                        and (metricReceiptOrCode or "metricUpdateFailed")
+                        or "portError") or "rollbackIncomplete", nil, request), request)
+            end
         end
         return finish(id, makeResult(true, "medicalCompleted", {
             action = action,

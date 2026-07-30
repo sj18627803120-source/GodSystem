@@ -269,12 +269,14 @@ end
 local function medicalFixture(environment)
     local fixture = {
         actor = { id = environment .. "-player" },
-        data = { stats = {} },
+        data = {},
+        metrics = {},
         balance = 10000,
         body = { infected = true, injured = true },
         now = 77,
         failApply = nil,
         failSave = false,
+        failMetric = false,
         infiniteAction = nil,
     }
     local notices = notifications()
@@ -319,6 +321,18 @@ local function medicalFixture(environment)
             end,
             refund = function(_, receipt) fixture.balance = fixture.balance + receipt.amount return true end,
         },
+        metrics = {
+            increment = function(_, changes)
+                if fixture.failMetric then return false, "metricUpdateFailed" end
+                local before, after = {}, {}
+                for name, amount in pairs(changes) do
+                    before[name] = fixture.metrics[name] or 0
+                    after[name] = before[name] + amount
+                end
+                for name, value in pairs(after) do fixture.metrics[name] = value end
+                return true, { before = before, after = after }
+            end,
+        },
         clock = { nowHours = function() return fixture.now end },
         operations = operations(),
         notifications = notices,
@@ -340,7 +354,8 @@ local function runMedicalSuccess(environment)
     assert(check.ok and check.data.result == "infected", "infection check changed")
     assert(heal.ok and not f.body.injured, "injury treatment failed")
     assert(cure.ok and not f.body.infected, "infection cure failed")
-    assert(f.balance == 2950 and f.data.stats.spentPoints == 7050, "medical prices changed")
+    assert(f.balance == 2950 and f.metrics.spentPoints == 7050
+        and f.data.stats == nil, "medical prices or metric ownership changed")
     local before = f.balance
     local replay = f.instance.public.cureInfection({ actor = f.actor, operationId = environment .. "-cure" })
     assert(replay == cure and f.balance == before, "medical service was not idempotent")
@@ -365,10 +380,23 @@ do
         "non-finite medical quote was accepted")
 end
 
+do
+    local f = medicalFixture("medical-metric-rollback")
+    f.failMetric = true
+    local result = f.instance.public.healInjuries({
+        actor = f.actor, operationId = "medical-metric-fail",
+    })
+    assert(not result.ok and result.code == "metricUpdateFailed",
+        "medical metric failure code was lost")
+    assert(f.body.injured and f.balance == 10000 and f.metrics.spentPoints == nil,
+        "medical metric failure did not roll back body, wallet, and state")
+end
+
 local function homeFixture(environment)
     local fixture = {
         actor = { id = environment .. "-player" },
-        data = { homeSystem = { tempSlots = {}, safeZone = {} }, stats = {} },
+        data = { homeSystem = { tempSlots = {}, safeZone = {} } },
+        metrics = {},
         balance = 5000,
         current = { x = 10, y = 20, z = 0 },
         now = 100,
@@ -376,6 +404,7 @@ local function homeFixture(environment)
         failSave = false,
         failTeleport = false,
         failClear = false,
+        failMetric = false,
     }
     local notices = notifications()
     local levels = {
@@ -446,6 +475,24 @@ local function homeFixture(environment)
             end,
             refund = function(_, receipt) fixture.balance = fixture.balance + receipt.amount return true end,
         },
+        metrics = {
+            increment = function(_, changes)
+                if fixture.failMetric then return false, "metricUpdateFailed" end
+                local before, after = {}, {}
+                for name, amount in pairs(changes) do
+                    before[name] = fixture.metrics[name] or 0
+                    after[name] = before[name] + amount
+                end
+                for name, value in pairs(after) do fixture.metrics[name] = value end
+                return true, { before = before, after = after }
+            end,
+            restore = function(_, receipt)
+                for name, value in pairs(receipt.before or {}) do
+                    fixture.metrics[name] = value
+                end
+                return true
+            end,
+        },
         clock = { nowHours = function() return fixture.now end },
         operations = operations(),
         notifications = notices,
@@ -497,9 +544,22 @@ local function runHomeSuccess(environment)
         actor = f.actor, manual = true, operationId = environment .. "-clear",
     })
     assert(cleared.ok and cleared.data.removed == 2 and f.threats == 0, "safe-zone clear failed")
-    assert(f.balance == 3772 and f.data.stats.spentPoints == 1228,
-        "home costs changed")
+    assert(f.balance == 3772 and f.metrics.spentPoints == 1228
+        and f.metrics.homeSafeCleared == 2 and f.data.stats == nil,
+        "home costs or metric ownership changed")
     return table.concat({ f.current.x, f.data.homeSystem.safeZone.level, cleared.data.removed, f.balance }, "|")
+end
+
+do
+    local f = homeFixture("home-metric-rollback")
+    f.failMetric = true
+    local result = f.instance.public.setHome({
+        actor = f.actor, operationId = "home-metric-fail",
+    })
+    assert(not result.ok and result.code == "metricUpdateFailed",
+        "home metric failure code was lost")
+    assert(f.balance == 5000 and f.data.homeSystem.home == nil,
+        "home metric failure did not roll back wallet and state")
 end
 
 assert(runHomeSuccess("sp") == runHomeSuccess("mp"), "SP/MP home behavior diverged")

@@ -14,6 +14,7 @@ Descriptor.dependencies = {
     "attributes.mutation",
     "admin.config",
     "wallet",
+    "metrics",
     "operations",
     "notifications",
 }
@@ -76,6 +77,7 @@ function Descriptor.create(dependencies, context)
     })
     local config = required(dependencies, "admin.config", { "getSetting", "isFeatureEnabled" })
     local wallet = required(dependencies, "wallet", { "charge", "refund" })
+    local metrics = required(dependencies, "metrics", { "increment", "restore" })
     local operations = required(dependencies, "operations", { "begin", "finish", "markUnknown" })
     local notifications = required(dependencies, "notifications", { "publish" })
     local state = State.new(assert(context.state, "feature.attributes state context required"))
@@ -191,6 +193,22 @@ function Descriptor.create(dependencies, context)
         return replacement
     end
 
+    local function countMetrics(actor, changes, request)
+        local called, updated, receiptOrCode = call(
+            metrics.increment, actor, changes, request)
+        if not called then return nil, "portError" end
+        if updated ~= true or type(receiptOrCode) ~= "table" then
+            return nil, receiptOrCode or "metricUpdateFailed"
+        end
+        return receiptOrCode
+    end
+
+    local function restoreMetrics(actor, receipt, request)
+        if not receipt then return true end
+        local called, restored = call(metrics.restore, actor, receipt, request)
+        return called and restored ~= false
+    end
+
     local function purchaseAttribute(request)
         request = type(request) == "table" and request or {}
         if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
@@ -209,6 +227,15 @@ function Descriptor.create(dependencies, context)
             return finish(id, makeResult(false,
                 chargeCalled and (receipt or "balanceInsufficient") or "portError", nil, request), request)
         end
+        local metricReceipt, metricCode = countMetrics(
+            request.actor, { spentPoints = quote.cost }, request)
+        if not metricReceipt then
+            local refundCalled, refunded = call(
+                wallet.refund, request.actor, receipt, childRequest(request, "metric-rollback"))
+            return finish(id, makeResult(false,
+                refundCalled and refunded == true and metricCode
+                    or "rollbackIncomplete", nil, request), request)
+        end
         local applyCalled, applied, applyCode = call(
             mutation.addXp, request.actor, quote.info, quote.actualXp, request)
         local stateCalled, after = call(query.perkState, request.actor, quote.info)
@@ -218,6 +245,7 @@ function Descriptor.create(dependencies, context)
             local refundCalled, refunded = call(
                 wallet.refund, request.actor, receipt, childRequest(request, "rollback"))
             local rollbackOk = refundCalled and refunded == true
+                and restoreMetrics(request.actor, metricReceipt, request)
             return finish(id, makeResult(false,
                 rollbackOk and (applyCalled and (applyCode or "attributeApplyFailed") or "portError")
                     or "rollbackIncomplete", nil, request), request)
@@ -233,9 +261,26 @@ function Descriptor.create(dependencies, context)
                 }, request)
             end
             receipt = replacement
+            local adjustment = quote.cost - chargedCost
+            if adjustment > 0 then
+                local adjusted, adjustmentCode = countMetrics(
+                    request.actor, { spentPoints = -adjustment }, request)
+                if not adjusted then
+                    call(operations.markUnknown, moduleId, id,
+                        adjustmentCode or "metricUpdateFailed", request)
+                    instance.lastIssue = {
+                        stage = "metricSettlement",
+                        code = adjustmentCode or "metricUpdateFailed",
+                    }
+                    return makeResult(false, "operationOutcomeUnknown", {
+                        stage = "metricSettlement",
+                        appliedXp = appliedXp,
+                        chargedCost = chargedCost,
+                    }, request)
+                end
+            end
         end
         local syncCalled, synced = call(mutation.syncXp, request.actor, request)
-        data.stats.spentPoints = (tonumber(data.stats.spentPoints) or 0) + chargedCost
         data.attributeSyncPending = not (syncCalled and synced == true)
         local saved, saveCode = state.save(owner, data)
         if not saved then
@@ -321,8 +366,22 @@ function Descriptor.create(dependencies, context)
             end
             receipt = receiptOrCode
         end
-        data.stats.spentPoints = (tonumber(data.stats.spentPoints) or 0) + quote.cost
-        data.stats.modifiedTraits = (tonumber(data.stats.modifiedTraits) or 0) + 1
+        local changes = { modifiedTraits = 1 }
+        if quote.cost > 0 then changes.spentPoints = quote.cost end
+        local metricReceipt, metricCode = countMetrics(request.actor, changes, request)
+        if not metricReceipt then
+            local traitRollbackCalled, traitRolledBack = call(
+                mutation.setTrait, request.actor, quote.info or quote, not enable, request)
+            local walletRollback = true
+            if receipt then
+                local refundCalled, refunded = call(
+                    wallet.refund, request.actor, receipt, childRequest(request, "metric-rollback"))
+                walletRollback = refundCalled and refunded == true
+            end
+            return finish(id, makeResult(false,
+                traitRollbackCalled and traitRolledBack == true and walletRollback
+                    and metricCode or "rollbackIncomplete", nil, request), request)
+        end
         local saved, saveCode = state.save(owner, data)
         if not saved then
             local traitRollbackCalled, traitRolledBack = call(
@@ -333,8 +392,11 @@ function Descriptor.create(dependencies, context)
                     wallet.refund, request.actor, receipt, childRequest(request, "rollback"))
                 walletRollback = refundCalled and refunded == true
             end
+            local metricRollback = restoreMetrics(
+                request.actor, metricReceipt, request)
             return finish(id, makeResult(false,
                 traitRollbackCalled and traitRolledBack == true and walletRollback
+                    and metricRollback
                     and (saveCode or "stateSaveFailed") or "rollbackIncomplete", nil, request), request)
         end
         local benefitsOk, benefitsApplied = true, 0

@@ -11,6 +11,7 @@ Descriptor.dependencies = {
     "home.position",
     "home.world",
     "home.wallet",
+    "metrics",
     "clock",
     "operations",
     "notifications",
@@ -86,6 +87,7 @@ function Descriptor.create(dependencies, context)
         { "blockedReason", "current", "validate", "teleport", "restore" })
     local world = requiredPort(dependencies, "home.world", { "planClear", "executeClear" })
     local wallet = requiredPort(dependencies, "home.wallet", { "charge", "refund" })
+    local metrics = requiredPort(dependencies, "metrics", { "increment", "restore" })
     local clock = requiredPort(dependencies, "clock", { "nowHours" })
     local operations = requiredPort(dependencies, "operations", { "begin", "finish" })
     local notifications = requiredPort(dependencies, "notifications", { "publish" })
@@ -132,7 +134,6 @@ function Descriptor.create(dependencies, context)
         data.homeSystem = type(data.homeSystem) == "table" and data.homeSystem or {}
         data.homeSystem.tempSlots = type(data.homeSystem.tempSlots) == "table" and data.homeSystem.tempSlots or {}
         data.homeSystem.safeZone = type(data.homeSystem.safeZone) == "table" and data.homeSystem.safeZone or {}
-        data.stats = type(data.stats) == "table" and data.stats or {}
         return data
     end
 
@@ -166,6 +167,22 @@ function Descriptor.create(dependencies, context)
         if receipt == nil then return true end
         local called, value = callPort(wallet.refund, actor, receipt, request)
         return called and value ~= false
+    end
+
+    local function countMetrics(actor, changes, request)
+        local called, updated, receiptOrCode = callPort(
+            metrics.increment, actor, changes, request)
+        if not called then return nil, "portError" end
+        if updated ~= true or type(receiptOrCode) ~= "table" then
+            return nil, receiptOrCode or "metricUpdateFailed"
+        end
+        return receiptOrCode
+    end
+
+    local function restoreMetrics(actor, receipt, request)
+        if not receipt then return true end
+        local called, restored = callPort(metrics.restore, actor, receipt, request)
+        return called and restored ~= false
     end
 
     local function nowHours(request)
@@ -230,13 +247,23 @@ function Descriptor.create(dependencies, context)
         elseif action == "setTemp" then
             home.tempSlots[index].point = copy(point)
         end
-        data.stats.spentPoints = (safeInteger(data.stats.spentPoints, 0) or 0) + cost
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local walletRestored = refund(request.actor, paymentReceipt, request)
             local stateRestored = save(request.actor, before, request)
             return finish(id, makeResult(false,
                 walletRestored and stateRestored and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        if cost > 0 then
+            local _, metricCode = countMetrics(
+                request.actor, { spentPoints = cost }, request)
+            if metricCode then
+                local walletRestored = refund(request.actor, paymentReceipt, request)
+                local stateRestored = save(request.actor, before, request)
+                return finish(id, makeResult(false,
+                    walletRestored and stateRestored and metricCode
+                        or "rollbackIncomplete", nil, request), request)
+            end
         end
         return finish(id, makeResult(true, action .. "Completed", {
             index = action ~= "setHome" and index or nil,
@@ -303,7 +330,6 @@ function Descriptor.create(dependencies, context)
             home.returnPoint = copy(current)
             home.returnPoint.source = source
         end
-        data.stats.spentPoints = (safeInteger(data.stats.spentPoints, 0) or 0) + cost
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local restoreCalled, restored = callPort(position.restore, request.actor, moveReceipt, request)
@@ -311,6 +337,20 @@ function Descriptor.create(dependencies, context)
             local stateRestored = save(request.actor, before, request)
             local rollbackOk = restoreCalled and restored ~= false and walletRestored and stateRestored
             return finish(id, makeResult(false, rollbackOk and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        if cost > 0 then
+            local _, metricCode = countMetrics(
+                request.actor, { spentPoints = cost }, request)
+            if metricCode then
+                local restoreCalled, restored = callPort(
+                    position.restore, request.actor, moveReceipt, request)
+                local walletRestored = refund(request.actor, paymentReceipt, request)
+                local stateRestored = save(request.actor, before, request)
+                local rollbackOk = restoreCalled and restored ~= false
+                    and walletRestored and stateRestored
+                return finish(id, makeResult(false,
+                    rollbackOk and metricCode or "rollbackIncomplete", nil, request), request)
+            end
         end
         return finish(id, makeResult(true, "teleported", {
             action = action,
@@ -366,13 +406,23 @@ function Descriptor.create(dependencies, context)
         safe.level = nextValue
         safe.enabled = true
         safe.lastScanHours = nowHours(request) or safe.lastScanHours
-        data.stats.spentPoints = (safeInteger(data.stats.spentPoints, 0) or 0) + cost
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local walletRestored = refund(request.actor, receiptOrCode, request)
             local stateRestored = save(request.actor, before, request)
             return finish(id, makeResult(false,
                 walletRestored and stateRestored and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        if cost > 0 then
+            local _, metricCode = countMetrics(
+                request.actor, { spentPoints = cost }, request)
+            if metricCode then
+                local walletRestored = refund(request.actor, receiptOrCode, request)
+                local stateRestored = save(request.actor, before, request)
+                return finish(id, makeResult(false,
+                    walletRestored and stateRestored and metricCode
+                        or "rollbackIncomplete", nil, request), request)
+            end
         end
         return finish(id, makeResult(true, "safeZoneUpgraded", {
             level = nextValue,
@@ -448,8 +498,6 @@ function Descriptor.create(dependencies, context)
         local paymentReceipt = receiptOrCode
         safe.lastCleared = count
         safe.lastClearHour = now or safe.lastClearHour
-        data.stats.spentPoints = (safeInteger(data.stats.spentPoints, 0) or 0) + cost
-        data.stats.homeSafeCleared = (safeInteger(data.stats.homeSafeCleared, 0) or 0) + count
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local walletRestored = refund(request.actor, paymentReceipt, request)
@@ -457,14 +505,29 @@ function Descriptor.create(dependencies, context)
             return finish(id, makeResult(false,
                 walletRestored and stateRestored and saveCode or "rollbackIncomplete", nil, request), request)
         end
+        local metricChanges = { homeSafeCleared = count }
+        if cost > 0 then metricChanges.spentPoints = cost end
+        local metricReceipt, metricCode = countMetrics(
+            request.actor, metricChanges, request)
+        if not metricReceipt then
+            local walletRestored = refund(request.actor, paymentReceipt, request)
+            local stateRestored = save(request.actor, before, request)
+            return finish(id, makeResult(false,
+                walletRestored and stateRestored and metricCode
+                    or "rollbackIncomplete", nil, request), request)
+        end
         local executeCalled, executed, removedOrCode = callPort(
             world.executeClear, request.actor, plan, request)
         local removed = safeInteger(removedOrCode, nil)
         if not executeCalled or executed ~= true or removed ~= count then
             local walletRestored = refund(request.actor, paymentReceipt, request)
             local stateRestored = save(request.actor, before, request)
+            local metricsRestored = restoreMetrics(
+                request.actor, metricReceipt, request)
+            local worldUnchanged = not executeCalled or removed == nil or removed == 0
             return finish(id, makeResult(false,
-                walletRestored and stateRestored and
+                walletRestored and stateRestored and metricsRestored
+                    and worldUnchanged and
                     (executeCalled and (removedOrCode or "clearFailed") or "portError") or "rollbackIncomplete",
                 { planned = count, removed = removed }, request), request)
         end

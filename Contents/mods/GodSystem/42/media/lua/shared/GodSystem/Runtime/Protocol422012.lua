@@ -15,6 +15,10 @@ Protocol.S2C = {
 }
 
 Protocol.Routes = {
+    ["system.initialize"] = { moduleId = "feature.system", method = "ensureInitialized" },
+    ["system.snapshot"] = { moduleId = "feature.system", method = "snapshot" },
+    ["system.preference"] = { moduleId = "feature.system", method = "setPreference" },
+    ["system.history"] = { moduleId = "feature.system", method = "history" },
     ["wallet.balance"] = { moduleId = "feature.wallet", method = "requestBalance" },
     ["wallet.transfer"] = { moduleId = "feature.wallet", method = "requestTransfer" },
     ["bank.summary"] = { moduleId = "feature.bank", method = "summary" },

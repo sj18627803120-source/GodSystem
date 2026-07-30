@@ -67,6 +67,7 @@ require "GodSystem/Features/Admin/Module"
 require "GodSystem/Features/Admin/PublicPort"
 require "GodSystem/Features/Attributes/Module"
 require "GodSystem/Features/Attributes/PublicPort"
+require "GodSystem/Features/System/Module"
 require "GodSystem/Features/Maintenance/Rules"
 require "GodSystem/Features/Maintenance/Module"
 require "GodSystem/Features/AutoLoader/Module"
@@ -170,6 +171,7 @@ local BASE_DESCRIPTORS = {
     GodSystemAdminPublicPort,
     GodSystemAttributesFeatureModule,
     GodSystemAttributesPublicPort,
+    GodSystemSystemFeatureModule,
     GodSystemMaintenanceRulesFeature,
     GodSystemMaintenanceFeatureModule,
     GodSystemAutoLoaderFeatureModule,

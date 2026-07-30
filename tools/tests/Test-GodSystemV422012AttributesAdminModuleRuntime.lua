@@ -312,12 +312,44 @@ local wallet = {
     end,
 }
 
+local metricRows = {}
+local metrics = {
+    increment = function(actor, changes)
+        local actorKey = actor.id
+        local row = metricRows[actorKey] or {}
+        metricRows[actorKey] = row
+        local before, after = {}, {}
+        for name, amount in pairs(changes) do
+            before[name] = row[name] or 0
+            after[name] = before[name] + amount
+            if after[name] < 0 then return false, "metricRangeInvalid" end
+        end
+        for name, value in pairs(after) do row[name] = value end
+        return true, {
+            actorKey = actorKey,
+            before = before,
+            after = after,
+        }
+    end,
+    restore = function(actor, receipt)
+        if receipt.actorKey ~= actor.id then return false, "metricReceiptInvalid" end
+        local row = metricRows[actor.id] or {}
+        for name, expected in pairs(receipt.after or {}) do
+            if (row[name] or 0) ~= expected then return false, "metricStateChanged" end
+        end
+        for name, value in pairs(receipt.before or {}) do row[name] = value end
+        metricRows[actor.id] = row
+        return true
+    end,
+}
+
 local attributesScope = scope()
 local attributes = GodSystemAttributesFeatureModule.create({
     ["attributes.query"] = query,
     ["attributes.mutation"] = mutation,
     ["admin.config"] = adminPort.public,
     wallet = wallet,
+    metrics = metrics,
     operations = ops,
     notifications = notifications,
 }, { state = attributesScope })
@@ -330,6 +362,7 @@ equal(bought.ok, true, "attribute purchase")
 equal(bought.data.appliedXp, 24, "attribute admin rate")
 equal(bought.data.chargedCost, 2, "attribute charged cost")
 equal(actors.one.balance, 9998, "attribute balance")
+equal(metricRows.one.spentPoints, 2, "attribute spend metric")
 equal(actors.two.xp, 0, "second player xp isolated")
 
 local boughtReplay = attributes.public.purchaseAttribute({
@@ -345,6 +378,7 @@ local partial = attributes.public.purchaseAttribute({
 equal(partial.ok, true, "partial attribute purchase")
 equal(partial.data.chargedCost, 1, "partial attribute cost")
 equal(actors.one.balance, 9997, "partial refund and recharge")
+equal(metricRows.one.spentPoints, 3, "partial attribute metric settlement")
 actors.one.partialXp = nil
 
 actors.two.rejectXp = true
@@ -360,6 +394,8 @@ local traitBought = attributes.public.modifyTrait({
 equal(traitBought.ok, true, "positive trait purchase")
 equal(actors.one.traits.Positive, true, "positive trait applied")
 equal(traitBought.data.chargedCost, 1400, "admin trait price")
+equal(metricRows.one.spentPoints, 1403, "trait spend metric")
+equal(metricRows.one.modifiedTraits, 1, "trait count metric")
 
 local traitFailed = attributes.public.modifyTrait({
     actor = actors.two, operationId = "trait-failed", action = "buy", traitType = "Positive",
@@ -368,9 +404,11 @@ equal(traitFailed.ok, false, "trait insufficient funds")
 equal(actors.two.traits.Positive, nil, "trait rolled back after payment failure")
 
 local stateData = attributesScope.inspect()
-equal(stateData.players.one.stats.modifiedTraits, 1, "first player trait stats")
-truthy(stateData.players.two == nil or stateData.players.two.stats.modifiedTraits == 0,
-    "second player state isolated")
+truthy(stateData.players.one.stats == nil, "attribute state retained shared metrics")
+truthy(stateData.players.two == nil or stateData.players.two.stats == nil,
+    "second player state retained shared metrics")
+truthy(metricRows.two == nil or (metricRows.two.modifiedTraits or 0) == 0,
+    "second player metrics are not isolated")
 
 local badRuntime = GodSystemAdminRuntimePlatform.create({}, {
     binding = { apply = function(_, _, revision) return revision == 0 end },

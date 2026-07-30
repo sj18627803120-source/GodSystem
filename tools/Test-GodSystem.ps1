@@ -19,6 +19,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012ConfigSnapshot.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012Metrics.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012AttributesAdminModule.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012SystemModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012MaintenanceModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012WalletBankModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012TaskShopRecycleModule.ps1') -Root $RepoRoot
