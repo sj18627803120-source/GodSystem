@@ -4,6 +4,8 @@
 - Do not use Superpowers skills for this project. Follow this file, the handoff documents, and the bundled `pz-mod-dev` skill directly.
 - Keep `main` as the last integrated development baseline. Create a focused feature or fix branch before implementing a new version or substantial behavior change.
 - Read `docs/GodSystem_DevHandoff_CN/00_继续开发入口.md` first, then open only the current task's relevant design, official-reference, or history documents.
+- Treat `Contents/mods/GodSystem/42/media/lua/shared/GodSystem` as the strict modular runtime. New business logic belongs in a feature module with explicit injected platform ports; UI and context-menu shells may call only the modular facade/adapters.
+- Do not restore the retired legacy network, protocol, server monolith, runtime-mode switch, storage manager, `safeAll`, controller, capacity-lock, or compression paths.
 - Do not guess Project Zomboid APIs. Check the same-version vanilla Lua or decompiled Java first, then official migration material, then same-version reference MOD evidence.
 - Before editing, trace the existing call path and define the smallest change and verification target. For bugs, preserve the reported stack trace and add a focused regression when practical.
 - Inspect `git status`, `git diff --stat`, and the focused `git diff` before committing.

@@ -25,7 +25,7 @@ local originalTerminalCapacity = source.TerminalCapacityLevels[1].value
 
 local snapshot = GodSystemRuntimeConfigSnapshot.build()
 expect(snapshot ~= source, "snapshot aliases published config")
-expect(snapshot.Version == "42.20.1.1", "published version mapping changed")
+expect(snapshot.Version == "42.20.1.2", "published version mapping changed")
 expect(snapshot.StartingPoints == 60, "starting points mapping changed")
 expect(snapshot.KillPointReward == 1, "kill reward mapping changed")
 expect(#snapshot.shop.products == 17 and originalShopCount == 17,

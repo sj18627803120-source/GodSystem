@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012Architecture.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012Release.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemArchitectureBoundaries.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012LegacyCleanup.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012Composition.ps1') -Root $RepoRoot
@@ -41,7 +42,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012TerminalStorageAdapters.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012StorageAdapter.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012AutoLoaderAdapter.ps1') -Root $RepoRoot
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422011.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.1'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422011.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.2'
 & (Join-Path $PSScriptRoot 'tests\Test-ReferenceModResearch.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-RepositoryGuidance.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemEncoding.ps1') -Root $RepoRoot -IncludeDocs
