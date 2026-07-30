@@ -237,28 +237,23 @@ function Descriptor.create(dependencies, context)
     local function begin(request)
         local id = operationId(request)
         if not id then return nil, result(false, "operationIdRequired", nil, request) end
-        local called, row, ledgerResult = method(operations, "begin", id, fingerprint(request))
-        if not called then return nil, portFailure("operationBegin", row, request) end
-        if not row then
+        local called, status, ledgerResult = call(operations.begin, moduleId, id,
+            fingerprint(request), request)
+        if not called then return nil, portFailure("operationBegin", status, request) end
+        if status == "replay" then return nil, ledgerResult end
+        if status ~= "new" then
             local code = type(ledgerResult) == "table" and ledgerResult.code or "operationInvalid"
             return nil, result(false, code,
                 type(ledgerResult) == "table" and ledgerResult.data or nil, request)
         end
-        if ledgerResult then
-            if row.status == "done" and type(row.result) == "table" then return nil, row.result end
-            if row.status == "unknown" then
-                return nil, result(false, "operationOutcomeUnknown", nil, request)
-            end
-            return nil, result(false, "operationPending", nil, request)
-        end
-        return row
+        return ledgerResult
     end
 
     local function finish(request, value)
         local id = operationId(request)
-        local called, finished = method(operations, "finish", id, value)
+        local called, finished = call(operations.finish, moduleId, id, value, request)
         if called and type(finished) == "table" then return finished end
-        method(operations, "markUnknown", id, "operationOutcomeUnknown")
+        call(operations.markUnknown, moduleId, id, "operationOutcomeUnknown", request)
         instance.lastIssue = {
             stage = "operationFinish",
             code = "operationOutcomeUnknown",
@@ -721,7 +716,7 @@ function Descriptor.create(dependencies, context)
         if not row then return replay end
         local called, value = call(executeAction, request)
         if not called then
-            method(operations, "markUnknown", operationId(request), "portError")
+            call(operations.markUnknown, moduleId, operationId(request), "portError", request)
             return portFailure("execute", value, request)
         end
         return finish(request, value)

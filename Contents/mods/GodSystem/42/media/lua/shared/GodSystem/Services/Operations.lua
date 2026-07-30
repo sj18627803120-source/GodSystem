@@ -14,41 +14,57 @@ function Descriptor.create(_, context)
     local instance = { started = false }
     local public = {}
 
-    local function arguments(first, second, third)
-        if first == public then return "default", second, third end
-        return tostring(first or "default"), second, third
+    local function actorKey(request)
+        request = type(request) == "table" and request or {}
+        local explicit = tostring(request.actorKey or "")
+        if explicit ~= "" then return explicit end
+        local actor = request.actor
+        if actor and type(actor.getUsername) == "function" then
+            local username = actor:getUsername()
+            if username ~= nil and tostring(username) ~= "" then return tostring(username) end
+        end
+        if actor and type(actor.getOnlineID) == "function" then
+            local onlineId = actor:getOnlineID()
+            if onlineId ~= nil then return "id:" .. tostring(onlineId) end
+        end
+        return "local"
     end
 
-    local function ledgerFor(moduleId)
-        moduleId = tostring(moduleId or "default")
-        local bucket = state.buckets[moduleId]
+    local function arguments(first, second, third, fourth)
+        if first == public then return "default", second, third, fourth end
+        return tostring(first or "default"), second, third, fourth
+    end
+
+    local function ledgerFor(moduleId, request)
+        local scope = tostring(moduleId or "default") .. "@" .. actorKey(request)
+        local bucket = state.buckets[scope]
         if type(bucket) ~= "table" then
             bucket = {}
-            state.buckets[moduleId] = bucket
+            state.buckets[scope] = bucket
         end
         return GodSystemOperationLedger.new(bucket, { maxEntries = 400 })
     end
 
     public = {
-        begin = function(first, second, third)
-            local moduleId, operationId, fingerprint = arguments(first, second, third)
-            local row, replay = ledgerFor(moduleId):begin(operationId, fingerprint)
+        begin = function(first, second, third, fourth)
+            local moduleId, operationId, fingerprint, request = arguments(first, second, third, fourth)
+            local row, replay = ledgerFor(moduleId, request):begin(operationId, fingerprint)
             if first == public then return row, replay end
             if not row then return false, replay end
             if replay then return "replay", row.result or replay end
             return "new", row
         end,
-        finish = function(first, second, third)
-            local moduleId, operationId, result = arguments(first, second, third)
-            return ledgerFor(moduleId):finish(operationId, result)
+        finish = function(first, second, third, fourth)
+            local moduleId, operationId, result, request = arguments(first, second, third, fourth)
+            return ledgerFor(moduleId, request):finish(operationId, result)
         end,
-        markUnknown = function(first, second, third)
-            local moduleId, operationId, code = arguments(first, second, third)
-            return ledgerFor(moduleId):markUnknown(operationId, code)
+        markUnknown = function(first, second, third, fourth)
+            local moduleId, operationId, code, request = arguments(first, second, third, fourth)
+            return ledgerFor(moduleId, request):markUnknown(operationId, code)
         end,
-        get = function(first, second)
-            local moduleId, operationId = arguments(first, second)
-            return ledgerFor(moduleId):get(operationId)
+        get = function(first, second, third)
+            local moduleId, operationId, request = arguments(first, second, third)
+            return ledgerFor(moduleId, request):get(operationId)
         end,
     }
     instance.public = public

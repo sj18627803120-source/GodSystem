@@ -129,7 +129,32 @@ local function fundsPort(initial)
 end
 
 local function ledger()
-    return GodSystemOperationLedger.new({ results = {}, order = {} }, { maxEntries = 500 })
+    local buckets = {}
+    local function scoped(moduleId, request)
+        local actor = type(request) == "table" and request.actor or "local"
+        local key = tostring(moduleId or "default") .. "@" .. tostring(actor or "local")
+        if not buckets[key] then
+            buckets[key] = GodSystemOperationLedger.new(
+                { results = {}, order = {} },
+                { maxEntries = 500 }
+            )
+        end
+        return buckets[key]
+    end
+    return {
+        begin = function(moduleId, operationId, fingerprint, request)
+            local row, replay = scoped(moduleId, request):begin(operationId, fingerprint)
+            if not row then return false, replay end
+            if replay then return "replay", row.result or replay end
+            return "new", row
+        end,
+        finish = function(moduleId, operationId, result, request)
+            return scoped(moduleId, request):finish(operationId, result)
+        end,
+        markUnknown = function(moduleId, operationId, code, request)
+            return scoped(moduleId, request):markUnknown(operationId, code)
+        end,
+    }
 end
 
 local function walletEnvironment(initial, sharedLedger)

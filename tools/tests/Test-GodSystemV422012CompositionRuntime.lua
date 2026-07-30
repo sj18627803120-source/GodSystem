@@ -82,6 +82,14 @@ assert(type(finishedOperation) == "table" and finishedOperation.ok == true,
     "direct operation could not finish")
 local replayStatus, replayResult = operations.begin("test.module", "composition-op", "fingerprint")
 assert(replayStatus == "replay" and replayResult.ok == true, "direct operation did not replay")
+local playerA = { actorKey = "player-a" }
+local playerB = { actorKey = "player-b" }
+assert(operations.begin("test.scope", "same-operation", "same", playerA) == "new",
+    "first player operation did not start")
+assert(operations.begin("test.scope", "same-operation", "same", playerB) == "new",
+    "second player operation collided with first player")
+operations.finish("test.scope", "same-operation", { ok = true }, playerA)
+operations.finish("test.scope", "same-operation", { ok = true }, playerB)
 
 local health = runtime:health()
 assert(#health.modules == 22, "composition health omitted registered modules")
