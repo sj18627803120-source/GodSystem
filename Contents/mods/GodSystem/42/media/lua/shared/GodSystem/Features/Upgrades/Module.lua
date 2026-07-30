@@ -340,10 +340,16 @@ function Descriptor.create(dependencies, context)
         })
     end
 
+    local function requestSummary(request)
+        request = type(request) == "table" and request or {}
+        return summary(request.actor, request)
+    end
+
     instance.public = {
         upgrade = upgrade,
         refresh = refresh,
         summary = summary,
+        requestSummary = requestSummary,
     }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end

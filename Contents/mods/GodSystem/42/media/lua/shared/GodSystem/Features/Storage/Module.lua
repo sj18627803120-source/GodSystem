@@ -1591,6 +1591,11 @@ function Descriptor.create(dependencies, context)
         }, request)
     end
 
+    local function requestStatus(request)
+        request = type(request) == "table" and request or {}
+        return status(request.actor, request)
+    end
+
     local function startIndexPublic(request)
         request = type(request) == "table" and request or {}
         if not instance.started then return result(false, "moduleStopped", nil, request) end
@@ -1616,6 +1621,7 @@ function Descriptor.create(dependencies, context)
     instance.public = {
         execute = execute,
         status = status,
+        requestStatus = requestStatus,
         startIndex = startIndexPublic,
         processJobs = processJobs,
         snapshot = snapshot,

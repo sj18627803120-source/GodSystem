@@ -537,7 +537,18 @@ function Descriptor.create(dependencies, context)
         }, request), request)
     end
 
+    local function snapshot(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
+        local data, failure = load(request.actor, request)
+        if not data then return failure end
+        return makeResult(true, "snapshot", {
+            homeSystem = copy(data.homeSystem),
+        }, request)
+    end
+
     instance.public = {
+        snapshot = snapshot,
         setHome = function(request) return mutatePoint("setHome", request) end,
         buyTemp = function(request) return mutatePoint("buyTemp", request) end,
         setTemp = function(request) return mutatePoint("setTemp", request) end,

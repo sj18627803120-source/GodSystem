@@ -285,6 +285,11 @@ function Descriptor.create(dependencies, context)
         }, request)
     end
 
+    local function requestStatus(request)
+        request = type(request) == "table" and request or {}
+        return status(request.actor, request)
+    end
+
     local function claim(actor, request)
         local terminalState, revision, loadError = loadState(actor, request)
         if not terminalState then return loadError end
@@ -480,6 +485,7 @@ function Descriptor.create(dependencies, context)
     instance.public = {
         execute = execute,
         status = status,
+        requestStatus = requestStatus,
         claim = function(request)
             request = type(request) == "table" and request or {}
             request.action = "claim"

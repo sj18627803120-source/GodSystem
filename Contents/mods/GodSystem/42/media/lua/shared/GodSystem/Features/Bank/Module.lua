@@ -732,9 +732,18 @@ function Descriptor.create(dependencies, context)
         return GodSystemResult.ok(moduleId, "BankSummary", value)
     end
 
+    local function requestSummary(request)
+        request = type(request) == "table" and request or {}
+        if request.actor == nil then
+            return result(false, "actorRequired", nil, request)
+        end
+        return summary(request.actor)
+    end
+
     instance.public = {
         execute = execute,
         summary = summary,
+        requestSummary = requestSummary,
         deposit = function(request)
             request = childRequest(request, "depositPublic", { action = "deposit" })
             return execute(request)

@@ -66,6 +66,30 @@ local dispatched = runtime:dispatch({
     args = {},
 }, { actorKey = "local" })
 assert(dispatched.ok and dispatched.code == "balance", "runtime dispatcher was not connected")
+local bankSummary = runtime:dispatch({
+    protocol = "42.20.1.2",
+    requestId = "kernel-bank-summary",
+    action = "bank.summary",
+    args = {},
+}, { actorKey = "local" })
+assert(bankSummary.ok and bankSummary.data.current == 75,
+    "request-style bank summary lost the actor")
+local taskSnapshot = runtime:dispatch({
+    protocol = "42.20.1.2",
+    requestId = "kernel-task-snapshot",
+    action = "tasks.snapshot",
+    args = {},
+}, { actorKey = "local" })
+assert(taskSnapshot.ok and type(taskSnapshot.data.tasks) == "table",
+    "request-style task snapshot failed")
+local homeSnapshot = runtime:dispatch({
+    protocol = "42.20.1.2",
+    requestId = "kernel-home-snapshot",
+    action = "home.snapshot",
+    args = {},
+}, { actorKey = "local" })
+assert(homeSnapshot.ok and type(homeSnapshot.data.homeSystem) == "table",
+    "request-style home snapshot failed")
 assert(runtime:save() == true, "runtime save failed")
 runtime:stop("test")
 

@@ -480,7 +480,51 @@ function Descriptor.create(dependencies, context)
         }, request), request)
     end
 
+    local function catalog(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
+        local data, failure = load(request.actor, request)
+        if not data then return failure end
+        local category = tostring(request.category or "all")
+        local called, configured = callPort(
+            config.configuredCandidates, request.actor, category, request)
+        if not called or type(configured) ~= "table" then
+            return makeResult(false, called and "shopConfigUnavailable" or "portError",
+                nil, request)
+        end
+        local products = {}
+        for index = 1, #configured do
+            local row = copy(configured[index])
+            row.source = "configured"
+            products[#products + 1] = row
+        end
+        for variantKey, unlocked in pairs(data.unlockedShopItems) do
+            if type(unlocked) == "table" then
+                local row = copy(unlocked)
+                row.variantKey = tostring(row.variantKey or variantKey)
+                row.id = productIdFor(row, "unlocked", request)
+                row.source = "unlocked"
+                if category == "all"
+                    or tostring(row.categoryKey or row.group or "normal") == category
+                then
+                    products[#products + 1] = row
+                end
+            end
+        end
+        table.sort(products, function(left, right)
+            local leftLabel = tostring(left.label or left.name or left.id or "")
+            local rightLabel = tostring(right.label or right.name or right.id or "")
+            if leftLabel ~= rightLabel then return leftLabel < rightLabel end
+            return tostring(left.id or left.variantKey or "")
+                < tostring(right.id or right.variantKey or "")
+        end)
+        return makeResult(true, "catalog", {
+            products = products,
+        }, request)
+    end
+
     instance.public = {
+        catalog = catalog,
         listItem = listItem,
         setHidden = function(request) return changeListing("visibility", request) end,
         deleteListing = function(request) return changeListing("delete", request) end,

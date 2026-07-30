@@ -24,10 +24,16 @@ GodSystemUI.taskTracker = nil
 GodSystemUI.shortcutWindow = nil
 GodSystemUI.shopHiddenWindow = nil
 GodSystemUI.runtime = nil
+GodSystemUI.gateway = nil
 
 function GodSystemUI.bindRuntime(runtime)
     GodSystemUI.runtime = runtime
     if GodSystemUI.window then GodSystemUI.window.modularRuntime = runtime end
+end
+
+function GodSystemUI.bindGateway(gateway)
+    GodSystemUI.gateway = gateway
+    if GodSystemUI.window then GodSystemUI.window.modularGateway = gateway end
 end
 
 local function gsSetLabel(label, text)

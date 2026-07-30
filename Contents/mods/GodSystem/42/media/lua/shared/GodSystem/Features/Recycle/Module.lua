@@ -432,7 +432,22 @@ function Descriptor.create(dependencies, context)
         }, request), request)
     end
 
-    instance.public = { execute = execute }
+    local function snapshot(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
+        local data, failure = load(request.actor, request)
+        if not data then return failure end
+        return makeResult(true, "snapshot", {
+            recycleLimitDay = data.recycleLimitDay,
+            recycleLimitUsed = math.max(0, integer(data.recycleLimitUsed, 0)),
+            recycleUnlockMode = data.recycleUnlockMode,
+            waistAutoRecycleUnlocked = data.waistAutoRecycleUnlocked == true,
+            waistAutoRecycleEnabled = data.waistAutoRecycleEnabled == true,
+            waistRecycleUnlockMode = data.waistRecycleUnlockMode,
+        }, request)
+    end
+
+    instance.public = { execute = execute, snapshot = snapshot }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end
     function instance:health()
