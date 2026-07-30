@@ -21,6 +21,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012ClientGateway.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012UIFacade.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012UIShellAdapter.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012UIActionAdapter.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012PZRuntime.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012ConfigSnapshot.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012Metrics.ps1') -Root $RepoRoot

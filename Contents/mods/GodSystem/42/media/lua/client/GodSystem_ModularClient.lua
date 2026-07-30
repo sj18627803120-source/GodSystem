@@ -2,6 +2,7 @@ require "GodSystem/Runtime/PZClient"
 require "GodSystem/Platform/Companion/PZVisuals"
 require "GodSystem/UI/Facade"
 require "GodSystem/UI/ShellAdapter"
+require "GodSystem/UI/ActionAdapter"
 require "GodSystem_UI"
 
 GodSystemModularClient = GodSystemModularClient or {
@@ -9,6 +10,7 @@ GodSystemModularClient = GodSystemModularClient or {
     visuals = nil,
     facade = nil,
     shell = nil,
+    actions = nil,
 }
 
 function GodSystemModularClient.start()
@@ -50,8 +52,15 @@ function GodSystemModularClient.start()
         target = GodSystem,
     })
     shell:install()
+    local actions = GodSystemUIActionAdapter.new({
+        facade = facade,
+        target = GodSystem,
+        companionTarget = GodSystemCompanion,
+    })
+    actions:install()
     GodSystemModularClient.facade = facade
     GodSystemModularClient.shell = shell
+    GodSystemModularClient.actions = actions
     GodSystemUI.bindRuntime(instance.runtime or instance)
     GodSystemUI.bindGateway(instance.gateway)
     GodSystemUI.bindFacade(facade)
@@ -60,6 +69,9 @@ function GodSystemModularClient.start()
 end
 
 function GodSystemModularClient.stop(reason)
+    if GodSystemModularClient.actions then
+        GodSystemModularClient.actions:stop()
+    end
     if GodSystemModularClient.shell then
         GodSystemModularClient.shell:stop()
     end
@@ -76,6 +88,7 @@ function GodSystemModularClient.stop(reason)
     GodSystemModularClient.visuals = nil
     GodSystemModularClient.facade = nil
     GodSystemModularClient.shell = nil
+    GodSystemModularClient.actions = nil
 end
 
 function GodSystemModularClient.receive(moduleName, command, packet)
