@@ -326,6 +326,48 @@ function Descriptor.create(dependencies, context)
         return false, "receiptInvalid"
     end
 
+    local function consolidate(actor)
+        local rows, total = currencyRows(actor, denominations)
+        if #rows <= 1 then
+            return true, {
+                total = total,
+                originalCount = #rows,
+                newCount = #rows,
+            }
+        end
+        local removed = {}
+        for index = 1, #rows do
+            local row = rows[index]
+            if not row.container or type(row.container.Remove) ~= "function" then
+                restoreRemoved(removed, actor)
+                return false, "cashRemovalFailed"
+            end
+            row.container:Remove(row.item)
+            removed[#removed + 1] = row
+            syncRemoved(row.container, row.item)
+            markDirty(row.container)
+        end
+        local addedOk, added = addCurrency(actor, total)
+        if not addedOk then
+            if not restoreRemoved(removed, actor) then
+                instance.failures = instance.failures + 1
+                return false, "rollbackIncomplete"
+            end
+            return false, "cashGrantFailed"
+        end
+        instance.mutations = instance.mutations + 1
+        return true, {
+            total = total,
+            originalCount = #rows,
+            newCount = #added,
+            receipt = {
+                kind = "consolidate",
+                removed = removed,
+                added = added,
+            },
+        }
+    end
+
     public = {
         balance = function(first, second, third)
             local actor, scope = portArguments(first, second, third)
@@ -342,6 +384,10 @@ function Descriptor.create(dependencies, context)
         restore = function(first, second, third)
             local actor, receipt = portArguments(first, second, third)
             return restore(actor, receipt)
+        end,
+        consolidate = function(first, second)
+            local actor = first == public and second or first
+            return consolidate(actor)
         end,
         health = function()
             return instance.failures == 0, {

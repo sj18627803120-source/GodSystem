@@ -32,6 +32,9 @@ function GodSystemTasksConfigPlatform.create(_, context)
         getDefaultLimitHours = function()
             return Support.integer(config.defaultLimitHours, 24, 1)
         end,
+        getRefreshCost = function()
+            return Support.integer(config.refreshCost, 0, 0)
+        end,
     }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end

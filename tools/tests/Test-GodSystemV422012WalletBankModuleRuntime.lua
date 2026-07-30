@@ -124,6 +124,15 @@ local function fundsPort(initial)
         return true
     end
 
+    function port:consolidate(actor)
+        local row = account(self, actor)
+        return true, {
+            total = row.cash or 0,
+            originalCount = 3,
+            newCount = (row.cash or 0) > 0 and 1 or 0,
+        }
+    end
+
     function port:health() return true, { balances = true } end
     return port
 end
@@ -177,6 +186,19 @@ do
     wallet:start()
 
     expect(wallet.public.getBalance("alice", "spendable") == 1300, "wallet aggregate balance")
+    local consolidated = wallet.public.requestConsolidate({
+        actor = "alice",
+        operationId = "wallet-consolidate-1",
+    })
+    expect(consolidated.ok and consolidated.code == "consolidated"
+        and consolidated.data.total == 1000, "wallet consolidate request")
+    expect(funds.balances.alice.cash == 1000 and funds.balances.alice.current == 300,
+        "wallet consolidation preserves balances")
+    local consolidateReplay = wallet.public.requestConsolidate({
+        actor = "alice",
+        operationId = "wallet-consolidate-1",
+    })
+    expect(consolidateReplay == consolidated, "wallet consolidation is idempotent")
 
     local charged, receipt, _, chargeResult = wallet.public.charge("alice", 400, {
         operationId = "wallet-charge-1",

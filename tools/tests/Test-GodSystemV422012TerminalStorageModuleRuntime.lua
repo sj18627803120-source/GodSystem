@@ -687,6 +687,21 @@ do
     expect(snapshot and snapshot.itemCount == 1 and snapshot.groupCount == 1
         and #snapshot.containers == 3,
         "storage index summarizes connected items")
+    local snapshotResult = module.public.requestSnapshot({
+        actor = "alice",
+        snapshotId = snapshot.snapshotId,
+    })
+    expect(snapshotResult.ok and snapshotResult.code == "StorageSnapshot"
+        and snapshotResult.data.itemCount == 1,
+        "storage snapshot request envelope")
+    local detailResult = module.public.requestInstanceDetails({
+        actor = "alice",
+        snapshotId = snapshot.snapshotId,
+        groupKey = "Base.Plank",
+    })
+    expect(detailResult.ok and detailResult.code == "StorageDetails"
+        and #detailResult.data.instances == 1,
+        "storage details request envelope")
     local withdrawn = module.public.withdraw({
         actor = "alice", operationId = "storage-withdraw",
         networkId = "network-1", snapshotId = snapshot.snapshotId,

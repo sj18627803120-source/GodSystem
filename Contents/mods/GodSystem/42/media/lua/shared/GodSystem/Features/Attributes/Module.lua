@@ -415,12 +415,46 @@ function Descriptor.create(dependencies, context)
         }, request), request)
     end
 
+    local function requestListPerks(request)
+        request = type(request) == "table" and request or {}
+        return makeResult(true, "perks", {
+            perks = copy(listPerks(request.actor, request.search)),
+        }, request)
+    end
+
+    local function requestAttributeQuote(request)
+        request = type(request) == "table" and request or {}
+        local quote, code = attributeQuote(
+            request.actor, request.perkIndex, request.mode, request.value)
+        if not quote then return makeResult(false, code, nil, request) end
+        return makeResult(true, "attributeQuote", { quote = copy(quote) }, request)
+    end
+
+    local function requestListTraits(request)
+        request = type(request) == "table" and request or {}
+        return makeResult(true, "traits", {
+            traits = copy(listTraits(request.actor, request.action)),
+        }, request)
+    end
+
+    local function requestTraitQuote(request)
+        request = type(request) == "table" and request or {}
+        local quote, code = traitQuote(
+            request.actor, request.action, request.traitType)
+        if not quote then return makeResult(false, code, nil, request) end
+        return makeResult(true, "traitQuote", { quote = copy(quote) }, request)
+    end
+
     instance.public = {
         listPerks = listPerks,
+        requestListPerks = requestListPerks,
         quoteAttribute = attributeQuote,
+        requestAttributeQuote = requestAttributeQuote,
         purchaseAttribute = purchaseAttribute,
         listTraits = listTraits,
+        requestListTraits = requestListTraits,
         quoteTrait = traitQuote,
+        requestTraitQuote = requestTraitQuote,
         modifyTrait = modifyTrait,
     }
 

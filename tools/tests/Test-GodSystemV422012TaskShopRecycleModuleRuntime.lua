@@ -121,6 +121,7 @@ local function taskFixture(environment)
             getDailyCount = function() return 2 end,
             getMaxActive = function() return 3 end,
             getDefaultLimitHours = function() return 24 end,
+            getRefreshCost = function() return 25 end,
         },
         ["tasks.state"] = {
             load = function() return fixture.data end,
@@ -195,6 +196,15 @@ local function taskFixture(environment)
                 fixture.balance = fixture.balance + receipt.amount
                 return true
             end,
+            charge = function(_, amount)
+                if fixture.balance < amount then return false, "balanceInsufficient" end
+                fixture.balance = fixture.balance - amount
+                return true, { amount = amount }
+            end,
+            refund = function(_, receipt)
+                fixture.balance = fixture.balance + receipt.amount
+                return true
+            end,
         },
         metrics = newMetrics(fixture),
         ["upgrades.read"] = {
@@ -226,6 +236,21 @@ local function runTaskSuccess(environment)
     })
     assert(generated.ok and generated.code == "generated" and generated.data.count == 2, "task generation failed")
     assert(#f.data.tasks == 2 and f.data.tasks[1].kind == "turnInItem", "task templates were not generated")
+    local refreshed = f.instance.public.refresh({
+        actor = f.actor,
+        operationId = environment .. "-refresh",
+    })
+    assert(refreshed.ok and refreshed.code == "refreshed"
+        and refreshed.data.count == 2 and refreshed.data.cost == 25,
+        "paid task refresh failed")
+    assert(f.balance == 75 and f.metrics.spentPoints == 25,
+        "task refresh payment or metric is wrong")
+    local refreshReplay = f.instance.public.refresh({
+        actor = f.actor,
+        operationId = environment .. "-refresh",
+    })
+    assert(refreshReplay == refreshed and f.balance == 75 and f.metrics.spentPoints == 25,
+        "task refresh was not idempotent")
     local turnInId = f.data.tasks[1].taskId
     local accepted = f.instance.public.accept({
         actor = f.actor,
@@ -262,7 +287,7 @@ local function runTaskSuccess(environment)
         operationId = environment .. "-fail",
     })
     assert(failed.ok and failed.code == "failed" and failed.data.penaltyPaid == 7, "task failure failed")
-    assert(f.balance == 93 and f.metrics.failedTasks == 1, "task failure penalty is wrong")
+    assert(f.balance == 68 and f.metrics.failedTasks == 1, "task failure penalty is wrong")
     return table.concat({ claimed.code, failed.code, f.rewardPoints, f.rewardItems, f.balance }, "|")
 end
 

@@ -73,12 +73,14 @@ function Descriptor.create(dependencies, context)
     context = context or {}
     local moduleId = tostring(context.moduleId or Descriptor.id)
     local config = requiredPort(dependencies, "tasks.config",
-        { "getTemplates", "getDailyCount", "getMaxActive", "getDefaultLimitHours" })
+        { "getTemplates", "getDailyCount", "getMaxActive", "getDefaultLimitHours",
+            "getRefreshCost" })
     local state = requiredPort(dependencies, "tasks.state", { "load", "save" })
     local inventory = requiredPort(dependencies, "tasks.inventory",
         { "count", "consume", "restore", "grant", "revoke" })
     local wallet = requiredPort(dependencies, "tasks.wallet",
-        { "credit", "revokeCredit", "chargePenalty", "refundPenalty" })
+        { "charge", "refund", "credit", "revokeCredit", "chargePenalty",
+            "refundPenalty" })
     local metrics = requiredPort(dependencies, "metrics", { "snapshot", "get", "increment", "restore" })
     local upgrades = requiredPort(dependencies, "upgrades.read", { "limits" })
     local clock = requiredPort(dependencies, "clock", { "nowHours", "currentDay" })
@@ -315,6 +317,98 @@ function Descriptor.create(dependencies, context)
             return finish(id, makeResult(false, saveCode, nil, request), request)
         end
         return finish(id, makeResult(true, "accepted", { taskId = task.taskId }, request), request)
+    end
+
+    local function refresh(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
+        local id, replay = begin("refresh", "open", request)
+        if replay then return replay end
+        local data, failure = load(request.actor, request)
+        if not data then return finish(id, failure, request) end
+        local called, templates = callPort(config.getTemplates, request.actor, request)
+        if not called or type(templates) ~= "table" or #templates == 0 then
+            return finish(id, makeResult(false, "taskTemplatesUnavailable", nil, request), request)
+        end
+        local cost = math.max(0, integer(config.getRefreshCost(request.actor, request), 0))
+        local paymentReceipt
+        if cost > 0 then
+            local chargedCalled, charged, receiptOrCode = callPort(
+                wallet.charge, request.actor, cost, request)
+            if not chargedCalled or charged ~= true or receiptOrCode == nil then
+                return finish(id, makeResult(false,
+                    chargedCalled and (receiptOrCode or "balanceInsufficient")
+                        or "portError", nil, request), request)
+            end
+            paymentReceipt = receiptOrCode
+        end
+        local before = copy(data)
+        local refreshed = 0
+        local available = {}
+        for templateIndex = 1, #templates do
+            available[templateIndex] = templates[templateIndex]
+        end
+        for index = 1, #data.tasks do
+            if data.tasks[index].status == "open" then
+                if #available == 0 then
+                    for templateIndex = 1, #templates do
+                        available[templateIndex] = templates[templateIndex]
+                    end
+                end
+                local picked, templateIndex = callPort(random.index, #available, request)
+                if not picked then
+                    if paymentReceipt then callPort(wallet.refund,
+                        request.actor, paymentReceipt, request) end
+                    return finish(id, makeResult(false, "portError",
+                        { stage = "random" }, request), request)
+                end
+                templateIndex = math.max(1,
+                    math.min(#available, integer(templateIndex, 1)))
+                local created, taskOrError = pcall(
+                    createTask, table.remove(available, templateIndex), request)
+                if not created then
+                    if paymentReceipt then callPort(wallet.refund,
+                        request.actor, paymentReceipt, request) end
+                    return finish(id, makeResult(false, "portError", {
+                        stage = "createTask",
+                        message = tostring(taskOrError),
+                    }, request), request)
+                end
+                data.tasks[index] = taskOrError
+                refreshed = refreshed + 1
+            end
+        end
+        local saved, saveCode = save(request.actor, data, request)
+        if not saved then
+            save(request.actor, before, request)
+            local refunded = true
+            if paymentReceipt then
+                local refundCalled, refundValue = callPort(
+                    wallet.refund, request.actor, paymentReceipt, request)
+                refunded = refundCalled and refundValue ~= false
+            end
+            return finish(id, makeResult(false,
+                refunded and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        local metricReceipt
+        if cost > 0 then
+            local counted, receiptOrCode = incrementMetric(
+                request.actor, { spentPoints = cost }, request)
+            if not counted then
+                local stateRestored = save(request.actor, before, request)
+                local refundCalled, refunded = callPort(
+                    wallet.refund, request.actor, paymentReceipt, request)
+                return finish(id, makeResult(false,
+                    stateRestored and refundCalled and refunded ~= false
+                        and receiptOrCode or "rollbackIncomplete", nil, request), request)
+            end
+            metricReceipt = receiptOrCode
+        end
+        return finish(id, makeResult(true, "refreshed", {
+            count = refreshed,
+            cost = cost,
+            metricReceipt = metricReceipt,
+        }, request), request)
     end
 
     local function progress(request)
@@ -564,6 +658,7 @@ function Descriptor.create(dependencies, context)
 
     instance.public = {
         generate = generate,
+        refresh = refresh,
         accept = accept,
         progress = progress,
         snapshot = snapshot,

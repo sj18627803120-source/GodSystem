@@ -110,6 +110,8 @@ local function descriptor(id, methods)
 end
 
 GodSystemTasksWalletPlatform = GodSystemTasksWalletPlatform or descriptor("tasks.wallet", {
+    charge = "charge",
+    refund = "refund",
     credit = "credit",
     revokeCredit = "revokeCredit",
     chargePenalty = "chargeUpTo",

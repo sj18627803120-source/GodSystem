@@ -1618,6 +1618,25 @@ function Descriptor.create(dependencies, context)
         return Rules.copy(job.instances[tostring(groupKey or "")] or {})
     end
 
+    local function requestSnapshot(request)
+        request = type(request) == "table" and request or {}
+        local value = snapshot(request.snapshotId)
+        if not value then return result(false, "snapshotMissing", nil, request) end
+        return result(true, "StorageSnapshot", value, request)
+    end
+
+    local function requestInstanceDetails(request)
+        request = type(request) == "table" and request or {}
+        local job = instance.snapshotJobs[tostring(request.snapshotId or "")]
+        if not job then return result(false, "snapshotMissing", nil, request) end
+        return result(true, "StorageDetails", {
+            snapshotId = tostring(request.snapshotId or ""),
+            groupKey = tostring(request.groupKey or ""),
+            instances = Rules.copy(
+                job.instances[tostring(request.groupKey or "")] or {}),
+        }, request)
+    end
+
     instance.public = {
         execute = execute,
         status = status,
@@ -1625,7 +1644,9 @@ function Descriptor.create(dependencies, context)
         startIndex = startIndexPublic,
         processJobs = processJobs,
         snapshot = snapshot,
+        requestSnapshot = requestSnapshot,
         instanceDetails = instanceDetails,
+        requestInstanceDetails = requestInstanceDetails,
         claimCore = function(request)
             request = type(request) == "table" and request or {}
             request.action = "claimCore"

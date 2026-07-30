@@ -16,6 +16,7 @@ local MUTATIONS = {
     charge = true,
     refund = true,
     transfer = true,
+    consolidate = true,
 }
 
 local function traceback(message)
@@ -110,7 +111,7 @@ function Descriptor.create(dependencies, context)
 
     local moduleId = tostring(context.moduleId or Descriptor.id)
     local funds = requiredPort(dependencies, "wallet.funds",
-        { "balance", "debit", "credit", "restore" })
+        { "balance", "debit", "credit", "restore", "consolidate" })
     local operations = requiredPort(dependencies, "operations",
         { "begin", "finish", "markUnknown" })
 
@@ -371,8 +372,26 @@ function Descriptor.create(dependencies, context)
             local _, _, _, value = refund(request.actor, request.receipt, request)
             return value
         end
-        local _, _, _, value = transfer(request.actor, request.amount, request)
-        return value
+        if action == "transfer" then
+            local _, _, _, value = transfer(request.actor, request.amount, request)
+            return value
+        end
+        if not instance.started then return result(false, "moduleStopped", nil, request) end
+        if request.actor == nil then return result(false, "actorRequired", nil, request) end
+        local started, replay = begin(
+            "consolidate", 0, "cash", "cash", nil, request)
+        if replay then return replay end
+        if not started then return replay end
+        local called, consolidated, receiptOrCode = method(
+            funds, "consolidate", request.actor)
+        if not called then
+            return finish(request, portFailure("consolidate", consolidated, request))
+        end
+        if consolidated ~= true then
+            return finish(request, result(false,
+                receiptOrCode or "consolidateFailed", nil, request))
+        end
+        return finish(request, result(true, "consolidated", receiptOrCode, request))
     end
 
     instance.public = {
@@ -390,6 +409,11 @@ function Descriptor.create(dependencies, context)
             request = type(request) == "table" and request or {}
             local _, _, _, value = transfer(request.actor, request.amount, request)
             return value
+        end,
+        requestConsolidate = function(request)
+            request = type(request) == "table" and request or {}
+            request.action = "consolidate"
+            return execute(request)
         end,
         grant = grant,
         charge = charge,

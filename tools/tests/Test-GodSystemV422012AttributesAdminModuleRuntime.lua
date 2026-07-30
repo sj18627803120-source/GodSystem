@@ -355,6 +355,35 @@ local attributes = GodSystemAttributesFeatureModule.create({
 }, { state = attributesScope })
 truthy(attributes:start(), "attributes start")
 
+local perksResult = attributes.public.requestListPerks({
+    actor = actors.one,
+    search = "Aim",
+})
+equal(perksResult.ok, true, "attribute perk request envelope")
+equal(perksResult.code, "perks", "attribute perk request code")
+equal(#perksResult.data.perks, 1, "attribute perk request data")
+local attributeQuoteResult = attributes.public.requestAttributeQuote({
+    actor = actors.one,
+    perkIndex = 1,
+    mode = "amount",
+    value = 2,
+})
+equal(attributeQuoteResult.ok, true, "attribute quote request envelope")
+equal(attributeQuoteResult.data.quote.cost, 2, "attribute quote request data")
+local traitsResult = attributes.public.requestListTraits({
+    actor = actors.one,
+    action = "buy",
+})
+equal(traitsResult.ok, true, "trait list request envelope")
+truthy(#traitsResult.data.traits >= 1, "trait list request data")
+local traitQuoteResult = attributes.public.requestTraitQuote({
+    actor = actors.one,
+    action = "buy",
+    traitType = "Positive",
+})
+equal(traitQuoteResult.ok, true, "trait quote request envelope")
+equal(traitQuoteResult.data.quote.cost, 1400, "trait quote request data")
+
 local bought = attributes.public.purchaseAttribute({
     actor = actors.one, operationId = "xp-one", perkIndex = 1, mode = "amount", value = 2,
 })

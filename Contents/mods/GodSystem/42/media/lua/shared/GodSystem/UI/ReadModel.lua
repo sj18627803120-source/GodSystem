@@ -78,6 +78,7 @@ function ReadModel.new(options)
     handlers["wallet.balance"] = function(data)
         instance.value.modular.balance = math.max(0, math.floor(tonumber(data.value) or 0))
         instance.value.modular.balanceScope = tostring(data.scope or "spendable")
+        instance.value.balance = instance.value.modular.balance
     end
     handlers["bank.summary"] = function(data)
         instance.value.bank = merge(type(data.state) == "table" and data.state or {}, data)
