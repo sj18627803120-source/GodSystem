@@ -1,11 +1,16 @@
 require "GodSystem/Runtime/PZServer"
+require "GodSystem_RuntimeMode"
 
 GodSystemModularServer = GodSystemModularServer or { instance = nil }
 GodSystemModularServer.sequence = GodSystemModularServer.sequence or 0
 
 function GodSystemModularServer.start()
     if GodSystemModularServer.instance then return true end
-    local instance = GodSystemPZServerRuntime.new()
+    local instance = GodSystemPZServerRuntime.new({
+        disabledModules = {
+            ["feature.companion"] = "singlePlayerOnly",
+        },
+    })
     local started, code = instance:start()
     if started == false then return false, code end
     GodSystemModularServer.instance = instance
@@ -41,5 +46,32 @@ function GodSystemModularServer.execute(action, args, actor, pushKind, operation
     end
     return result and result.ok == true
 end
+
+GodSystemModularServer.lifecycleInstalled =
+    GodSystemModularServer.lifecycleInstalled or false
+
+function GodSystemModularServer.installLifecycle()
+    if GodSystemModularServer.lifecycleInstalled then return true end
+    if not GodSystemRuntimeMode
+        or GodSystemRuntimeMode.modularEnabled ~= true
+    then
+        return false
+    end
+    local function startRuntime()
+        GodSystemModularServer.start()
+    end
+    local function stopRuntime()
+        GodSystemModularServer.stop("serverStopped")
+    end
+    if Events.OnInitGlobalModData then
+        Events.OnInitGlobalModData.Add(startRuntime)
+    end
+    if Events.OnServerStarted then Events.OnServerStarted.Add(startRuntime) end
+    if Events.OnServerStopped then Events.OnServerStopped.Add(stopRuntime) end
+    GodSystemModularServer.lifecycleInstalled = true
+    return true
+end
+
+GodSystemModularServer.installLifecycle()
 
 return GodSystemModularServer

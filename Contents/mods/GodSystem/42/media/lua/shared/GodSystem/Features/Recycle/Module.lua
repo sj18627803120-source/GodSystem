@@ -89,7 +89,8 @@ function Descriptor.create(dependencies, context)
         "isAutoRecycleEnabled",
     })
     local state = requiredPort(dependencies, "recycle.state", { "load", "save" })
-    local inventory = requiredPort(dependencies, "recycle.inventory", { "resolve", "remove", "restore" })
+    local inventory = requiredPort(dependencies, "recycle.inventory",
+        { "resolve", "remove", "restore", "autoRecycleIds" })
     local wallet = requiredPort(dependencies, "recycle.wallet",
         { "charge", "refund", "credit", "revokeCredit" })
     local metrics = requiredPort(dependencies, "metrics", { "snapshot", "get", "increment", "restore" })
@@ -567,13 +568,70 @@ function Descriptor.create(dependencies, context)
             waistAutoRecycleUnlocked = data.waistAutoRecycleUnlocked == true,
             waistAutoRecycleEnabled = data.waistAutoRecycleEnabled == true,
             waistRecycleUnlockMode = data.waistRecycleUnlockMode,
+            lastWaistAutoRecycleHour = data.lastWaistAutoRecycleHour,
         }, request)
+    end
+
+    local function processAuto(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then
+            return makeResult(false, "moduleStopped", nil, request)
+        end
+        local data, failure = load(request.actor, request)
+        if not data then return failure end
+        if data.waistAutoRecycleUnlocked ~= true
+            or data.waistAutoRecycleEnabled ~= true
+        then
+            return makeResult(true, "autoRecycleDisabled",
+                { processedCount = 0 }, request)
+        end
+        local enabledCalled, enabled = callPort(config.isAutoRecycleEnabled, request)
+        if not enabledCalled or enabled ~= true then
+            return makeResult(enabledCalled, enabledCalled
+                and "autoRecycleDisabled" or "portError",
+                { processedCount = 0 }, request)
+        end
+        local now = tonumber(request.nowHours)
+        if not now or now ~= now or now == math.huge or now == -math.huge then
+            return makeResult(false, "timeInvalid", nil, request)
+        end
+        local intervalCalled, interval = callPort(
+            config.getAutoRecycleIntervalHours, request)
+        interval = intervalCalled and tonumber(interval) or nil
+        if not interval or interval <= 0 then
+            return makeResult(false,
+                intervalCalled and "intervalInvalid" or "portError", nil, request)
+        end
+        local last = tonumber(data.lastWaistAutoRecycleHour) or now
+        if now < last then last = now end
+        if now - last < interval then
+            return makeResult(true, "autoRecycleWaiting", {
+                processedCount = 0,
+                remainingHours = interval - (now - last),
+            }, request)
+        end
+        data.lastWaistAutoRecycleHour = now
+        local saved, saveCode = save(request.actor, data, request)
+        if not saved then return makeResult(false, saveCode, nil, request) end
+        local idsCalled, ids = callPort(inventory.autoRecycleIds,
+            request.actor, request.maximumItems or 2000)
+        if not idsCalled then return makeResult(false, "portError", nil, request) end
+        if type(ids) ~= "table" or #ids == 0 then
+            return makeResult(true, "autoRecycleEmpty",
+                { processedCount = 0 }, request)
+        end
+        local child = copy(request)
+        child.mode = "recycle"
+        child.itemIds = ids
+        child.operationId = tostring(request.operationId or "") .. ":execute"
+        return execute(child)
     end
 
     instance.public = {
         execute = execute,
         snapshot = snapshot,
         setPreference = setPreference,
+        processAuto = processAuto,
     }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end

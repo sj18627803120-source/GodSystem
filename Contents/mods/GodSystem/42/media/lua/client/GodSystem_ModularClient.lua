@@ -1,4 +1,5 @@
 require "GodSystem/Runtime/PZClient"
+require "GodSystem_RuntimeMode"
 require "GodSystem/Platform/Companion/PZVisuals"
 require "GodSystem/UI/Facade"
 require "GodSystem/UI/ShellAdapter"
@@ -67,6 +68,7 @@ function GodSystemModularClient.start()
         facade = facade,
         target = GodSystem,
         companionTarget = GodSystemCompanion,
+        multiplayer = multiplayer,
     })
     actions:install()
     local storage = GodSystemUIStorageAdapter.new({
@@ -137,5 +139,42 @@ function GodSystemModularClient.poll()
     if GodSystemModularClient.instance then GodSystemModularClient.instance:poll() end
     if GodSystemModularClient.storage then GodSystemModularClient.storage:poll() end
 end
+
+GodSystemModularClient.lifecycleInstalled =
+    GodSystemModularClient.lifecycleInstalled or false
+
+function GodSystemModularClient.installLifecycle()
+    if GodSystemModularClient.lifecycleInstalled then return true end
+    if not GodSystemRuntimeMode
+        or GodSystemRuntimeMode.modularEnabled ~= true
+    then
+        return false
+    end
+    local function startRuntime(_, actor)
+        GodSystemModularClient.start()
+        local instance = GodSystemModularClient.instance
+        local runtime = instance and instance.runtime
+        if runtime and runtime.coordinator then
+            actor = actor or (getPlayer and getPlayer() or nil)
+            if actor then runtime.coordinator.actorCreated(actor) end
+        end
+    end
+    local function receive(moduleName, command, packet)
+        GodSystemModularClient.receive(moduleName, command, packet)
+    end
+    local function stopRuntime()
+        GodSystemModularClient.stop("clientStopped")
+    end
+    if Events.OnGameStart then Events.OnGameStart.Add(startRuntime) end
+    if Events.OnCreatePlayer then Events.OnCreatePlayer.Add(startRuntime) end
+    if Events.OnServerCommand then Events.OnServerCommand.Add(receive) end
+    if Events.OnTick then Events.OnTick.Add(GodSystemModularClient.poll) end
+    if Events.OnDisconnect then Events.OnDisconnect.Add(stopRuntime) end
+    if Events.OnMainMenuEnter then Events.OnMainMenuEnter.Add(stopRuntime) end
+    GodSystemModularClient.lifecycleInstalled = true
+    return true
+end
+
+GodSystemModularClient.installLifecycle()
 
 return GodSystemModularClient

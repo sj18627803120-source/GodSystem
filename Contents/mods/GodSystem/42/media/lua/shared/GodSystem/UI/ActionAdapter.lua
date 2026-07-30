@@ -41,6 +41,7 @@ function ActionAdapter.new(options)
     local facade = assert(options.facade, "UI action facade required")
     local target = assert(options.target, "UI action target required")
     local companion = options.companionTarget
+    local multiplayer = options.multiplayer == true
     local originals = {}
     local companionOriginals = {}
     local instance = {
@@ -234,10 +235,22 @@ function ActionAdapter.new(options)
             }
             local route = routes[tostring(action or "")]
             if not route then return false end
+            local teleportRoute = route == "home.teleport"
+                or route == "home.teleportTemp" or route == "home.return"
             return request(route, {
                 index = index,
                 manual = action == "clearSafeZone",
-            })
+            }, teleportRoute and function(result)
+                if not multiplayer or result.ok ~= true
+                    or type(result.data) ~= "table"
+                    or type(result.data.target) ~= "table"
+                then
+                    return
+                end
+                if type(target.applyApprovedTeleport) == "function" then
+                    target.applyApprovedTeleport(result.data.target)
+                end
+            end)
         end,
         buyShopItem = function(product, quantity)
             return request("shop.purchase", {

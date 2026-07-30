@@ -200,6 +200,10 @@ function ConfigSnapshot.build(options)
         snapshot.features[key] = settings[key] ~= false
     end
 
+    snapshot.progression = {
+        killPointReward = configured(settings, source, "KillPointReward"),
+    }
+
     snapshot.tasks = {
         enabled = snapshot.features.EnableTasks,
         templates = copy(source.TaskTemplates or {}),

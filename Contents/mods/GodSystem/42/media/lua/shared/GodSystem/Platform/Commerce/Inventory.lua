@@ -103,7 +103,12 @@ local function createItem(fullType, worldSprite)
     return item
 end
 
-function GodSystemCommerceInventoryPlatform.create()
+function GodSystemCommerceInventoryPlatform.create(_, context)
+    context = type(context) == "table" and context or {}
+    local config = type(context.configSnapshot) == "table"
+        and context.configSnapshot or {}
+    local terminalFullType = tostring(config.AutoRecyclerFullType
+        or "GodSystem.SystemSpaceTerminal")
     local instance = {
         started = false,
         scans = 0,
@@ -255,6 +260,25 @@ function GodSystemCommerceInventoryPlatform.create()
         end,
         revoke = revoke,
         remove = removeView,
+        autoRecycleIds = function(actor, maximum)
+            maximum = Support.integer(maximum, 2000, 1)
+            local result, seen = {}, {}
+            walk(actor, function(item)
+                if Support.fullType(item) == terminalFullType then
+                    local child = Support.childContainer(item)
+                    local values = Support.itemsArray(child)
+                    for index = 1, #values do
+                        local id = Support.itemId(values[index])
+                        if id and not seen[id] and #result < maximum then
+                            seen[id] = true
+                            result[#result + 1] = id
+                        end
+                    end
+                end
+                return #result < maximum
+            end, 20200)
+            return result
+        end,
     }
 
     function instance:start() self.started = true return true end
@@ -307,7 +331,8 @@ GodSystemTasksInventoryPlatform = GodSystemTasksInventoryPlatform
 GodSystemShopInventoryPlatform = GodSystemShopInventoryPlatform
     or wrapper("shop.inventory", { "resolve", "grant", "revoke" })
 GodSystemRecycleInventoryPlatform = GodSystemRecycleInventoryPlatform
-    or wrapper("recycle.inventory", { "resolve", "remove", "restore" })
+    or wrapper("recycle.inventory",
+        { "resolve", "remove", "restore", "autoRecycleIds" })
 
 return {
     commerce = GodSystemCommerceInventoryPlatform,

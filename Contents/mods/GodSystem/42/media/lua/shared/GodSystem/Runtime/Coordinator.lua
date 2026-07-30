@@ -31,6 +31,10 @@ function Coordinator.new(options)
     local diagnostics = options.diagnostics
     local save = assert(options.save, "coordinator save callback missing")
     local binding = type(options.binding) == "table" and options.binding or {}
+    local config = type(options.config) == "table" and options.config or {}
+    local progression = type(config.progression) == "table" and config.progression or {}
+    local killPointReward = math.max(0,
+        math.floor(tonumber(progression.killPointReward) or 0))
     local version = tostring(options.version or "")
     local instance = {
         started = false,
@@ -172,6 +176,17 @@ function Coordinator.new(options)
         if next(changes) == nil then return true end
         local metrics = public("metrics")
         if not metrics or type(metrics.increment) ~= "function" then return false end
+        if kills > 0 and killPointReward > 0 then
+            local rewarded = callModule("feature.wallet", "requestGrant", {
+                actor = row.actor,
+                amount = kills * killPointReward,
+                scope = "cash",
+                reason = "KillReward",
+                operationId = operation(row, "kill-reward",
+                    tostring(row.lastKills or kills)),
+            })
+            if not rewarded or rewarded.ok ~= true then return false end
+        end
         local ok, updated = invoke(metrics.increment, row.actor, changes)
         if not ok then
             registry:fail("metrics", "runtimeCallbackFailed", {
@@ -196,6 +211,15 @@ function Coordinator.new(options)
         return tostring(instance.ticks)
     end
 
+    local function exactHours()
+        local clock = public("clock")
+        if clock and type(clock.nowHours) == "function" then
+            local ok, value = invoke(clock.nowHours)
+            if ok and finite(value) then return tonumber(value) end
+        end
+        return tonumber(instance.ticks) or 0
+    end
+
     local function dayPeriod()
         local clock = public("clock")
         if clock and type(clock.currentDay) == "function" then
@@ -205,11 +229,73 @@ function Coordinator.new(options)
         return hourPeriod()
     end
 
-    local function initialize(row)
-        return callModule("feature.system", "ensureInitialized", {
+    local function initialize(row, lifecycle)
+        local initialized = callModule("feature.system", "ensureInitialized", {
             actor = row.actor,
             operationId = operation(row, "initialize", version),
         })
+        if not initialized or initialized.ok ~= true then return initialized end
+        if lifecycle == true then
+            row.lifecycle = (row.lifecycle or 0) + 1
+            callModule("feature.upgrades", "refresh", {
+                actor = row.actor,
+                upgradeType = "carryCapacity",
+                operationId = operation(row, "refresh-carry", row.lifecycle),
+            })
+            callModule("feature.terminal", "reconcile", {
+                actor = row.actor,
+                operationId = operation(row, "terminal-reconcile", row.lifecycle),
+            })
+            callModule("feature.tasks", "generate", {
+                actor = row.actor,
+                operationId = operation(row, "generate", dayPeriod()),
+            })
+        end
+        return initialized
+    end
+
+    local function failTasks(row, reason, onlyExpired)
+        local snapshot = callModule("feature.tasks", "snapshot", {
+            actor = row.actor,
+        })
+        if not snapshot or snapshot.ok ~= true or type(snapshot.data) ~= "table" then
+            return 0
+        end
+        local now = tonumber(hourPeriod()) or 0
+        local failed = 0
+        for index = 1, #(snapshot.data.tasks or {}) do
+            local task = snapshot.data.tasks[index]
+            local expired = tonumber(task.deadline) and now > tonumber(task.deadline)
+            if task.status == "active"
+                and (not onlyExpired or (expired and task.complete ~= true))
+            then
+                local value = callModule("feature.tasks", "fail", {
+                    actor = row.actor,
+                    taskId = task.taskId,
+                    reason = reason,
+                    operationId = operation(row,
+                        reason .. "-" .. tostring(task.taskId), hourPeriod()),
+                })
+                if value and value.ok == true then failed = failed + 1 end
+            end
+        end
+        return failed
+    end
+
+    local function death(actor)
+        local row = track(actor)
+        if not row then return false end
+        row.deaths = (row.deaths or 0) + 1
+        flush(row)
+        callModule("feature.bank", "execute", {
+            actor = row.actor,
+            action = "deathPenalty",
+            operationId = operation(row, "death-bank", row.deaths),
+        })
+        failTasks(row, "death", false)
+        row.lastPoint = nil
+        row.lastKills = readKills(row.actor)
+        return save() == true
     end
 
     local function autoTasks(row, period)
@@ -237,7 +323,7 @@ function Coordinator.new(options)
         local row = track(actor)
         if not row then return false end
         flush(row)
-        initialize(row)
+        initialize(row, false)
         local hour = hourPeriod()
         callModule("feature.tasks", "generate", {
             actor = row.actor,
@@ -254,6 +340,11 @@ function Coordinator.new(options)
             action = "updateLoan",
             operationId = operation(row, "bank-loan", hour),
         })
+        callModule("feature.bank", "execute", {
+            actor = row.actor,
+            action = "processAutoDeposit",
+            operationId = operation(row, "bank-auto-deposit", hour),
+        })
         callModule("feature.home", "clearSafeZone", {
             actor = row.actor,
             manual = false,
@@ -265,7 +356,15 @@ function Coordinator.new(options)
     local function minute()
         for _, row in pairs(instance.actors) do
             flush(row)
+            failTasks(row, "timeout", true)
             autoTasks(row, hourPeriod())
+            local now = exactHours()
+            callModule("feature.recycle", "processAuto", {
+                actor = row.actor,
+                nowHours = now,
+                operationId = operation(row, "auto-recycle",
+                    tostring(math.floor(now * 60))),
+            })
         end
         return save() == true
     end
@@ -283,8 +382,12 @@ function Coordinator.new(options)
     function instance:start()
         if self.started then return true end
         local subscriptions = {
-            { "OnCreatePlayer", function(_, actor) local row = track(actor); if row then initialize(row) end end },
+            { "OnCreatePlayer", function(_, actor)
+                local row = track(actor)
+                if row then initialize(row, true) end
+            end },
             { "OnPlayerUpdate", observe },
+            { "OnPlayerDeath", death },
             { "EveryOneMinute", minute },
             { "EveryHours", function()
                 for _, row in pairs(instance.actors) do hourly(row.actor) end
@@ -332,6 +435,13 @@ function Coordinator.new(options)
     end
 
     instance.observe = observe
+    instance.actorCreated = function(actor)
+        local row = track(actor)
+        if not row then return false end
+        initialize(row, true)
+        return true
+    end
+    instance.actorDeath = death
     instance.minute = minute
     instance.hour = hourly
     instance.tick = tick

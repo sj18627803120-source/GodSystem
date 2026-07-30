@@ -139,6 +139,7 @@ function Kernel.create(options)
     end
     runtime.coordinator = GodSystemRuntimeCoordinator.new({
         version = VERSION,
+        config = configSnapshot,
         events = runtime.events,
         registry = runtime.registry,
         diagnostics = runtime.diagnostics,

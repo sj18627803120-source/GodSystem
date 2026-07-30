@@ -161,7 +161,13 @@ function GodSystemRecycleConfigPlatform.create(_, context)
             return Support.integer(config.autoRecycleUnlockCost, 100, 0)
         end,
         getAutoRecycleIntervalHours = function()
-            return Support.integer(config.autoRecycleIntervalHours, 1, 1)
+            local value = tonumber(config.autoRecycleIntervalHours)
+            if not value or value ~= value
+                or value == math.huge or value == -math.huge
+            then
+                value = 1
+            end
+            return math.max(0.01, math.min(168, value))
         end,
         isAutoRecycleEnabled = function()
             return config.autoRecycleEnabled ~= false

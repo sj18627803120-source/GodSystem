@@ -31,6 +31,11 @@ local calls = {
     bank = {},
     cleared = 0,
     storage = 0,
+    carryRefresh = 0,
+    terminalReconcile = 0,
+    killRewards = 0,
+    autoRecycle = 0,
+    taskFailures = {},
     saves = 0,
     failed = {},
 }
@@ -50,6 +55,28 @@ local modules = {
             return { ok = true, code = "initialized" }
         end,
     },
+    ["feature.wallet"] = {
+        requestGrant = function(request)
+            assert(request.amount == 2 and request.scope == "cash",
+                "kill reward request changed")
+            calls.killRewards = calls.killRewards + 1
+            return { ok = true, code = "granted" }
+        end,
+    },
+    ["feature.upgrades"] = {
+        refresh = function(request)
+            assert(request.upgradeType == "carryCapacity",
+                "create-player carry refresh changed")
+            calls.carryRefresh = calls.carryRefresh + 1
+            return { ok = true, code = "refreshed" }
+        end,
+    },
+    ["feature.terminal"] = {
+        reconcile = function()
+            calls.terminalReconcile = calls.terminalReconcile + 1
+            return { ok = true, code = "reconciled" }
+        end,
+    },
     ["feature.tasks"] = {
         generate = function(request)
             assert(request.operationId, "task generation operation id")
@@ -62,8 +89,25 @@ local modules = {
                 data = {
                     autoClaimEnabled = true,
                     tasks = {
-                        { taskId = "ready", status = "active", complete = true },
-                        { taskId = "waiting", status = "active", complete = false },
+                        {
+                            taskId = "ready",
+                            status = calls.claimed > 0 and "completed" or "active",
+                            complete = true,
+                        },
+                        {
+                            taskId = "waiting",
+                            status = calls.taskFailures.waiting and "failed" or "active",
+                            complete = false,
+                            deadline = 47,
+                        },
+                        {
+                            taskId = "death-only",
+                            status = calls.deathReady
+                                and not calls.taskFailures["death-only"]
+                                and "active" or "available",
+                            complete = false,
+                            deadline = 99,
+                        },
                     },
                 },
             }
@@ -73,11 +117,23 @@ local modules = {
             calls.claimed = calls.claimed + 1
             return { ok = true, code = "claimed" }
         end,
+        fail = function(request)
+            calls.taskFailures[request.taskId] = request.reason or true
+            return { ok = true, code = "failed" }
+        end,
     },
     ["feature.bank"] = {
         execute = function(request)
             calls.bank[#calls.bank + 1] = request.action
             return { ok = true, code = request.action }
+        end,
+    },
+    ["feature.recycle"] = {
+        processAuto = function(request)
+            assert(request.nowHours == 48 and request.operationId,
+                "automatic recycle schedule changed")
+            calls.autoRecycle = calls.autoRecycle + 1
+            return { ok = true, code = "autoRecycleEmpty" }
         end,
     },
     ["feature.home"] = {
@@ -116,6 +172,7 @@ end
 
 local coordinator = Coordinator.new({
     version = "42.20.1.2",
+    config = { progression = { killPointReward = 1 } },
     events = events,
     registry = registry,
     diagnostics = diagnostics,
@@ -128,12 +185,16 @@ local coordinator = Coordinator.new({
 })
 assert(coordinator:start(), "coordinator start")
 assert(handlers.OnCreatePlayer and handlers.OnPlayerUpdate
+    and handlers.OnPlayerDeath
     and handlers.EveryOneMinute and handlers.EveryHours
     and handlers.OnTick and handlers.OnSave,
     "coordinator did not register bounded lifecycle events")
 
 handlers.OnCreatePlayer(0, actor)
 assert(calls.initialized == 1, "player initialization not coordinated")
+assert(calls.generated == 1 and calls.carryRefresh == 1
+    and calls.terminalReconcile == 1,
+    "create-player lifecycle reconciliation changed")
 handlers.OnPlayerUpdate(actor)
 actor.x, actor.y, actor.kills = 3, 4, 6
 handlers.OnPlayerUpdate(actor)
@@ -142,19 +203,30 @@ assert(metrics.zombieKills == 4 and metrics.moveDistance == 0,
 handlers.EveryOneMinute()
 assert(metrics.zombieKills == 6 and metrics.moveDistance == 5,
     "minute flush did not write accumulated metrics")
+assert(calls.killRewards == 1 and calls.taskFailures.waiting == "timeout",
+    "minute reward or task timeout workflow changed")
+assert(calls.autoRecycle == 1, "minute pass did not check automatic recycle")
 assert(calls.claimed == 1 and calls.saves == 1,
     "minute pass did not auto-claim once and save once")
 
 handlers.EveryHours()
-assert(calls.generated == 1 and calls.claimed == 2,
-    "hour pass did not generate and auto-claim")
-assert(#calls.bank == 2 and calls.bank[1] == "syncInvestmentHours"
-    and calls.bank[2] == "updateLoan", "bank periodic actions changed")
+assert(calls.generated == 2 and calls.claimed == 1,
+    "hour pass did not generate without reclaiming completed task")
+assert(#calls.bank == 3 and calls.bank[1] == "syncInvestmentHours"
+    and calls.bank[2] == "updateLoan"
+    and calls.bank[3] == "processAutoDeposit", "bank periodic actions changed")
 assert(calls.cleared == 1 and calls.saves == 2,
     "hour pass did not clear safe zone and save once")
 
+calls.deathReady = true
+handlers.OnPlayerDeath(actor)
+assert(calls.bank[4] == "deathPenalty"
+    and calls.taskFailures["death-only"] == "death",
+    "death settlement workflow changed")
+assert(calls.saves == 3, "death settlement was not persisted")
+
 handlers.OnTick()
-assert(calls.storage == 1 and calls.saves == 2,
+assert(calls.storage == 1 and calls.saves == 3,
     "bounded storage tick unexpectedly saved every frame")
 
 modules["feature.storage"].processJobs = function() error("storage probe failure") end
@@ -164,9 +236,9 @@ assert(#calls.failed == 1 and calls.failed[1].moduleId == "feature.storage",
 assert(#diagnostics.rows >= 1, "runtime callback failure was not diagnosed")
 
 handlers.OnSave()
-assert(calls.saves == 3, "save event did not persist once")
+assert(calls.saves == 4, "save event did not persist once")
 assert(coordinator:stop(), "coordinator stop")
-assert(calls.saves == 4, "coordinator stop did not flush state")
+assert(calls.saves == 5, "coordinator stop did not flush state")
 assert(coordinator:health().code == "stopped", "coordinator health after stop")
 
 print("Test-GodSystemV422012CoordinatorRuntime passed")

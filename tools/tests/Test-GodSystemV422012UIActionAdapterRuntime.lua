@@ -23,6 +23,9 @@ local facade = {
                 after = { condition = 10, conditionMax = 10 },
             }
         end
+        if action == "home.teleport" then
+            result.data.target = { x = 10, y = 20, z = 0 }
+        end
         if options and options.callback then options.callback(result) end
         return result
     end,
@@ -34,6 +37,7 @@ target = {
     performBankAction = originalBank,
     text = function(key) return key end,
     notify = function(value) target.lastNotification = value end,
+    applyApprovedTeleport = function(value) target.teleported = value return true end,
     getPlayer = function()
         return {
             getPrimaryHandItem = function()
@@ -63,6 +67,7 @@ local adapter = ActionAdapter.new({
     facade = facade,
     target = target,
     companionTarget = companion,
+    multiplayer = true,
 })
 assert(adapter:install(), "action adapter install")
 
@@ -78,6 +83,10 @@ assert(calls[#calls].action == "tasks.autoClaim"
     and calls[#calls].args.enabled == true, "auto claim maps target state")
 assert(target.performHomeAction("unlockSafeZone"), "safe zone unlock accepted")
 assert(calls[#calls].action == "home.upgradeSafeZone", "safe zone unlock mapping")
+assert(target.performHomeAction("teleportHome"), "home teleport accepted")
+assert(calls[#calls].action == "home.teleport"
+    and target.teleported.x == 10 and target.teleported.y == 20,
+    "multiplayer teleport did not mirror approved target")
 assert(target.upgradeTerminal("reduction"), "terminal upgrade accepted")
 assert(calls[#calls].action == "terminal.execute"
     and calls[#calls].args.action == "upgradeReduction", "terminal upgrade mapping")

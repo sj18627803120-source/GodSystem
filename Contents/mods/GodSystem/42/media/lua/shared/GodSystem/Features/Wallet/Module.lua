@@ -415,6 +415,11 @@ function Descriptor.create(dependencies, context)
             request.action = "consolidate"
             return execute(request)
         end,
+        requestGrant = function(request)
+            request = type(request) == "table" and request or {}
+            local _, _, _, value = grant(request.actor, request.amount, request)
+            return value
+        end,
         grant = grant,
         charge = charge,
         refund = refund,

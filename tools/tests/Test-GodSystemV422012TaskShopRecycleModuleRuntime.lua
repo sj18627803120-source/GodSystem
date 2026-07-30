@@ -622,6 +622,7 @@ local function recycleFixture(environment)
                 fixture.removed[receipt.itemId] = nil
                 return true
             end,
+            autoRecycleIds = function() return { "a", "b" } end,
         },
         ["recycle.wallet"] = {
             charge = function(_, amount)
@@ -792,6 +793,16 @@ do
     })
     assert(replay == unlocked and f.balance == 70,
         "auto recycle unlock was not idempotent")
+    f.data.lastWaistAutoRecycleHour = 8.5
+    local automatic = f.instance.public.processAuto({
+        actor = f.actor,
+        nowHours = 10,
+        operationId = "auto-cycle-10",
+    })
+    assert(automatic.ok and automatic.data.processedCount == 1
+        and automatic.data.skippedCount == 1
+        and f.removed.a and not f.removed.b and f.balance == 75,
+        "automatic recycle did not reuse the exact recycle transaction")
     local mode = f.instance.public.setPreference({
         actor = f.actor,
         key = "recycleUnlockMode",

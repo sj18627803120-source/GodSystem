@@ -34,6 +34,7 @@ local ACTIONS = {
     payoffLoan = true,
     updateLoan = true,
     deathPenalty = true,
+    processAutoDeposit = true,
 }
 
 local function copy(value, seen)
@@ -375,6 +376,36 @@ function Descriptor.create(dependencies, context)
         }, request)
     end
 
+    local function processAutoDeposit(actor, bank, now, request)
+        if bank.autoDepositEnabled ~= true then
+            return result(true, "AutoDepositDisabled", { deposited = 0 }, request)
+        end
+        if now < bank.lastAutoDepositHour then
+            bank.lastAutoDepositHour = now
+            local committed, commitError = commitBank(actor, bank, request)
+            if not committed then return commitError end
+            return result(true, "AutoDepositClockReset", { deposited = 0 }, request)
+        end
+        if now - bank.lastAutoDepositHour < 1 then
+            return result(true, "AutoDepositWaiting", { deposited = 0 }, request)
+        end
+        bank.lastAutoDepositHour = now
+        local called, amount, balanceCode = callback(wallet, "getBalance", actor, "cash")
+        if not called then return portFailure("walletBalance", amount, request) end
+        amount = nonNegativeAmount(amount)
+        if not amount then return result(false, balanceCode or "balanceInvalid", nil, request) end
+        if amount <= 0 then
+            local committed, commitError = commitBank(actor, bank, request)
+            if not committed then return commitError end
+            return result(true, "AutoDepositEmpty", { deposited = 0 }, request)
+        end
+        local deposited = deposit(actor, bank, amount, request)
+        if deposited.ok and type(deposited.data) == "table" then
+            deposited.data.deposited = amount
+        end
+        return deposited
+    end
+
     local function withdrawFixed(actor, bank, now, request)
         local entryId = tostring(request.entryId or "")
         local entry, entryIndex
@@ -704,6 +735,9 @@ function Descriptor.create(dependencies, context)
         if action == "repayLoanDue" then return repayDue(actor, bank, now, request) end
         if action == "payoffLoan" then return payoffLoan(actor, bank, now, request) end
         if action == "deathPenalty" then return deathPenalty(actor, bank, now, request) end
+        if action == "processAutoDeposit" then
+            return processAutoDeposit(actor, bank, now, request)
+        end
         if action == "updateLoan" then
             if bankruptcyDue(bank, now) then return applyBankruptcy(actor, bank, now, request) end
             return result(true, "BankLoanCurrent", Rules.summary(bank, now, spentPoints(actor), config), request)

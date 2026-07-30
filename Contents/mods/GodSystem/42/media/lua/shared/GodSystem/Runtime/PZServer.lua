@@ -31,6 +31,7 @@ function Server.new(options)
             legacySnapshots = options.legacySnapshots,
             adminConfig = options.adminConfig,
             configSnapshot = options.configSnapshot,
+            disabledModules = options.disabledModules,
         })
         self.bridge = GodSystemServerBridge.new({
             transport = transport,
