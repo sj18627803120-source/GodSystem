@@ -5,6 +5,7 @@ require "GodSystem/Platform/PZModDataAdapter"
 require "GodSystem/State/MigrationRunner"
 require "GodSystem/Runtime/ConfigSnapshot"
 require "GodSystem/Runtime/UseCaseDispatcher"
+require "GodSystem/Runtime/Coordinator"
 
 GodSystemRuntimeKernel = GodSystemRuntimeKernel or {}
 
@@ -115,6 +116,9 @@ function Kernel.create(options)
         routes = options.routes,
         diagnostics = runtime.diagnostics,
         resolve = function(moduleId) return runtime.registry:get(moduleId) end,
+        onFault = function(moduleId, code, detail)
+            return runtime.registry:fail(moduleId, code, detail)
+        end,
     })
     runtime.dispatch = function(self, packet, actor)
         local result = self.dispatcher:dispatch(packet, actor)
@@ -132,6 +136,23 @@ function Kernel.create(options)
             end
         end
         return result
+    end
+    runtime.coordinator = GodSystemRuntimeCoordinator.new({
+        version = VERSION,
+        events = runtime.events,
+        registry = runtime.registry,
+        diagnostics = runtime.diagnostics,
+        save = function() return runtime:save() end,
+        binding = type(bindings["runtime.coordinator"]) == "table"
+            and bindings["runtime.coordinator"] or {},
+    })
+    if options.coordinate ~= false then
+        runtime.coordinator:start()
+    end
+    local baseStop = runtime.stop
+    runtime.stop = function(self, reason)
+        if self.coordinator then self.coordinator:stop(reason) end
+        return baseStop(self, reason)
     end
     return runtime
 end

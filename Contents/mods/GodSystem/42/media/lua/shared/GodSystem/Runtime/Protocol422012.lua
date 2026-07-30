@@ -24,6 +24,8 @@ Protocol.Routes = {
     ["bank.summary"] = { moduleId = "feature.bank", method = "summary" },
     ["bank.execute"] = { moduleId = "feature.bank", method = "execute" },
     ["tasks.generate"] = { moduleId = "feature.tasks", method = "generate" },
+    ["tasks.snapshot"] = { moduleId = "feature.tasks", method = "snapshot" },
+    ["tasks.autoClaim"] = { moduleId = "feature.tasks", method = "setAutoClaim" },
     ["tasks.accept"] = { moduleId = "feature.tasks", method = "accept" },
     ["tasks.progress"] = { moduleId = "feature.tasks", method = "progress" },
     ["tasks.claim"] = { moduleId = "feature.tasks", method = "claim" },

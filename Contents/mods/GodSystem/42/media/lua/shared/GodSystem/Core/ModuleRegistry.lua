@@ -161,6 +161,43 @@ function Registry.new(options)
         end
     end
 
+    function instance:fail(moduleId, code, detail)
+        moduleId = tostring(moduleId or "")
+        if not self.descriptors[moduleId] then return false, "moduleMissing" end
+        local failed = {}
+        local function stopAndMark(targetId, state, stateCode, stateDetail)
+            if failed[targetId] then return end
+            failed[targetId] = true
+            local module = self.modules[targetId]
+            if module and self.states[targetId]
+                and self.states[targetId].state == "started"
+                and type(module.stop) == "function"
+            then
+                boundaryCall(module.stop, module, stateCode)
+            end
+            setState(targetId, state, stateCode, stateDetail)
+            for dependentId, descriptor in pairs(self.descriptors) do
+                for index = 1, #descriptor.dependencies do
+                    if descriptor.dependencies[index] == targetId then
+                        stopAndMark(dependentId, "blocked",
+                            "dependencyUnavailable", { dependency = targetId })
+                        break
+                    end
+                end
+            end
+        end
+        stopAndMark(moduleId, "failed", code or "runtimeFailed", detail)
+        if self.diagnostics then
+            self.diagnostics:record({
+                moduleId = moduleId,
+                stage = "runtime",
+                code = code or "runtimeFailed",
+                message = type(detail) == "table" and detail.message or detail,
+            })
+        end
+        return true
+    end
+
     function instance:health()
         local report = {}
         for i = 1, #self.order do

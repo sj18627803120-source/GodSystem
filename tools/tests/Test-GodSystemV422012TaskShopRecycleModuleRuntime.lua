@@ -314,6 +314,39 @@ do
         "expired task penalty or state is wrong")
 end
 
+do
+    local f = taskFixture("task-passive-metrics")
+    f.metrics.zombieKills = 10
+    assert(f.instance.public.generate({
+        actor = f.actor, operationId = "tpg",
+    }).ok)
+    local killId = f.data.tasks[2].taskId
+    assert(f.instance.public.accept({
+        actor = f.actor, taskId = killId, operationId = "tpa",
+    }).ok)
+    f.metrics.zombieKills = 13
+    local progress = f.instance.public.progress({
+        actor = f.actor, taskId = killId,
+    })
+    assert(progress.ok and progress.data.value == 3 and progress.data.complete,
+        "kill task did not use shared zombie kill metrics")
+    local enabled = f.instance.public.setAutoClaim({
+        actor = f.actor, enabled = true, operationId = "tp-auto",
+    })
+    assert(enabled.ok and f.data.autoTaskClaimEnabled == true,
+        "auto claim preference was not saved")
+    local snapshot = f.instance.public.snapshot({ actor = f.actor })
+    assert(snapshot.ok and snapshot.data.autoClaimEnabled == true
+        and snapshot.data.tasks[2].progress == 3
+        and snapshot.data.tasks[2].complete == true,
+        "task snapshot did not expose computed progress")
+    local claimed = f.instance.public.claim({
+        actor = f.actor, taskId = killId, operationId = "tpc",
+    })
+    assert(claimed.ok and f.rewardPoints == 5,
+        "metric-complete kill task could not be claimed")
+end
+
 local function shopFixture(environment)
     local fixture = {
         actor = { id = environment .. "-player" },

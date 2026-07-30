@@ -33,6 +33,7 @@ function Dispatcher.new(options)
     local routes = type(options.routes) == "table" and options.routes or GodSystemProtocol422012.Routes
     local resolve = options.resolve
     local diagnostics = options.diagnostics
+    local onFault = options.onFault
     assert(type(resolve) == "function", "dispatcher resolver required")
 
     local instance = {}
@@ -78,6 +79,13 @@ function Dispatcher.new(options)
                     moduleId = moduleId,
                     stage = "useCase",
                     code = "useCaseFailed",
+                    operationId = operationId,
+                    message = tostring(value),
+                })
+            end
+            if type(onFault) == "function" then
+                onFault(moduleId, "useCaseFailed", {
+                    action = action,
                     operationId = operationId,
                     message = tostring(value),
                 })

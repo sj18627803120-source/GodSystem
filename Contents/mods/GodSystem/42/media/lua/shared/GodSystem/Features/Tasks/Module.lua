@@ -194,7 +194,8 @@ function Descriptor.create(dependencies, context)
     local function progressOf(actor, measurements, task, request)
         if not task then return 0 end
         if task.kind == "kill" then
-            return math.max(0, integer(request and request.killProgress, task.killProgress or 0))
+            return math.max(0, integer(measurements.zombieKills, 0)
+                - integer(task.startZombieKills, 0))
         elseif task.kind == "recycleItems" then
             return math.max(0, integer(measurements.recycledItems, 0) - integer(task.startRecycledItems, 0))
         elseif task.kind == "recyclePoints" then
@@ -302,7 +303,7 @@ function Descriptor.create(dependencies, context)
         task.status = "active"
         task.acceptedAt = now
         task.deadline = now + (tonumber(task.limitHours) or tonumber(config.getDefaultLimitHours(request)) or 24)
-        task.killProgress = task.kind == "kill" and 0 or nil
+        task.startZombieKills = integer(measurements.zombieKills, 0)
         task.startRecycledItems = integer(measurements.recycledItems, 0)
         task.startRecycledPoints = integer(measurements.recycledPoints, 0)
         task.startSpentPoints = integer(measurements.spentPoints, 0)
@@ -332,6 +333,46 @@ function Descriptor.create(dependencies, context)
             target = math.max(1, integer(task.target, 1)),
             complete = value >= math.max(1, integer(task.target, 1)),
         }, request)
+    end
+
+    local function snapshot(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
+        local data, failure = load(request.actor, request)
+        if not data then return failure end
+        local measurements = metricSnapshot(request.actor, request)
+        if not measurements then return makeResult(false, "metricUnavailable", nil, request) end
+        local tasks = copy(data.tasks)
+        for i = 1, #tasks do
+            local task = tasks[i]
+            task.progress = progressOf(request.actor, measurements, task, request)
+            task.complete = task.progress >= math.max(1, integer(task.target, 1))
+        end
+        return makeResult(true, "snapshot", {
+            tasks = tasks,
+            autoClaimEnabled = data.autoTaskClaimEnabled == true,
+            lastGeneratedDay = data.lastGeneratedDay,
+        }, request)
+    end
+
+    local function setAutoClaim(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
+        local enabled = request.enabled == true
+        local id, replay = begin("autoClaim", tostring(enabled), request)
+        if replay then return replay end
+        local data, failure = load(request.actor, request)
+        if not data then return finish(id, failure, request) end
+        local before = copy(data)
+        data.autoTaskClaimEnabled = enabled
+        local saved, saveCode = save(request.actor, data, request)
+        if not saved then
+            save(request.actor, before, request)
+            return finish(id, makeResult(false, saveCode, nil, request), request)
+        end
+        return finish(id, makeResult(true,
+            enabled and "autoClaimEnabled" or "autoClaimDisabled",
+            { enabled = enabled }, request), request)
     end
 
     local function rollbackClaim(actor, before, turnInReceipt, pointReceipt, itemReceipt, request)
@@ -525,6 +566,8 @@ function Descriptor.create(dependencies, context)
         generate = generate,
         accept = accept,
         progress = progress,
+        snapshot = snapshot,
+        setAutoClaim = setAutoClaim,
         claim = claim,
         fail = failTask,
     }

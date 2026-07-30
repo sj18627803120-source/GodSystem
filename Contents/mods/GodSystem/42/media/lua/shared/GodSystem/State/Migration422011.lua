@@ -120,17 +120,39 @@ local function stageTasks(context)
     local source = context.player
     local ok, reason = validateTables(source, { "tasks" })
     if not ok then return nil, reason end
-    return copyFields(source, {
+    local result = copyFields(source, {
         "lastGeneratedDay", "tasks", "lastKnownKills",
         "autoTaskClaimEnabled", "lastAutoTaskClaimHour",
     })
+    local currentKills = math.max(0, math.floor(tonumber(source.lastKnownKills) or 0))
+    for index = 1, #(result.tasks or {}) do
+        local task = result.tasks[index]
+        if type(task) == "table" and task.kind == "kill" and task.status == "active" then
+            local progress = tonumber(task.killProgress)
+            if progress == nil then
+                progress = math.max(0, currentKills
+                    - math.max(0, math.floor(tonumber(task.startKills) or currentKills)))
+            end
+            task.startZombieKills = math.max(0,
+                currentKills - math.max(0, math.floor(progress or 0)))
+            task.killProgress = nil
+            task.startKills = nil
+        end
+    end
+    result.lastKnownKills = nil
+    return result
 end
 
 local function stageMetrics(context)
     local source = context.player
     local ok, reason = validateTables(source, { "stats" })
     if not ok then return nil, reason end
-    return clone(source.stats or {})
+    local result = clone(source.stats or {})
+    result.zombieKills = math.max(
+        math.floor(tonumber(result.zombieKills) or 0),
+        math.floor(tonumber(source.lastKnownKills) or 0),
+        0)
+    return result
 end
 
 local function stageShop(context)

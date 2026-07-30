@@ -52,6 +52,18 @@ local function fixture()
                     deadline = 31,
                     customTemplateField = "keep",
                 },
+                {
+                    taskId = "task-kill",
+                    sourceId = "kill",
+                    title = "Kill",
+                    kind = "kill",
+                    status = "active",
+                    target = 5,
+                    killProgress = 3,
+                    startKills = 15,
+                    acceptedAt = 12,
+                    deadline = 32,
+                },
             },
             lastKnownKills = 18,
             autoTaskClaimEnabled = true,
@@ -221,6 +233,12 @@ expect(modules["wallet.accounts"].data.accounts["local"].current == 6000,
     "bank current must migrate to the single wallet account")
 expect(modules["tasks.state"].data.players["local"].tasks[1].customTemplateField == "keep",
     "task row must be copied intact")
+expect(modules["tasks.state"].data.players["local"].tasks[2].startZombieKills == 15,
+    "active kill task baseline must migrate to shared metrics")
+expect(modules["tasks.state"].data.players["local"].tasks[2].killProgress == nil,
+    "legacy kill progress must not remain in modular task state")
+expect(modules["tasks.state"].data.players["local"].lastKnownKills == nil,
+    "legacy kill polling state must not remain in task module")
 expect(modules["shop.state"].data.players["local"].unlockedShopItems[
     "Moveables.Moveable|furniture_bedding_01_35"].worldSprite
     == "furniture_bedding_01_35", "shop variant identity")
@@ -246,6 +264,8 @@ expect(modules["admin.state"].data.itemOverrides["Base.Bandage"].category == "me
 local system = modules["system.state"].data.players["local"]
 expect(modules["metrics"].data.counters["local"].lotteryDraws == 8,
     "shared metrics")
+expect(modules["metrics"].data.counters["local"].zombieKills == 18,
+    "zombie kill baseline must migrate to shared metrics")
 expect(system.stats == nil, "system state must not retain shared metrics")
 expect(system.attributeSyncPending == nil,
     "system state must not retain attribute module state")
