@@ -15,6 +15,7 @@ function Gateway.new(options)
     options = options or {}
     local instance = {
         diagnostics = options.diagnostics,
+        source = options.source,
         subscriptions = {},
         dispatchers = {},
         sequence = 0,
@@ -50,10 +51,14 @@ function Gateway.new(options)
             order = self.sequence,
         }
         self.subscriptions[eventName] = sortedHandlers(rows)
-        if not self.dispatchers[eventName] and Events and Events[eventName] and Events[eventName].Add then
+        if not self.dispatchers[eventName] and self.source and self.source.add then
             local function dispatcher(...) instance:dispatch(eventName, ...) end
-            self.dispatchers[eventName] = dispatcher
-            Events[eventName].Add(dispatcher)
+            local added, code = self.source:add(eventName, dispatcher)
+            if added then
+                self.dispatchers[eventName] = dispatcher
+            else
+                return false, code or "eventUnavailable"
+            end
         end
         return true
     end
@@ -66,8 +71,8 @@ function Gateway.new(options)
             end
             if #rows == 0 then
                 local dispatcher = self.dispatchers[eventName]
-                if dispatcher and Events and Events[eventName] and Events[eventName].Remove then
-                    Events[eventName].Remove(dispatcher)
+                if dispatcher and self.source and self.source.remove then
+                    self.source:remove(eventName, dispatcher)
                 end
                 self.dispatchers[eventName] = nil
             end
@@ -76,8 +81,8 @@ function Gateway.new(options)
 
     function instance:stop()
         for eventName, dispatcher in pairs(self.dispatchers) do
-            if Events and Events[eventName] and Events[eventName].Remove then
-                Events[eventName].Remove(dispatcher)
+            if self.source and self.source.remove then
+                self.source:remove(eventName, dispatcher)
             end
         end
         self.dispatchers = {}
@@ -95,4 +100,3 @@ function Gateway.new(options)
 
     return instance
 end
-

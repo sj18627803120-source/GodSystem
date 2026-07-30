@@ -14,6 +14,9 @@ $required = @(
     'shared\GodSystem\Core\ModuleRegistry.lua',
     'shared\GodSystem\Platform\EventGateway.lua',
     'shared\GodSystem\Platform\CommandRouter.lua',
+    'shared\GodSystem\Platform\PZEventSource.lua',
+    'shared\GodSystem\Platform\PZCommandTransport.lua',
+    'shared\GodSystem\Platform\PZModDataAdapter.lua',
     'shared\GodSystem\State\Store.lua',
     'shared\GodSystem\Services\OperationLedger.lua',
     'shared\GodSystem\Bootstrap.lua'

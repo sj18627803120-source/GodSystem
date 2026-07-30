@@ -2,9 +2,15 @@ GodSystemStateStore = GodSystemStateStore or {}
 
 local Store = GodSystemStateStore
 
-local function copyTable(source)
+local function copyTable(source, seen)
+    if type(source) ~= "table" then return source end
+    seen = seen or {}
+    if seen[source] then return seen[source] end
     local result = {}
-    for key, value in pairs(type(source) == "table" and source or {}) do result[key] = value end
+    seen[source] = result
+    for key, value in pairs(source) do
+        result[copyTable(key, seen)] = copyTable(value, seen)
+    end
     return result
 end
 
@@ -62,4 +68,3 @@ function Store.new(adapter, options)
 
     return instance
 end
-

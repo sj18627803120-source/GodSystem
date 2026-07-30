@@ -21,10 +21,14 @@ function Bootstrap.create(options)
         environment = runtime.environment,
         protocol = { version = runtime.protocolVersion },
     })
-    runtime.events = GodSystemEventGateway.new({ diagnostics = runtime.diagnostics })
+    runtime.events = GodSystemEventGateway.new({
+        diagnostics = runtime.diagnostics,
+        source = runtime.adapters.events,
+    })
     runtime.commands = GodSystemCommandRouter.new({
         diagnostics = runtime.diagnostics,
         protocolVersion = runtime.protocolVersion,
+        transport = runtime.adapters.commands,
     })
     runtime.state = GodSystemStateStore.new(runtime.adapters.state, {
         schemaVersion = 1,
@@ -51,6 +55,12 @@ function Bootstrap.create(options)
         context.commands = {
             register = function(_, protocolModule, command, handler)
                 return runtime.commands:register(protocolModule, command, handler)
+            end,
+            send = function(_, protocolModule, command, actor, args)
+                return runtime.commands:send("server", protocolModule, command, actor, args)
+            end,
+            reply = function(_, protocolModule, command, actor, args)
+                return runtime.commands:send("client", protocolModule, command, actor, args)
             end,
         }
         context.diagnostics = {

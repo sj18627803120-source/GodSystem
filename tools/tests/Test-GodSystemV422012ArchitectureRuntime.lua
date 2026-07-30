@@ -22,6 +22,8 @@ Events.OnTick = {
 }
 
 require "GodSystem/Bootstrap"
+require "GodSystem/Platform/PZEventSource"
+require "GodSystem/Platform/PZCommandTransport"
 require "GodSystem/Services/OperationLedger"
 
 local stateRoot = {}
@@ -37,7 +39,10 @@ local runtime = GodSystemBootstrap.create({
     version = "42.20.1.2",
     protocolVersion = "42.20.1.2",
     environment = "test",
-    adapters = { state = stateAdapter },
+    adapters = {
+        state = stateAdapter,
+        events = GodSystemPZEventSource.new(),
+    },
 })
 
 assert(runtime:register({
@@ -99,9 +104,13 @@ assert(runtime.registry:status("feature.blocked").state == "blocked", "dependent
 local alphaState = runtime.state:scoped("service.alpha", 1)
 local betaState = runtime.state:scoped("feature.beta", 1)
 alphaState:get().value = 11
+alphaState:get().nested = { value = 33 }
 betaState:get().value = 22
 assert(alphaState:get().value == 11, "alpha state changed unexpectedly")
 assert(betaState:get().value == 22, "module state scopes are not isolated")
+local isolatedSnapshot = alphaState:snapshot()
+isolatedSnapshot.data.nested.value = 99
+assert(alphaState:get().nested.value == 33, "state snapshot leaked nested mutations")
 assert(runtime.state:save() == true, "state adapter save failed")
 
 local tickCalls = {}

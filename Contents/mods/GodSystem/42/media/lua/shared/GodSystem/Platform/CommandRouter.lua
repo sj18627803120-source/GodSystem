@@ -9,6 +9,7 @@ function Router.new(options)
     local instance = {
         diagnostics = options.diagnostics,
         protocolVersion = tostring(options.protocolVersion or ""),
+        transport = options.transport,
         routes = {},
     }
 
@@ -57,6 +58,32 @@ function Router.new(options)
         end
     end
 
+    function instance:send(direction, moduleId, command, player, args)
+        direction = tostring(direction or "")
+        moduleId, command = tostring(moduleId or ""), tostring(command or "")
+        args = type(args) == "table" and args or {}
+        if args.protocolVersion == nil and self.protocolVersion ~= "" then
+            args.protocolVersion = self.protocolVersion
+        end
+        if not self.transport or type(self.transport.send) ~= "function" then
+            return GodSystemResult.fail(moduleId, "transportUnavailable", {
+                direction = direction,
+                command = command,
+            }, args.operationId)
+        end
+        local ok, code = self.transport:send(direction, moduleId, command, player, args)
+        if ok ~= true then
+            return GodSystemResult.fail(moduleId, code or "transportFailed", {
+                direction = direction,
+                command = command,
+            }, args.operationId)
+        end
+        return GodSystemResult.ok(moduleId, "dispatched", {
+            direction = direction,
+            command = command,
+        }, args.operationId)
+    end
+
     function instance:health()
         local count = 0
         for _ in pairs(self.routes) do count = count + 1 end
@@ -65,4 +92,3 @@ function Router.new(options)
 
     return instance
 end
-
