@@ -103,13 +103,14 @@ function Registry.new(options)
                     blockedBy = dependencyId
                     break
                 end
-                dependencies[dependencyId] = self.modules[dependencyId]
+                dependencies[dependencyId] = self.modules[dependencyId].public
             end
             if blockedBy then
                 setState(moduleId, "blocked", "dependencyUnavailable", { dependency = blockedBy })
             else
                 setState(moduleId, "starting")
-                local okCreate, moduleOrError = boundaryCall(descriptor.create, dependencies, self.runtime)
+                local context = self.runtime.contextFor and self.runtime:contextFor(moduleId, descriptor) or {}
+                local okCreate, moduleOrError = boundaryCall(descriptor.create, dependencies, context)
                 if not okCreate or type(moduleOrError) ~= "table" then
                     local message = okCreate and "moduleCreateDidNotReturnTable" or moduleOrError
                     setState(moduleId, "failed", "createFailed", { message = tostring(message) })
@@ -117,10 +118,11 @@ function Registry.new(options)
                         self.diagnostics:record({ moduleId = moduleId, stage = "create", code = "createFailed", message = message })
                     end
                 else
+                    moduleOrError.public = type(moduleOrError.public) == "table" and moduleOrError.public or {}
                     self.modules[moduleId] = moduleOrError
                     local okStart, startResult = true, true
                     if type(moduleOrError.start) == "function" then
-                        okStart, startResult = boundaryCall(moduleOrError.start, moduleOrError, self.runtime)
+                        okStart, startResult = boundaryCall(moduleOrError.start, moduleOrError, context)
                     end
                     if not okStart or startResult == false then
                         local message = okStart and "moduleStartReturnedFalse" or startResult
@@ -177,7 +179,8 @@ function Registry.new(options)
     end
 
     function instance:get(moduleId)
-        return self.modules[tostring(moduleId or "")]
+        local module = self.modules[tostring(moduleId or "")]
+        return module and module.public or nil
     end
 
     function instance:status(moduleId)
@@ -186,4 +189,3 @@ function Registry.new(options)
 
     return instance
 end
-

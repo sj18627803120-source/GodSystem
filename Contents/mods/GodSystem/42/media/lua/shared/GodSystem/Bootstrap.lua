@@ -35,6 +35,34 @@ function Bootstrap.create(options)
         runtime = runtime,
     })
 
+    function runtime:contextFor(moduleId, descriptor)
+        local context = {
+            moduleId = tostring(moduleId),
+            version = self.version,
+            protocolVersion = self.protocolVersion,
+            environment = self.environment,
+            state = self.state:scoped(moduleId, descriptor and descriptor.stateVersion or 1),
+        }
+        context.events = {
+            subscribe = function(_, eventName, handler, priority)
+                return runtime.events:subscribe(moduleId, eventName, handler, priority)
+            end,
+        }
+        context.commands = {
+            register = function(_, protocolModule, command, handler)
+                return runtime.commands:register(protocolModule, command, handler)
+            end,
+        }
+        context.diagnostics = {
+            record = function(_, issue)
+                issue = type(issue) == "table" and issue or { message = issue }
+                issue.moduleId = moduleId
+                return runtime.diagnostics:record(issue)
+            end,
+        }
+        return context
+    end
+
     function runtime:register(descriptor)
         return self.registry:register(descriptor)
     end
@@ -58,4 +86,3 @@ function Bootstrap.create(options)
 
     return runtime
 end
-

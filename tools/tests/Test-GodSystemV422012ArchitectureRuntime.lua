@@ -45,7 +45,7 @@ assert(runtime:register({
     create = function(dependencies)
         assert(next(dependencies) == nil, "root module received undeclared dependencies")
         return {
-            value = 7,
+            public = { value = 7 },
             health = function()
                 return GodSystemResult.ok("service.alpha", "ok", { value = 7 })
             end,
@@ -56,9 +56,11 @@ assert(runtime:register({
 assert(runtime:register({
     id = "feature.beta",
     dependencies = { "service.alpha" },
-    create = function(dependencies)
+    create = function(dependencies, context)
         assert(dependencies["service.alpha"].value == 7, "declared dependency was not injected")
+        assert(context.moduleId == "feature.beta", "module context was not scoped")
         return {
+            public = { name = "beta" },
             start = function(self, activeRuntime)
                 self.startedIn = activeRuntime.environment
                 return true
@@ -143,4 +145,3 @@ local cycleResult = cycleRuntime:start()
 assert(cycleResult.ok == false and cycleResult.code == "dependencyCycle", "dependency cycle was not rejected")
 
 print("Test-GodSystemV422012ArchitectureRuntime passed")
-
