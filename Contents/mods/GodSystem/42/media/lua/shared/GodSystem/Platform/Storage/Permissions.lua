@@ -42,6 +42,14 @@ function Descriptor.create(_, context)
         return safehouse
     end
 
+    function public.identity(actor)
+        return Support.identity(actor, binding)
+    end
+
+    function public.isAdmin(actor)
+        return Support.isAdmin(actor, binding)
+    end
+
     function public.canUse(actor, network, object)
         counters.checks = counters.checks + 1
         if Support.isAdmin(actor, binding) then return true end

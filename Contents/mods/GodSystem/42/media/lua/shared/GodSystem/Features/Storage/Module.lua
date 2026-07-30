@@ -28,7 +28,9 @@ local MUTATIONS = {
     installCore = true,
     retrieveCore = true,
     setNetworkContainer = true,
+    removeNetworkContainer = true,
     updateContainer = true,
+    takeOver = true,
     deposit = true,
     withdraw = true,
     startOrganizer = true,
@@ -122,7 +124,7 @@ function Descriptor.create(dependencies, context)
     local core = requiredPort(dependencies, "storage.core",
         { "find", "create", "remove", "restore", "cleanupDuplicates", "health" })
     local permissions = requiredPort(dependencies, "storage.permissions",
-        { "canUse", "canManage", "withinRange", "health" })
+        { "canUse", "canManage", "withinRange", "isAdmin", "identity", "health" })
     local clock = requiredPort(dependencies, "storage.clock", { "nowMs" })
     local sync = requiredPort(dependencies, "storage.sync",
         { "object", "add", "remove", "state", "health" })
@@ -165,6 +167,7 @@ function Descriptor.create(dependencies, context)
         latestJobs = {},
         snapshotJobs = {},
         organizerByNetwork = {},
+        organizerResults = {},
     }
 
     local function nowMs()
@@ -703,13 +706,15 @@ function Descriptor.create(dependencies, context)
         local cleanupCalled, duplicates = method(core, "cleanupDuplicates",
             actor, network.networkId, item)
         if not cleanupCalled then duplicates = 0 end
+        local itemIdCalled, coreItemId = method(items, "id", item)
+        if not itemIdCalled then coreItemId = nil end
         auditRecord(actor, recovered and "StorageCoreRecovered" or "StorageCoreClaimed", {
             networkId = network.networkId,
             cost = cost,
         }, request)
         return result(true, recovered and "StorageCoreRecovered" or "StorageCoreClaimed", {
             networkId = network.networkId,
-            coreItem = item,
+            coreItemId = coreItemId,
             token = token,
             cost = cost,
             recovered = recovered,
@@ -823,13 +828,15 @@ function Descriptor.create(dependencies, context)
             return commitValue
         end
         method(sync, "object", object, request)
+        local itemIdCalled, coreItemId = method(items, "id", item)
+        if not itemIdCalled then coreItemId = nil end
         auditRecord(actor, "StorageCoreRetrieved", {
             networkId = network.networkId,
             objectId = object.objectId,
         }, request)
         return result(true, "StorageCoreRetrieved", {
             networkId = network.networkId,
-            coreItem = item,
+            coreItemId = coreItemId,
         }, request)
     end
 
@@ -979,6 +986,36 @@ function Descriptor.create(dependencies, context)
         return result(true, "StorageContainerSettingsUpdated", {
             linkId = link.linkId,
             settings = next,
+        }, request)
+    end
+
+    local function removeNetworkContainer(actor, network, revision, request)
+        local view, viewError = topology(actor, network, request)
+        if not view then return viewError end
+        local link = view.links[tostring(request.linkId or "")]
+        if not link then return result(false, "linkMissing", nil, request) end
+        local nextRequest = Rules.copy(request)
+        nextRequest.object = Rules.copy(link.objectRef)
+        nextRequest.enabled = false
+        return setNetworkContainer(actor, network, revision, nextRequest)
+    end
+
+    local function takeOver(actor, network, revision, request)
+        local adminCalled, admin = method(permissions, "isAdmin", actor)
+        if not adminCalled then return portFailure("permission.isAdmin", admin, request) end
+        if admin ~= true then return result(false, "adminOnly", nil, request) end
+        local identityCalled, identity = method(permissions, "identity", actor)
+        if not identityCalled then
+            return portFailure("permission.identity", identity, request)
+        end
+        identity = tostring(identity or "")
+        if identity == "" then return result(false, "actorInvalid", nil, request) end
+        network.owner = identity
+        local committed, commitValue = commitNetwork(actor, network, revision, request)
+        if not committed then return commitValue end
+        return result(true, "StorageOwnershipTransferred", {
+            networkId = network.networkId,
+            owner = identity,
         }, request)
     end
 
@@ -1451,6 +1488,16 @@ function Descriptor.create(dependencies, context)
                 stats = job.stats,
                 incomplete = job.incomplete,
             }, operationId(job.request))
+            instance.organizerResults[job.network.networkId] = {
+                state = "completed",
+                jobId = job.jobId,
+                moved = job.stats.moved,
+                unchanged = job.stats.unchanged,
+                skipped = job.stats.skipped,
+                failed = job.stats.failed,
+                noRoute = job.stats.noRoute,
+                incomplete = job.incomplete,
+            }
             finish(job.request, final)
             return true
         end
@@ -1466,6 +1513,10 @@ function Descriptor.create(dependencies, context)
         if not manageable then return manageError end
         job.phase = "stopped"
         instance.organizerByNetwork[network.networkId] = nil
+        instance.organizerResults[network.networkId] = {
+            state = "idle",
+            jobId = job.jobId,
+        }
         if job.request and operationId(job.request) then
             finish(job.request, GodSystemResult.fail(moduleId,
                 "StorageOrganizerStopped", { jobId = job.jobId },
@@ -1512,8 +1563,14 @@ function Descriptor.create(dependencies, context)
         if request.action == "setNetworkContainer" then
             return setNetworkContainer(request.actor, network, revision, request)
         end
+        if request.action == "removeNetworkContainer" then
+            return removeNetworkContainer(request.actor, network, revision, request)
+        end
         if request.action == "updateContainer" then
             return updateContainer(request.actor, network, revision, request)
+        end
+        if request.action == "takeOver" then
+            return takeOver(request.actor, network, revision, request)
         end
         if request.action == "deposit" then
             return deposit(request.actor, network, revision, request)
@@ -1621,8 +1678,104 @@ function Descriptor.create(dependencies, context)
     local function requestSnapshot(request)
         request = type(request) == "table" and request or {}
         local value = snapshot(request.snapshotId)
-        if not value then return result(false, "snapshotMissing", nil, request) end
+        if not value then
+            local expected = tostring(request.snapshotId or "")
+            for _, job in pairs(instance.jobs) do
+                if job.kind == "index"
+                    and tostring(job.snapshot and job.snapshot.snapshotId or "") == expected
+                then
+                    return result(true, "StorageSnapshotPending", {
+                        snapshotId = expected,
+                        pending = true,
+                        processed = job.processed,
+                        indexed = job.indexed,
+                    }, request)
+                end
+            end
+            return result(false, "snapshotMissing", nil, request)
+        end
         return result(true, "StorageSnapshot", value, request)
+    end
+
+    local function requestProcessJobs(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then return result(false, "moduleStopped", nil, request) end
+        return result(true, "StorageJobsProcessed", processJobs(), request)
+    end
+
+    local function requestNetworkState(request)
+        request = type(request) == "table" and request or {}
+        if request.actor == nil then return result(false, "actorRequired", nil, request) end
+        local network, _, loadError = currentNetwork(request.actor, request, false)
+        if not network then
+            if loadError and loadError.code ~= "networkMissing" then return loadError end
+            return result(true, "StorageNetworkState", {
+                connectedObjectIds = {},
+                canManage = false,
+                isAdmin = false,
+                onlineObjects = 0,
+                offlineObjects = 0,
+            }, request)
+        end
+        local adminCalled, admin = method(permissions, "isAdmin", request.actor)
+        if not adminCalled then
+            return portFailure("permission.isAdmin", admin, request)
+        end
+        if type(network.coreHost) ~= "table" then
+            return result(true, "StorageNetworkState", {
+                networkId = network.networkId,
+                revision = network.revision,
+                connectedObjectIds = {},
+                canManage = admin == true,
+                isAdmin = admin == true,
+                onlineObjects = 0,
+                offlineObjects = 0,
+            }, request)
+        end
+        local topologyRequest = Rules.copy(request)
+        topologyRequest.allowRemote = true
+        local view, viewError = topology(request.actor, network, topologyRequest)
+        if not view then return viewError end
+        local manageCalled, canManage = method(permissions, "canManage",
+            request.actor, network, view.host)
+        if not manageCalled then
+            return portFailure("permission.canManage", canManage, request)
+        end
+        return result(true, "StorageNetworkState", {
+            networkId = network.networkId,
+            revision = network.revision,
+            connectedObjectIds = Rules.copy(view.connectedObjectIds),
+            canManage = canManage == true,
+            isAdmin = admin == true,
+            onlineObjects = view.onlineObjects,
+            offlineObjects = view.offlineObjects,
+            truncated = view.truncated == true,
+        }, request)
+    end
+
+    local function requestOrganizerStatus(request)
+        request = type(request) == "table" and request or {}
+        if request.actor == nil then return result(false, "actorRequired", nil, request) end
+        local network, _, loadError = currentNetwork(request.actor, request, false)
+        if not network then return loadError end
+        local jobId = instance.organizerByNetwork[network.networkId]
+        local job = jobId and instance.jobs[jobId] or nil
+        if job then
+            return result(true, "StorageOrganizerStatus", {
+                state = "running",
+                jobId = job.jobId,
+                phase = job.phase,
+                moved = job.stats.moved,
+                unchanged = job.stats.unchanged,
+                skipped = job.stats.skipped,
+                failed = job.stats.failed,
+                noRoute = job.stats.noRoute,
+                incomplete = job.incomplete,
+            }, request)
+        end
+        return result(true, "StorageOrganizerStatus",
+            Rules.copy(instance.organizerResults[network.networkId]
+                or { state = "idle" }), request)
     end
 
     local function requestInstanceDetails(request)
@@ -1643,10 +1796,13 @@ function Descriptor.create(dependencies, context)
         requestStatus = requestStatus,
         startIndex = startIndexPublic,
         processJobs = processJobs,
+        requestProcessJobs = requestProcessJobs,
         snapshot = snapshot,
         requestSnapshot = requestSnapshot,
         instanceDetails = instanceDetails,
         requestInstanceDetails = requestInstanceDetails,
+        requestNetworkState = requestNetworkState,
+        requestOrganizerStatus = requestOrganizerStatus,
         claimCore = function(request)
             request = type(request) == "table" and request or {}
             request.action = "claimCore"

@@ -509,6 +509,13 @@ local function storageEnvironment(options)
     function permissions:canUse() return true end
     function permissions:canManage() return true end
     function permissions:withinRange() return true end
+    function permissions:isAdmin() return true end
+    function permissions:identity(actor)
+        if type(actor) == "table" and actor.getUsername then
+            return actor:getUsername()
+        end
+        return tostring(actor or "")
+    end
     function permissions:health() return true end
 
     local clock = { value = 1000 }

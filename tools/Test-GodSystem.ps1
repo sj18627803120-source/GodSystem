@@ -38,6 +38,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012CompanionPZVisuals.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012BankAdapters.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012TerminalStorageAdapters.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012StorageAdapter.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422011.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.1'
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11673.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.1'
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11672.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.1' -AllowStorageRoutingV11673

@@ -3,6 +3,7 @@ require "GodSystem/Platform/Companion/PZVisuals"
 require "GodSystem/UI/Facade"
 require "GodSystem/UI/ShellAdapter"
 require "GodSystem/UI/ActionAdapter"
+require "GodSystem/UI/StorageAdapter"
 require "GodSystem_UI"
 
 GodSystemModularClient = GodSystemModularClient or {
@@ -11,6 +12,7 @@ GodSystemModularClient = GodSystemModularClient or {
     facade = nil,
     shell = nil,
     actions = nil,
+    storage = nil,
 }
 
 function GodSystemModularClient.start()
@@ -58,9 +60,19 @@ function GodSystemModularClient.start()
         companionTarget = GodSystemCompanion,
     })
     actions:install()
+    local storage = GodSystemUIStorageAdapter.new({
+        facade = facade,
+        target = GodSystemStorageClient,
+        storage = GodSystemStorage,
+        ui = GodSystemStorageUI,
+        context = GodSystemStorageContext,
+        multiplayer = multiplayer,
+    })
+    storage:install()
     GodSystemModularClient.facade = facade
     GodSystemModularClient.shell = shell
     GodSystemModularClient.actions = actions
+    GodSystemModularClient.storage = storage
     GodSystemUI.bindRuntime(instance.runtime or instance)
     GodSystemUI.bindGateway(instance.gateway)
     GodSystemUI.bindFacade(facade)
@@ -69,6 +81,9 @@ function GodSystemModularClient.start()
 end
 
 function GodSystemModularClient.stop(reason)
+    if GodSystemModularClient.storage then
+        GodSystemModularClient.storage:stop()
+    end
     if GodSystemModularClient.actions then
         GodSystemModularClient.actions:stop()
     end
@@ -89,6 +104,7 @@ function GodSystemModularClient.stop(reason)
     GodSystemModularClient.facade = nil
     GodSystemModularClient.shell = nil
     GodSystemModularClient.actions = nil
+    GodSystemModularClient.storage = nil
 end
 
 function GodSystemModularClient.receive(moduleName, command, packet)
@@ -98,6 +114,7 @@ end
 
 function GodSystemModularClient.poll()
     if GodSystemModularClient.instance then GodSystemModularClient.instance:poll() end
+    if GodSystemModularClient.storage then GodSystemModularClient.storage:poll() end
 end
 
 return GodSystemModularClient

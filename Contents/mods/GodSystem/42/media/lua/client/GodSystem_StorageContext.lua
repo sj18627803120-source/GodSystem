@@ -359,6 +359,7 @@ local function addNetworkContainerOption(context, object, number, total)
     local payload = {
         x = position.x, y = position.y, z = position.z,
         objectIndex = objectIndex,
+        object = object,
         sprite = Storage.objectSpriteName(object),
         enabled = marker == nil,
         name = marker and marker.name or (slots[1].type ~= "" and slots[1].type or text("Storage_Container", "Container")),
@@ -381,6 +382,7 @@ local function addInstallCoreOption(context, object, number, total)
     configureOption(context:addOption(numberedLabel(number, total, text("Storage_Context_InstallCore", "Install storage core")), Context, Context.installCore, {
         x = position.x, y = position.y, z = position.z,
         objectIndex = objectIndex,
+        object = object,
         sprite = Storage.objectSpriteName(object),
     }), object)
     return true
