@@ -10,6 +10,7 @@ Descriptor.dependencies = {
     "tasks.state",
     "tasks.inventory",
     "tasks.wallet",
+    "metrics",
     "upgrades.read",
     "clock",
     "random",
@@ -78,6 +79,7 @@ function Descriptor.create(dependencies, context)
         { "count", "consume", "restore", "grant", "revoke" })
     local wallet = requiredPort(dependencies, "tasks.wallet",
         { "credit", "revokeCredit", "chargePenalty", "refundPenalty" })
+    local metrics = requiredPort(dependencies, "metrics", { "snapshot", "get", "increment", "restore" })
     local upgrades = requiredPort(dependencies, "upgrades.read", { "limits" })
     local clock = requiredPort(dependencies, "clock", { "nowHours", "currentDay" })
     local random = requiredPort(dependencies, "random", { "index" })
@@ -129,8 +131,22 @@ function Descriptor.create(dependencies, context)
         if not called then return nil, makeResult(false, "portError", { stage = "stateLoad" }, request) end
         if type(data) ~= "table" then return nil, makeResult(false, code or "stateUnavailable", nil, request) end
         data.tasks = type(data.tasks) == "table" and data.tasks or {}
-        data.stats = type(data.stats) == "table" and data.stats or {}
         return data, nil
+    end
+
+    local function metricSnapshot(actor, request)
+        local called, value = callPort(metrics.snapshot, actor, request)
+        if not called or type(value) ~= "table" then return nil end
+        return value
+    end
+
+    local function incrementMetric(actor, changes, request)
+        local called, updated, receiptOrCode = callPort(metrics.increment, actor, changes, request)
+        if not called then return false, "portError" end
+        if updated ~= true or type(receiptOrCode) ~= "table" then
+            return false, receiptOrCode or "metricUpdateFailed"
+        end
+        return true, receiptOrCode
     end
 
     local function save(actor, data, request)
@@ -175,14 +191,14 @@ function Descriptor.create(dependencies, context)
         }
     end
 
-    local function progressOf(actor, data, task, request)
+    local function progressOf(actor, measurements, task, request)
         if not task then return 0 end
         if task.kind == "kill" then
             return math.max(0, integer(request and request.killProgress, task.killProgress or 0))
         elseif task.kind == "recycleItems" then
-            return math.max(0, integer(data.stats.recycledItems, 0) - integer(task.startRecycledItems, 0))
+            return math.max(0, integer(measurements.recycledItems, 0) - integer(task.startRecycledItems, 0))
         elseif task.kind == "recyclePoints" then
-            return math.max(0, integer(data.stats.recycledPoints, 0) - integer(task.startRecycledPoints, 0))
+            return math.max(0, integer(measurements.recycledPoints, 0) - integer(task.startRecycledPoints, 0))
         elseif task.kind == "surviveHours" then
             return math.max(0, math.floor((nowHours(request) or 0) - (tonumber(task.acceptedAt) or 0)))
         elseif task.kind == "turnInItem" then
@@ -192,11 +208,11 @@ function Descriptor.create(dependencies, context)
             local called, count = callPort(inventory.count, actor, task.items or {}, request)
             return called and math.max(0, integer(count, 0)) or 0
         elseif task.kind == "spendPoints" then
-            return math.max(0, integer(data.stats.spentPoints, 0) - integer(task.startSpentPoints, 0))
+            return math.max(0, integer(measurements.spentPoints, 0) - integer(task.startSpentPoints, 0))
         elseif task.kind == "buyItems" then
-            return math.max(0, integer(data.stats.boughtItems, 0) - integer(task.startBoughtItems, 0))
+            return math.max(0, integer(measurements.boughtItems, 0) - integer(task.startBoughtItems, 0))
         elseif task.kind == "moveDistance" then
-            return math.max(0, math.floor((tonumber(data.stats.moveDistance) or 0) - (tonumber(task.startMoveDistance) or 0)))
+            return math.max(0, math.floor((tonumber(measurements.moveDistance) or 0) - (tonumber(task.startMoveDistance) or 0)))
         end
         return 0
     end
@@ -279,15 +295,19 @@ function Descriptor.create(dependencies, context)
         local before = copy(data)
         local now = nowHours(request)
         if not now then return finish(id, makeResult(false, "clockUnavailable", nil, request), request) end
+        local measurements = metricSnapshot(request.actor, request)
+        if not measurements then
+            return finish(id, makeResult(false, "metricUnavailable", nil, request), request)
+        end
         task.status = "active"
         task.acceptedAt = now
         task.deadline = now + (tonumber(task.limitHours) or tonumber(config.getDefaultLimitHours(request)) or 24)
         task.killProgress = task.kind == "kill" and 0 or nil
-        task.startRecycledItems = integer(data.stats.recycledItems, 0)
-        task.startRecycledPoints = integer(data.stats.recycledPoints, 0)
-        task.startSpentPoints = integer(data.stats.spentPoints, 0)
-        task.startBoughtItems = integer(data.stats.boughtItems, 0)
-        task.startMoveDistance = tonumber(data.stats.moveDistance) or 0
+        task.startRecycledItems = integer(measurements.recycledItems, 0)
+        task.startRecycledPoints = integer(measurements.recycledPoints, 0)
+        task.startSpentPoints = integer(measurements.spentPoints, 0)
+        task.startBoughtItems = integer(measurements.boughtItems, 0)
+        task.startMoveDistance = tonumber(measurements.moveDistance) or 0
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             save(request.actor, before, request)
@@ -303,7 +323,9 @@ function Descriptor.create(dependencies, context)
         if not data then return failure end
         local task = findTask(data, request.taskId)
         if not task then return makeResult(false, "taskMissing", nil, request) end
-        local value = progressOf(request.actor, data, task, request)
+        local measurements = metricSnapshot(request.actor, request)
+        if not measurements then return makeResult(false, "metricUnavailable", nil, request) end
+        local value = progressOf(request.actor, measurements, task, request)
         return makeResult(true, "progress", {
             taskId = task.taskId,
             value = value,
@@ -341,8 +363,12 @@ function Descriptor.create(dependencies, context)
         if not task or task.status ~= "active" then
             return finish(id, makeResult(false, "taskStateInvalid", nil, request), request)
         end
+        local measurements = metricSnapshot(request.actor, request)
+        if not measurements then
+            return finish(id, makeResult(false, "metricUnavailable", nil, request), request)
+        end
         local target = math.max(1, integer(task.target, 1))
-        local value = progressOf(request.actor, data, task, request)
+        local value = progressOf(request.actor, measurements, task, request)
         if value < target then
             local now = nowHours(request)
             if tonumber(task.deadline) and now and now > tonumber(task.deadline) then
@@ -360,7 +386,6 @@ function Descriptor.create(dependencies, context)
                 end
                 task.status = "failed"
                 task.failedAt = now
-                data.stats.failedTasks = integer(data.stats.failedTasks, 0) + 1
                 local saved, saveCode = save(request.actor, data, request)
                 if not saved then
                     local restored = true
@@ -372,6 +397,19 @@ function Descriptor.create(dependencies, context)
                     local stateRestored = save(request.actor, before, request)
                     return finish(id, makeResult(false,
                         restored and stateRestored and saveCode or "rollbackIncomplete", nil, request), request)
+                end
+                local counted, countCode = incrementMetric(
+                    request.actor, { failedTasks = 1 }, request)
+                if not counted then
+                    local restored = true
+                    if penaltyReceipt then
+                        local called, refundValue = callPort(
+                            wallet.refundPenalty, request.actor, penaltyReceipt, request)
+                        restored = called and refundValue ~= false
+                    end
+                    local stateRestored = save(request.actor, before, request)
+                    return finish(id, makeResult(false,
+                        restored and stateRestored and countCode or "rollbackIncomplete", nil, request), request)
                 end
                 return finish(id, makeResult(false, "taskFailed", {
                     taskId = task.taskId,
@@ -410,11 +448,18 @@ function Descriptor.create(dependencies, context)
         end
         task.status = "claimed"
         task.claimedAt = nowHours(request)
-        data.stats.completedTasks = integer(data.stats.completedTasks, 0) + 1
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local restored = rollbackClaim(request.actor, before, turnInReceipt, pointReceipt, itemReceipt, request)
             return finish(id, makeResult(false, restored and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        local counted, countCode = incrementMetric(
+            request.actor, { completedTasks = 1 }, request)
+        if not counted then
+            local restored = rollbackClaim(
+                request.actor, before, turnInReceipt, pointReceipt, itemReceipt, request)
+            return finish(id, makeResult(false,
+                restored and countCode or "rollbackIncomplete", nil, request), request)
         end
         return finish(id, makeResult(true, "claimed", {
             taskId = task.taskId,
@@ -447,7 +492,6 @@ function Descriptor.create(dependencies, context)
         end
         task.status = "failed"
         task.failedAt = nowHours(request)
-        data.stats.failedTasks = integer(data.stats.failedTasks, 0) + 1
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local restored = true
@@ -457,6 +501,18 @@ function Descriptor.create(dependencies, context)
             end
             local stateRestored = save(request.actor, before, request)
             return finish(id, makeResult(false, restored and stateRestored and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        local counted, countCode = incrementMetric(
+            request.actor, { failedTasks = 1 }, request)
+        if not counted then
+            local restored = true
+            if penaltyReceipt then
+                local called, value = callPort(wallet.refundPenalty, request.actor, penaltyReceipt, request)
+                restored = called and value ~= false
+            end
+            local stateRestored = save(request.actor, before, request)
+            return finish(id, makeResult(false,
+                restored and stateRestored and countCode or "rollbackIncomplete", nil, request), request)
         end
         return finish(id, makeResult(true, "failed", {
             taskId = task.taskId,

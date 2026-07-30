@@ -11,6 +11,7 @@ Descriptor.dependencies = {
     "upgrades.abilities",
     "upgrades.tasks",
     "upgrades.wallet",
+    "metrics",
     "operations",
     "notifications",
 }
@@ -99,6 +100,7 @@ function Descriptor.create(dependencies, context)
     local abilities = requiredPort(dependencies, "upgrades.abilities", { "snapshot", "apply", "restore" })
     local tasks = requiredPort(dependencies, "upgrades.tasks", { "addOpen", "rollback" })
     local wallet = requiredPort(dependencies, "upgrades.wallet", { "charge", "refund" })
+    local metrics = requiredPort(dependencies, "metrics", { "snapshot", "get", "increment", "restore" })
     local operations = requiredPort(dependencies, "operations", { "begin", "finish" })
     local notifications = requiredPort(dependencies, "notifications", { "publish" })
     local instance = { started = false, completed = 0, failed = 0, lastIssue = nil }
@@ -142,8 +144,16 @@ function Descriptor.create(dependencies, context)
         if not called then return nil, makeResult(false, "portError", { stage = "stateLoad" }, request) end
         if type(data) ~= "table" then return nil, makeResult(false, code or "stateUnavailable", nil, request) end
         data.upgrades = type(data.upgrades) == "table" and data.upgrades or {}
-        data.stats = type(data.stats) == "table" and data.stats or {}
         return data
+    end
+
+    local function incrementMetric(actor, changes, request)
+        local called, updated, receiptOrCode = callPort(metrics.increment, actor, changes, request)
+        if not called then return false, "portError" end
+        if updated ~= true or type(receiptOrCode) ~= "table" then
+            return false, receiptOrCode or "metricUpdateFailed"
+        end
+        return true, receiptOrCode
     end
 
     local function save(actor, data, request)
@@ -232,7 +242,6 @@ function Descriptor.create(dependencies, context)
             end
             taskReceipt = receiptOrCode
         end
-        data.stats.spentPoints = (safeInteger(data.stats.spentPoints) or 0) + cost
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local taskRestored = true
@@ -249,6 +258,31 @@ function Descriptor.create(dependencies, context)
             local stateRestored = save(request.actor, before, request)
             local rollbackOk = taskRestored and walletRestored and abilityRestored and stateRestored
             return finish(id, makeResult(false, rollbackOk and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        if cost > 0 then
+            local counted, countCode = incrementMetric(
+                request.actor, { spentPoints = cost }, request)
+            if not counted then
+                local taskRestored = true
+                if taskReceipt then
+                    local taskCalled, value = callPort(
+                        tasks.rollback, request.actor, taskReceipt, request)
+                    taskRestored = taskCalled and value ~= false
+                end
+                local walletRestored = true
+                if paymentReceipt then
+                    local refundCalled, value = callPort(
+                        wallet.refund, request.actor, paymentReceipt, request)
+                    walletRestored = refundCalled and value ~= false
+                end
+                local abilityRestored = restoreAbility(
+                    request.actor, upgradeType, abilitySnapshot, request)
+                local stateRestored = save(request.actor, before, request)
+                local rollbackOk = taskRestored and walletRestored
+                    and abilityRestored and stateRestored
+                return finish(id, makeResult(false,
+                    rollbackOk and countCode or "rollbackIncomplete", nil, request), request)
+            end
         end
         return finish(id, makeResult(true, "upgraded", {
             upgradeType = upgradeType,

@@ -12,6 +12,12 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012PlatformServices.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012AutoLoaderModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemMigration422011.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012MigrationRunner.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012RuntimeKernel.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012UseCaseDispatcher.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012ConfigSnapshot.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012Metrics.ps1') -Root $RepoRoot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012AttributesAdminModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012MaintenanceModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012WalletBankModule.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422012TaskShopRecycleModule.ps1') -Root $RepoRoot

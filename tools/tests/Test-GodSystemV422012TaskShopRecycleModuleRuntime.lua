@@ -56,11 +56,34 @@ local function newNotifications()
     }
 end
 
+local function newMetrics(fixture)
+    fixture.metrics = type(fixture.metrics) == "table" and fixture.metrics or {}
+    return {
+        snapshot = function() return clone(fixture.metrics) end,
+        get = function(_, name) return tonumber(fixture.metrics[name]) or 0 end,
+        increment = function(_, changes, amount)
+            if fixture.failMetric then return false, "metricUpdateFailed" end
+            if type(changes) ~= "table" then changes = { [changes] = amount } end
+            local before, after = {}, {}
+            for name, delta in pairs(changes) do
+                before[name] = tonumber(fixture.metrics[name]) or 0
+                after[name] = before[name] + delta
+            end
+            for name, value in pairs(after) do fixture.metrics[name] = value end
+            return true, { before = before, after = after }
+        end,
+        restore = function(_, receipt)
+            for name, value in pairs(receipt.before or {}) do fixture.metrics[name] = value end
+            return true
+        end,
+    }
+end
+
 local function taskFixture(environment)
     local fixture = {
         environment = environment,
         actor = { id = environment .. "-player" },
-        data = { tasks = {}, stats = {} },
+        data = { tasks = {} },
         counts = { ["Base.Scrap"] = 2 },
         balance = 100,
         rewardPoints = 0,
@@ -173,6 +196,7 @@ local function taskFixture(environment)
                 return true
             end,
         },
+        metrics = newMetrics(fixture),
         ["upgrades.read"] = {
             limits = function()
                 return { dailyTaskCount = 2, maxActiveTasks = 3 }
@@ -238,7 +262,7 @@ local function runTaskSuccess(environment)
         operationId = environment .. "-fail",
     })
     assert(failed.ok and failed.code == "failed" and failed.data.penaltyPaid == 7, "task failure failed")
-    assert(f.balance == 93 and f.data.stats.failedTasks == 1, "task failure penalty is wrong")
+    assert(f.balance == 93 and f.metrics.failedTasks == 1, "task failure penalty is wrong")
     return table.concat({ claimed.code, failed.code, f.rewardPoints, f.rewardItems, f.balance }, "|")
 end
 
@@ -254,6 +278,22 @@ do
     assert(not result.ok and result.code == "rewardFailed", "task reward failure code was lost")
     assert(f.counts["Base.Scrap"] == 2 and f.rewardPoints == 0 and f.data.tasks[1].status == "active",
         "task claim rollback was incomplete")
+end
+
+do
+    local f = taskFixture("task-metric-rollback")
+    assert(f.instance.public.generate({ actor = f.actor, operationId = "tmg" }).ok)
+    local id = f.data.tasks[1].taskId
+    assert(f.instance.public.accept({ actor = f.actor, taskId = id, operationId = "tma" }).ok)
+    f.failMetric = true
+    local result = f.instance.public.claim({
+        actor = f.actor, taskId = id, operationId = "tmc",
+    })
+    assert(not result.ok and result.code == "metricUpdateFailed",
+        "task metric failure code was lost")
+    assert(f.counts["Base.Scrap"] == 2 and f.rewardPoints == 0
+        and f.rewardItems == 0 and f.data.tasks[1].status == "active",
+        "task metric failure did not roll back settlement")
 end
 
 do
@@ -277,7 +317,7 @@ end
 local function shopFixture(environment)
     local fixture = {
         actor = { id = environment .. "-player" },
-        data = { unlockedShopItems = {}, stats = {} },
+        data = { unlockedShopItems = {} },
         balance = 200,
         now = 80,
         items = {
@@ -372,6 +412,7 @@ local function shopFixture(environment)
                 return true
             end,
         },
+        metrics = newMetrics(fixture),
         ["item.eligibility"] = {
             allowed = function(fullType)
                 if fullType == "Base.HiddenDebug" then return false, "itemNotEligible" end
@@ -453,10 +494,23 @@ do
     assert(#f.grants == 0 and f.balance == 200, "failed purchase did not revoke granted items")
 end
 
+do
+    local f = shopFixture("shop-metric-rollback")
+    f.failMetric = true
+    local result = f.instance.public.purchase({
+        actor = f.actor, productId = "configured:bandage", quantity = 2,
+        operationId = "shop-metric-fail",
+    })
+    assert(not result.ok and result.code == "metricUpdateFailed",
+        "shop metric failure code was lost")
+    assert(#f.grants == 0 and f.balance == 200,
+        "shop metric failure did not roll back item and payment")
+end
+
 local function recycleFixture(environment)
     local fixture = {
         actor = { id = environment .. "-player" },
-        data = { stats = {} },
+        data = {},
         balance = 100,
         removed = {},
         listings = {},
@@ -513,6 +567,7 @@ local function recycleFixture(environment)
             credit = function(_, amount) fixture.balance = fixture.balance + amount return true, { amount = amount } end,
             revokeCredit = function(_, receipt) fixture.balance = fixture.balance - receipt.amount return true end,
         },
+        metrics = newMetrics(fixture),
         ["item.eligibility"] = {
             canRecycle = function(item) return item.protected ~= true end,
             canList = function(item) return item.listBlocked ~= true end,
@@ -594,6 +649,22 @@ do
     assert(not result.ok and result.code == "selectionFailed", "remove failure code was lost")
     assert(not f.removed.a and not f.removed.c and f.balance == 100, "batch removal rollback failed")
     assert(f.data.recycleLimitUsed == nil, "failed batch leaked payout-limit state")
+end
+
+do
+    local f = recycleFixture("metric-rollback")
+    f.failMetric = true
+    local result = f.instance.public.execute({
+        actor = f.actor,
+        mode = "recycle",
+        itemIds = { "a" },
+        operationId = "metric-rollback-1",
+    })
+    assert(not result.ok and result.code == "metricUpdateFailed",
+        "recycle metric failure code was lost")
+    assert(not f.removed.a and f.balance == 100
+        and f.data.recycleLimitUsed == nil,
+        "recycle metric failure did not roll back payout, item, and state")
 end
 
 do

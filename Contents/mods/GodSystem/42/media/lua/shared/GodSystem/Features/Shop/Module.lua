@@ -11,6 +11,7 @@ Descriptor.dependencies = {
     "shop.identity",
     "shop.inventory",
     "shop.wallet",
+    "metrics",
     "item.eligibility",
     "clock",
     "random",
@@ -76,6 +77,7 @@ function Descriptor.create(dependencies, context)
     local identity = requiredPort(dependencies, "shop.identity", { "variantKey", "productId" })
     local inventory = requiredPort(dependencies, "shop.inventory", { "resolve", "grant", "revoke" })
     local wallet = requiredPort(dependencies, "shop.wallet", { "charge", "refund" })
+    local metrics = requiredPort(dependencies, "metrics", { "snapshot", "get", "increment", "restore" })
     local eligibility = requiredPort(dependencies, "item.eligibility", { "allowed" })
     local clock = requiredPort(dependencies, "clock", { "nowHours" })
     local random = requiredPort(dependencies, "random", { "index" })
@@ -122,8 +124,16 @@ function Descriptor.create(dependencies, context)
         if not called then return nil, makeResult(false, "portError", { stage = "stateLoad" }, request) end
         if type(data) ~= "table" then return nil, makeResult(false, code or "stateUnavailable", nil, request) end
         data.unlockedShopItems = type(data.unlockedShopItems) == "table" and data.unlockedShopItems or {}
-        data.stats = type(data.stats) == "table" and data.stats or {}
         return data, nil
+    end
+
+    local function incrementMetric(actor, changes, request)
+        local called, updated, receiptOrCode = callPort(metrics.increment, actor, changes, request)
+        if not called then return false, "portError" end
+        if updated ~= true or type(receiptOrCode) ~= "table" then
+            return false, receiptOrCode or "metricUpdateFailed"
+        end
+        return true, receiptOrCode
     end
 
     local function save(actor, data, request)
@@ -249,6 +259,20 @@ function Descriptor.create(dependencies, context)
             local restored = save(request.actor, before, request)
             return finish(id, makeResult(false, refunded and restored and saveCode or "rollbackIncomplete", nil, request), request)
         end
+        if price > 0 then
+            local counted, countCode = incrementMetric(
+                request.actor, { spentPoints = price }, request)
+            if not counted then
+                local refunded = true
+                if paymentReceipt then
+                    local refundCalled, value = callPort(wallet.refund, request.actor, paymentReceipt, request)
+                    refunded = refundCalled and value ~= false
+                end
+                local restored = save(request.actor, before, request)
+                return finish(id, makeResult(false,
+                    refunded and restored and countCode or "rollbackIncomplete", nil, request), request)
+            end
+        end
         return finish(id, makeResult(true, "listed", {
             variantKey = variantKey,
             productId = productIdFor(data.unlockedShopItems[variantKey], "unlocked", request),
@@ -329,20 +353,20 @@ function Descriptor.create(dependencies, context)
             end
             paymentReceipt = receiptOrCode
         end
-        local before = copy(data)
-        data.stats.spentPoints = integer(data.stats.spentPoints, 0) + price
-        data.stats.boughtItems = integer(data.stats.boughtItems, 0) + quantity
-        local saved, saveCode = save(request.actor, data, request)
-        if not saved then
+        local counted, countCode = incrementMetric(request.actor, {
+            spentPoints = price,
+            boughtItems = quantity,
+        }, request)
+        if not counted then
             local refundOk = true
             if paymentReceipt then
                 local refundCalled, value = callPort(wallet.refund, request.actor, paymentReceipt, request)
                 refundOk = refundCalled and value ~= false
             end
             local revokeCalled, revoked = callPort(inventory.revoke, request.actor, grantReceipt, request)
-            local stateRestored = save(request.actor, before, request)
-            local rollbackOk = refundOk and revokeCalled and revoked ~= false and stateRestored
-            return finish(id, makeResult(false, rollbackOk and saveCode or "rollbackIncomplete", nil, request), request)
+            local rollbackOk = refundOk and revokeCalled and revoked ~= false
+            return finish(id, makeResult(false,
+                rollbackOk and countCode or "rollbackIncomplete", nil, request), request)
         end
         return finish(id, makeResult(true, "purchased", {
             productId = request.productId,
@@ -433,20 +457,20 @@ function Descriptor.create(dependencies, context)
             end
             paymentReceipt = receiptOrCode
         end
-        local before = copy(data)
-        data.stats.spentPoints = integer(data.stats.spentPoints, 0) + price
-        data.stats.lotteryDraws = integer(data.stats.lotteryDraws, 0) + count
-        local saved, saveCode = save(request.actor, data, request)
-        if not saved then
+        local counted, countCode = incrementMetric(request.actor, {
+            spentPoints = price,
+            lotteryDraws = count,
+        }, request)
+        if not counted then
             local refundOk = true
             if paymentReceipt then
                 local refundCalled, value = callPort(wallet.refund, request.actor, paymentReceipt, request)
                 refundOk = refundCalled and value ~= false
             end
             local revokeCalled, revoked = callPort(inventory.revoke, request.actor, grantReceipt, request)
-            local stateRestored = save(request.actor, before, request)
-            local rollbackOk = refundOk and revokeCalled and revoked ~= false and stateRestored
-            return finish(id, makeResult(false, rollbackOk and saveCode or "rollbackIncomplete", nil, request), request)
+            local rollbackOk = refundOk and revokeCalled and revoked ~= false
+            return finish(id, makeResult(false,
+                rollbackOk and countCode or "rollbackIncomplete", nil, request), request)
         end
         return finish(id, makeResult(true, "lotteryCompleted", {
             category = category,

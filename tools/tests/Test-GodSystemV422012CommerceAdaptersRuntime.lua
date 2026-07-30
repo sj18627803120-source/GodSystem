@@ -203,6 +203,7 @@ require "GodSystem/Services/Random"
 require "GodSystem/Services/Operations"
 require "GodSystem/Platform/WalletAccounts"
 require "GodSystem/Platform/WalletFunds"
+require "GodSystem/Platform/Metrics"
 require "GodSystem/Platform/Commerce/States"
 require "GodSystem/Platform/Commerce/ConfigSnapshots"
 require "GodSystem/Platform/Commerce/Inventory"
@@ -258,6 +259,10 @@ local accountsContext = context()
 accountsContext.binding = { initialBalance = function() return 500 end }
 local walletAccounts = GodSystemWalletAccountsPlatform.create({}, accountsContext)
 assert(walletAccounts:start())
+local metrics = GodSystemMetricsPlatform.create({
+    ["wallet.accounts"] = walletAccounts.public,
+}, context())
+assert(metrics:start())
 local walletFunds = GodSystemWalletFundsPlatform.create({
     ["wallet.accounts"] = walletAccounts.public,
 }, context())
@@ -291,6 +296,7 @@ local tasks = GodSystemTasksFeatureModule.create({
     ["tasks.state"] = taskState.public,
     ["tasks.inventory"] = tasksInventory.public,
     ["tasks.wallet"] = tasksWallet.public,
+    metrics = metrics.public,
     ["upgrades.read"] = {
         limits = function()
             return { dailyTaskCount = 2, maxActiveTasks = 3 }
@@ -307,6 +313,7 @@ local shop = GodSystemShopFeatureModule.create({
     ["shop.identity"] = shopIdentity.public,
     ["shop.inventory"] = shopInventory.public,
     ["shop.wallet"] = shopWallet.public,
+    metrics = metrics.public,
     ["item.eligibility"] = eligibility.public,
     clock = clock.public,
     random = random.public,
@@ -318,6 +325,7 @@ local recycle = GodSystemRecycleFeatureModule.create({
     ["recycle.state"] = recycleState.public,
     ["recycle.inventory"] = recycleInventory.public,
     ["recycle.wallet"] = recycleWallet.public,
+    metrics = metrics.public,
     ["item.eligibility"] = eligibility.public,
     ["shop.identity"] = shopIdentity.public,
     ["shop.listings"] = listings.public,
@@ -350,6 +358,22 @@ assert(commerceInventory.public.resolve(player, "2") == nil,
     "task turn-in did not remove exact nested item")
 assert(commerceWallet.public.balance(player) == 520,
     "task reward did not use shared wallet")
+taskData = taskState.public.load(player)
+taskData.tasks[#taskData.tasks + 1] = {
+    taskId = "observe-spend",
+    kind = "spendPoints",
+    target = 14,
+    status = "active",
+    startSpentPoints = 0,
+}
+taskData.tasks[#taskData.tasks + 1] = {
+    taskId = "observe-recycle",
+    kind = "recycleItems",
+    target = 1,
+    status = "active",
+    startRecycledItems = 0,
+}
+assert(taskState.public.save(player, taskData), "cross-module task fixture save failed")
 
 local listed = shop.public.listItem({
     actor = player,
@@ -398,6 +422,14 @@ assert(recycled.ok and recycled.code == "recycledPartial"
     "PZ smart recycle filtering failed")
 assert(recycled.data.payout == 8 and commerceWallet.public.balance(player) == 514,
     "third-party dynamic recycle value or shared wallet settlement failed")
+local counters = metrics.public.snapshot(player)
+assert(counters.completedTasks == 1 and counters.spentPoints == 14
+    and counters.boughtItems == 1 and counters.recycledItems == 1
+    and counters.recycledPoints == 8,
+    "shared metrics did not observe task/shop/recycle outcomes")
+assert(tasks.public.progress({ actor = player, taskId = "observe-spend" }).data.complete
+    and tasks.public.progress({ actor = player, taskId = "observe-recycle" }).data.complete,
+    "tasks could not observe shop/recycle metrics")
 assert(commerceInventory.public.resolve(player, "4") == nil
     and commerceInventory.public.resolve(player, "5") ~= nil,
     "recycle exact removal/protected key handling failed")
@@ -410,7 +442,7 @@ assert(sync.added >= 2 and sync.removed >= 2,
     "PZ container synchronization calls were not emitted")
 
 for _, instance in ipairs({
-    actorIdentity, shopIdentity, clock, random, operations, walletAccounts, walletFunds,
+    actorIdentity, shopIdentity, clock, random, operations, walletAccounts, metrics, walletFunds,
     taskState, shopState, recycleState,
     tasksConfig, shopConfig, recycleConfig, eligibility,
     commerceInventory, tasksInventory, shopInventory, recycleInventory,
@@ -449,6 +481,7 @@ local composed = GodSystemComposition.create({
 assert(composed.startResult and composed.startResult.ok,
     "Commerce descriptors could not be registered by Composition")
 for _, moduleId in ipairs({
+    "metrics",
     "commerce.actor.identity", "shop.identity",
     "tasks.state", "shop.state", "recycle.state",
     "tasks.config", "shop.config", "recycle.config",

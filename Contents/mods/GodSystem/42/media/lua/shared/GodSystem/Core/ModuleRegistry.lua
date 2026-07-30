@@ -96,6 +96,11 @@ function Registry.new(options)
             local descriptor = self.descriptors[moduleId]
             local dependencies = {}
             local blockedBy = nil
+            local disabled = self.runtime.isModuleDisabled
+                and self.runtime:isModuleDisabled(moduleId) or nil
+            if disabled then
+                setState(moduleId, "failed", "migrationFailed", disabled)
+            else
             for j = 1, #descriptor.dependencies do
                 local dependencyId = descriptor.dependencies[j]
                 local dependencyState = self.states[dependencyId]
@@ -134,6 +139,7 @@ function Registry.new(options)
                         setState(moduleId, "started")
                     end
                 end
+            end
             end
         end
         return GodSystemResult.ok("core", "started", { order = copyArray(order) })

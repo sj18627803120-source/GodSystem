@@ -20,6 +20,7 @@ end
 
 GodSystemBankPlatformDescriptors.externalDependencies = {
     "wallet.accounts",
+    "metrics",
     "wallet",
     "clock",
     "random",

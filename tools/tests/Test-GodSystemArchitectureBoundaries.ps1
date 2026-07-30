@@ -50,6 +50,7 @@ function Get-Layer([string]$moduleName) {
         'Services' { return 'Services' }
         'Features' { return 'Features' }
         'UI' { return 'UI' }
+        'Runtime' { return 'Bootstrap' }
         default { return 'Unknown' }
     }
 }

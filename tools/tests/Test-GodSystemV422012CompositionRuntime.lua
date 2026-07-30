@@ -49,6 +49,9 @@ local runtime = GodSystemComposition.create({
     protocolVersion = "42.20.1.2",
     environment = "test",
     descriptors = { broken, dependent, configConsumer },
+    disabledModules = {
+        ["test.broken"] = { code = "legacySliceInvalid" },
+    },
     configSnapshot = { marker = "available" },
     adapters = {
         events = {
@@ -81,7 +84,9 @@ assert(runtime.registry:status("feature.bank").state == "started", "bank was not
 assert(runtime.registry:status("feature.companion").state == "started", "companion was not composed")
 assert(runtime.registry:status("feature.terminal").state == "started", "terminal was not composed")
 assert(runtime.registry:status("feature.storage").state == "started", "storage was not composed")
-assert(runtime.registry:status("test.broken").state == "failed", "broken module failure was not isolated")
+assert(runtime.registry:status("test.broken").state == "failed"
+    and runtime.registry:status("test.broken").code == "migrationFailed",
+    "migration-disabled module was not isolated")
 assert(runtime.registry:status("test.dependent").state == "blocked", "dependent module was not blocked")
 assert(runtime.registry:status("test.config").state == "started", "configuration consumer did not start")
 

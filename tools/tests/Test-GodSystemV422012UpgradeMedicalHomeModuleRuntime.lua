@@ -62,13 +62,14 @@ local function upgradeFixture(environment)
             autoRecyclerCapacityLevel = 1,
             autoRecyclerReductionLevel = 1,
             autoRecyclerReliefLevel = 1,
-            stats = {},
             tasks = {},
         },
+        metrics = {},
         balance = 20000,
         applied = {},
         sequence = {},
         failAbility = nil,
+        failMetric = false,
         failSave = false,
         taskAdds = 0,
         infiniteType = nil,
@@ -150,6 +151,24 @@ local function upgradeFixture(environment)
                 return true
             end,
         },
+        metrics = {
+            snapshot = function() return clone(fixture.metrics) end,
+            get = function(_, name) return fixture.metrics[name] or 0 end,
+            increment = function(_, changes)
+                if fixture.failMetric then return false, "metricUpdateFailed" end
+                local before, after = {}, {}
+                for name, amount in pairs(changes) do
+                    before[name] = fixture.metrics[name] or 0
+                    after[name] = before[name] + amount
+                end
+                for name, value in pairs(after) do fixture.metrics[name] = value end
+                return true, { before = before, after = after }
+            end,
+            restore = function(_, receipt)
+                for name, value in pairs(receipt.before or {}) do fixture.metrics[name] = value end
+                return true
+            end,
+        },
         operations = operations(),
         notifications = notices,
     }
@@ -182,7 +201,7 @@ local function runUpgradeSuccess(environment)
         f.data.upgrades.dailyTaskCount == 6, "character/task upgrade levels are wrong")
     assert(f.data.autoRecyclerCapacityLevel == 2 and f.data.autoRecyclerReductionLevel == 2 and
         f.data.autoRecyclerReliefLevel == 2, "terminal upgrade levels are wrong")
-    assert(spent == 4310 and f.balance == 15690 and f.data.stats.spentPoints == 4310,
+    assert(spent == 4310 and f.balance == 15690 and f.metrics.spentPoints == 4310,
         "upgrade prices changed")
     assert(#f.data.tasks == 1, "daily task upgrade did not add one open task")
     assert(f.sequence[1] == "snapshot:carryCapacity" and f.sequence[2] == "apply:carryCapacity" and
@@ -218,6 +237,21 @@ do
     assert(not result.ok and result.code == "stateSaveFailed", "upgrade save failure code was lost")
     assert(f.data.autoRecyclerCapacityLevel == 1 and f.applied.terminalCapacity == nil and f.balance == 20000,
         "upgrade ability/wallet/state rollback failed")
+end
+
+do
+    local f = upgradeFixture("upgrade-metric-rollback")
+    f.failMetric = true
+    local result = f.instance.public.upgrade({
+        actor = f.actor,
+        upgradeType = "terminalCapacity",
+        operationId = "upgrade-metric-fail",
+    })
+    assert(not result.ok and result.code == "metricUpdateFailed",
+        "upgrade metric failure code was lost")
+    assert(f.data.autoRecyclerCapacityLevel == 1
+        and f.applied.terminalCapacity == nil and f.balance == 20000,
+        "upgrade metric failure did not roll back ability, wallet, and state")
 end
 
 do

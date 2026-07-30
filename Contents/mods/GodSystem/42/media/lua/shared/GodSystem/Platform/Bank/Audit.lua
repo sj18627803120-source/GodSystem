@@ -6,12 +6,15 @@ local Descriptor = GodSystemBankAuditPlatform
 local Support = GodSystemBankPlatformSupport
 
 Descriptor.id = "bank.audit"
-Descriptor.dependencies = { "wallet.accounts" }
+Descriptor.dependencies = { "wallet.accounts", "metrics" }
 Descriptor.stateVersion = 1
 
 function Descriptor.create(dependencies, context)
     context = context or {}
     local accounts = assert(dependencies["wallet.accounts"], "wallet.accounts dependency missing")
+    local metrics = assert(dependencies.metrics, "metrics dependency missing")
+    assert(type(metrics.get) == "function", "metrics get method missing")
+    assert(type(metrics.increment) == "function", "metrics increment method missing")
     local root = assert(context.state, "bank.audit context.state missing"):get()
     local binding = type(context.binding) == "table" and context.binding or {}
     root.players = type(root.players) == "table" and root.players or {}
@@ -21,10 +24,9 @@ function Descriptor.create(dependencies, context)
         local key = accounts.key(actor)
         local value = root.players[key]
         if type(value) ~= "table" then
-            value = { counters = {}, events = {} }
+            value = { events = {} }
             root.players[key] = value
         end
-        value.counters = type(value.counters) == "table" and value.counters or {}
         value.events = type(value.events) == "table" and value.events or {}
         return value, key
     end
@@ -32,26 +34,16 @@ function Descriptor.create(dependencies, context)
     local public = {}
     function public:counter(actor, name)
         name = tostring(name or "")
-        if type(binding.counterSource) == "function" then
-            local value = binding.counterSource(actor, name)
-            if value ~= nil then return Support.integer(value, 0, 0) end
-        end
-        return Support.integer(row(actor).counters[name], 0, 0)
+        if name == "" then return 0 end
+        return Support.integer(metrics.get(actor, name), 0, 0)
     end
     function public:increment(actor, name, amount, request)
         name = tostring(name or "")
         amount = Support.integer(amount, 0)
         if name == "" then return false end
-        local value = row(actor)
-        value.counters[name] = math.max(0,
-            Support.integer(value.counters[name], 0, 0) + amount)
+        local updated = metrics.increment(actor, name, amount, request)
+        if updated ~= true then return false end
         instance.increments = instance.increments + 1
-        if type(binding.incrementSink) == "function"
-            and binding.incrementSink(actor, name, amount, request) == false
-        then
-            value.counters[name] = math.max(0, value.counters[name] - amount)
-            return false
-        end
         return true
     end
     function public:record(actor, code, data, request)

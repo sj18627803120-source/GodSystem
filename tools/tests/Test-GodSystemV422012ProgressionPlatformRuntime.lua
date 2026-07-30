@@ -455,6 +455,23 @@ local function integrationChecks()
     end
     local notifications = { publish = function() return true end }
     local clock = { nowHours = function() return 100 end }
+    local metricValues = {}
+    local metrics = {
+        snapshot = function() return metricValues end,
+        get = function(_, key) return metricValues[key] or 0 end,
+        increment = function(_, changes)
+            local before = {}
+            for key, amount in pairs(changes or {}) do
+                before[key] = metricValues[key] or 0
+                metricValues[key] = before[key] + amount
+            end
+            return true, { before = before, after = metricValues }
+        end,
+        restore = function(_, receipt)
+            for key, value in pairs(receipt.before or {}) do metricValues[key] = value end
+            return true
+        end,
+    }
 
     local upgradeState = start(UpgradesState, {}, { state = scope() }).public
     local upgradeWallet = start(UpgradesWallet, { ["wallet.funds"] = funds }).public
@@ -469,6 +486,7 @@ local function integrationChecks()
         ["upgrades.abilities"] = start(UpgradesAbilities).public,
         ["upgrades.tasks"] = upgradeTasks,
         ["upgrades.wallet"] = upgradeWallet,
+        metrics = metrics,
         operations = operations,
         notifications = notifications,
     })

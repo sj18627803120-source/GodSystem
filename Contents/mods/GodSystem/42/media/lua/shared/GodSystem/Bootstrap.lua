@@ -17,6 +17,7 @@ function Bootstrap.create(options)
         adapters = options.adapters or {},
         bindings = options.bindings or {},
         configSnapshot = type(options.configSnapshot) == "table" and options.configSnapshot or {},
+        disabledModules = type(options.disabledModules) == "table" and options.disabledModules or {},
     }
     runtime.diagnostics = GodSystemDiagnostics.new({
         version = runtime.version,
@@ -40,8 +41,12 @@ function Bootstrap.create(options)
         diagnostics = runtime.diagnostics,
         runtime = runtime,
     })
+    if type(options.migrationStatus) == "table" then
+        runtime.diagnostics:setMigration(options.migrationStatus)
+    end
 
     function runtime:contextFor(moduleId, descriptor)
+        local configKey = tostring(moduleId):gsub("^feature%.", "")
         local context = {
             moduleId = tostring(moduleId),
             version = self.version,
@@ -49,6 +54,9 @@ function Bootstrap.create(options)
             environment = self.environment,
             binding = self.bindings[moduleId],
             configSnapshot = self.configSnapshot,
+            config = type(self.configSnapshot[moduleId]) == "table"
+                and self.configSnapshot[moduleId]
+                or self.configSnapshot[configKey],
             state = self.state:scoped(moduleId, descriptor and descriptor.stateVersion or 1),
         }
         context.events = {
@@ -83,6 +91,10 @@ function Bootstrap.create(options)
 
     function runtime:register(descriptor)
         return self.registry:register(descriptor)
+    end
+
+    function runtime:isModuleDisabled(moduleId)
+        return self.disabledModules[tostring(moduleId or "")]
     end
 
     function runtime:start()

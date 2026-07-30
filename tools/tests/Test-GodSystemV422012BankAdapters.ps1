@@ -13,6 +13,7 @@ $runtimeTest = Join-Path $PSScriptRoot 'Test-GodSystemV422012BankAdaptersRuntime
 $files = @(
     (Join-Path $luaRoot 'shared\GodSystem\Platform\WalletAccounts.lua'),
     (Join-Path $luaRoot 'shared\GodSystem\Platform\WalletFunds.lua'),
+    (Join-Path $luaRoot 'shared\GodSystem\Platform\Metrics.lua'),
     (Join-Path $bankRoot 'Support.lua'),
     (Join-Path $bankRoot 'State.lua'),
     (Join-Path $bankRoot 'Clock.lua'),
@@ -32,7 +33,7 @@ $combined = ($files | ForEach-Object {
 }) -join "`n"
 
 foreach ($descriptorId in @(
-    'wallet.accounts', 'wallet.funds', 'bank.state', 'bank.clock',
+    'wallet.accounts', 'wallet.funds', 'metrics', 'bank.state', 'bank.clock',
     'bank.random', 'bank.features', 'bank.audit', 'bank.debt'
 )) {
     if ($combined -notmatch [regex]::Escape('"' + $descriptorId + '"')) {

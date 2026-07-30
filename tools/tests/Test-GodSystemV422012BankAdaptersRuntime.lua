@@ -153,6 +153,7 @@ require "GodSystem/Services/Random"
 require "GodSystem/Services/Operations"
 require "GodSystem/Platform/WalletAccounts"
 require "GodSystem/Platform/WalletFunds"
+require "GodSystem/Platform/Metrics"
 require "GodSystem/Features/Wallet/Module"
 require "GodSystem/Features/Wallet/PublicPort"
 require "GodSystem/Platform/Bank/Descriptors"
@@ -191,14 +192,15 @@ local function environment(mode)
         end
         return true
     end
-    local spent = { [aliceKey] = 0, [bobKey] = 0 }
-
     local clock = GodSystemClockService.create()
     local random = GodSystemRandomService.create()
     local operations = GodSystemOperationsService.create({}, context(
         "operations", {}, nil, mode))
     local accounts = GodSystemWalletAccountsPlatform.create({}, context(
         "wallet.accounts", accountState, nil, mode))
+    local metrics = GodSystemMetricsPlatform.create({
+        ["wallet.accounts"] = accounts.public,
+    }, context("metrics", {}, nil, mode))
     local funds = GodSystemWalletFundsPlatform.create({
         ["wallet.accounts"] = accounts.public,
     }, context("wallet.funds", {}, nil, mode))
@@ -222,11 +224,8 @@ local function environment(mode)
         "bank.features", {}, nil, mode))
     local bankAudit = GodSystemBankAuditPlatform.create({
         ["wallet.accounts"] = accounts.public,
-    }, context("bank.audit", {}, {
-        counterSource = function(actor, name)
-            if name == "spentPoints" then return spent[accounts.public.key(actor)] or 0 end
-        end,
-    }, mode))
+        metrics = metrics.public,
+    }, context("bank.audit", {}, nil, mode))
     local bankDebt = GodSystemBankDebtPlatform.create({
         ["bank.random"] = bankRandom.public,
     }, context("bank.debt", {}, nil, mode))
@@ -246,7 +245,7 @@ local function environment(mode)
     })
 
     local instances = {
-        clock, random, operations, accounts, funds, walletFeature, wallet,
+        clock, random, operations, accounts, metrics, funds, walletFeature, wallet,
         bankState, bankClock, bankRandom, bankFeatures, bankAudit, bankDebt, bank,
     }
     for index = 1, #instances do assert(instances[index]:start()) end
@@ -260,6 +259,7 @@ local function environment(mode)
         aliceKey = aliceKey,
         bobKey = bobKey,
         accounts = accounts.public,
+        metrics = metrics.public,
         funds = funds.public,
         wallet = wallet.public,
         state = bankState.public,
@@ -268,7 +268,6 @@ local function environment(mode)
         audit = bankAudit.public,
         debt = bankDebt,
         commit = commitBinding,
-        spent = spent,
         instances = instances,
     }
 end

@@ -7,7 +7,6 @@ GodSystemUpgradesStatePlatform = GodSystemUpgradesStatePlatform or GodSystemProg
         autoRecyclerCapacityLevel = 1,
         autoRecyclerReductionLevel = 1,
         autoRecyclerReliefLevel = 1,
-        stats = {},
     })
 
 return GodSystemUpgradesStatePlatform

@@ -242,7 +242,9 @@ expect(modules["feature.companion"].data.actors["local"].levels.damage == 4,
 expect(modules["admin.state"].data.itemOverrides["Base.Bandage"].category == "medical",
     "admin overrides")
 local system = modules["system.state"].data.players["local"]
-expect(system.stats.lotteryDraws == 8, "system stats")
+expect(modules["metrics"].data.counters["local"].lotteryDraws == 8,
+    "shared metrics")
+expect(system.stats == nil, "system state must not retain shared metrics")
 expect(system.attributeSyncPending == true, "attribute sync pending")
 expect(system.pendingCurrencyGrant == 0,
     "already initialized physical currency must not be duplicated")

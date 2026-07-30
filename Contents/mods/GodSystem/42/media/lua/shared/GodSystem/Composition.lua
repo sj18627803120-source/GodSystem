@@ -7,6 +7,12 @@ require "GodSystem/Platform/InventoryQuery"
 require "GodSystem/Platform/InventoryMutation"
 require "GodSystem/Platform/WalletAccounts"
 require "GodSystem/Platform/WalletFunds"
+require "GodSystem/Platform/Metrics"
+require "GodSystem/Platform/Admin/Source"
+require "GodSystem/Platform/Admin/Permissions"
+require "GodSystem/Platform/Admin/Runtime"
+require "GodSystem/Platform/Attributes/Query"
+require "GodSystem/Platform/Attributes/Mutation"
 require "GodSystem/Platform/AutoLoader/AmmoCatalog"
 require "GodSystem/Platform/AutoLoader/InventoryQuery"
 require "GodSystem/Platform/AutoLoader/InventoryMutation"
@@ -57,6 +63,10 @@ require "GodSystem/Platform/Storage/Sync"
 require "GodSystem/Platform/Storage/Audit"
 require "GodSystem/Features/Wallet/Module"
 require "GodSystem/Features/Wallet/PublicPort"
+require "GodSystem/Features/Admin/Module"
+require "GodSystem/Features/Admin/PublicPort"
+require "GodSystem/Features/Attributes/Module"
+require "GodSystem/Features/Attributes/PublicPort"
 require "GodSystem/Features/Maintenance/Rules"
 require "GodSystem/Features/Maintenance/Module"
 require "GodSystem/Features/AutoLoader/Module"
@@ -85,6 +95,12 @@ local BASE_DESCRIPTORS = {
     GodSystemInventoryMutationPlatform,
     GodSystemWalletAccountsPlatform,
     GodSystemWalletFundsPlatform,
+    GodSystemMetricsPlatform,
+    GodSystemAdminSourcePlatform,
+    GodSystemAdminPermissionsPlatform,
+    GodSystemAdminRuntimePlatform,
+    GodSystemAttributesQueryPlatform,
+    GodSystemAttributesMutationPlatform,
     GodSystemAutoLoaderAmmoCatalogPlatform,
     GodSystemAutoLoaderInventoryQueryPlatform,
     GodSystemAutoLoaderInventoryMutationPlatform,
@@ -150,6 +166,10 @@ local BASE_DESCRIPTORS = {
     GodSystemStorageAuditPlatform,
     GodSystemWalletFeatureModule,
     GodSystemWalletPublicPort,
+    GodSystemAdminFeatureModule,
+    GodSystemAdminPublicPort,
+    GodSystemAttributesFeatureModule,
+    GodSystemAttributesPublicPort,
     GodSystemMaintenanceRulesFeature,
     GodSystemMaintenanceFeatureModule,
     GodSystemAutoLoaderFeatureModule,

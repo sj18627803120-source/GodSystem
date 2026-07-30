@@ -10,6 +10,7 @@ Descriptor.dependencies = {
     "recycle.state",
     "recycle.inventory",
     "recycle.wallet",
+    "metrics",
     "item.eligibility",
     "shop.identity",
     "shop.listings",
@@ -87,6 +88,7 @@ function Descriptor.create(dependencies, context)
     local inventory = requiredPort(dependencies, "recycle.inventory", { "resolve", "remove", "restore" })
     local wallet = requiredPort(dependencies, "recycle.wallet",
         { "charge", "refund", "credit", "revokeCredit" })
+    local metrics = requiredPort(dependencies, "metrics", { "snapshot", "get", "increment", "restore" })
     local eligibility = requiredPort(dependencies, "item.eligibility", { "canRecycle", "canList" })
     local identity = requiredPort(dependencies, "shop.identity", { "variantKey" })
     local listings = requiredPort(dependencies, "shop.listings", { "isKnown", "add", "remove" })
@@ -133,8 +135,16 @@ function Descriptor.create(dependencies, context)
         local called, data, code = callPort(state.load, actor, request)
         if not called then return nil, makeResult(false, "portError", { stage = "stateLoad" }, request) end
         if type(data) ~= "table" then return nil, makeResult(false, code or "stateUnavailable", nil, request) end
-        data.stats = type(data.stats) == "table" and data.stats or {}
         return data, nil
+    end
+
+    local function incrementMetric(actor, changes, request)
+        local called, updated, receiptOrCode = callPort(metrics.increment, actor, changes, request)
+        if not called then return false, "portError" end
+        if updated ~= true or type(receiptOrCode) ~= "table" then
+            return false, receiptOrCode or "metricUpdateFailed"
+        end
+        return true, receiptOrCode
     end
 
     local function save(actor, data, request)
@@ -297,6 +307,23 @@ function Descriptor.create(dependencies, context)
                 end
                 listingReceipts[#listingReceipts + 1] = receiptOrCode
             end
+            if totalCost > 0 then
+                local counted, countCode = incrementMetric(
+                    request.actor, { spentPoints = totalCost }, request)
+                if not counted then
+                    local listingsRestored = rollbackListings(
+                        request.actor, listingReceipts, request)
+                    local walletRestored = true
+                    if paymentReceipt then
+                        local refundCalled, value = callPort(
+                            wallet.refund, request.actor, paymentReceipt, request)
+                        walletRestored = refundCalled and value ~= false
+                    end
+                    return finish(id, makeResult(false,
+                        listingsRestored and walletRestored and countCode
+                            or "rollbackIncomplete", nil, request), request)
+                end
+            end
             local code = skipped > 0 and "listOnlyPartial" or "listOnly"
             return finish(id, makeResult(true, code, {
                 processedCount = #rows,
@@ -370,8 +397,6 @@ function Descriptor.create(dependencies, context)
             end
         end
 
-        data.stats.recycledItems = integer(data.stats.recycledItems, 0) + #selected
-        data.stats.recycledPoints = integer(data.stats.recycledPoints, 0) + payout
         local saved, saveCode = save(request.actor, data, request)
         if not saved then
             local listingsRestored = rollbackListings(request.actor, listingReceipts, request)
@@ -380,6 +405,21 @@ function Descriptor.create(dependencies, context)
             local stateRestored = save(request.actor, before, request)
             local rollbackOk = listingsRestored and revokeCalled and revoked ~= false and itemsRestored and stateRestored
             return finish(id, makeResult(false, rollbackOk and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        local counted, countCode = incrementMetric(request.actor, {
+            recycledItems = #selected,
+            recycledPoints = payout,
+        }, request)
+        if not counted then
+            local listingsRestored = rollbackListings(request.actor, listingReceipts, request)
+            local revokeCalled, revoked = callPort(
+                wallet.revokeCredit, request.actor, creditReceipt, request)
+            local itemsRestored = restoreRemoved(request.actor, removeReceipts, request)
+            local stateRestored = save(request.actor, before, request)
+            local rollbackOk = listingsRestored and revokeCalled and revoked ~= false
+                and itemsRestored and stateRestored
+            return finish(id, makeResult(false,
+                rollbackOk and countCode or "rollbackIncomplete", nil, request), request)
         end
 
         local baseCode = mode == "recycleAndList" and "recycledAndListed" or "recycled"

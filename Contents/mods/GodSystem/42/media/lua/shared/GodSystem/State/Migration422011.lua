@@ -126,6 +126,13 @@ local function stageTasks(context)
     })
 end
 
+local function stageMetrics(context)
+    local source = context.player
+    local ok, reason = validateTables(source, { "stats" })
+    if not ok then return nil, reason end
+    return clone(source.stats or {})
+end
+
 local function stageShop(context)
     local source = context.player
     local ok, reason = validateTables(source, { "unlockedShopItems" })
@@ -200,15 +207,17 @@ local function stageCompanion(context)
 end
 
 local function stageAdmin(context)
-    local source = context.player
-    local ok, reason = validateTables(source, { "adminConfig" })
-    if not ok then return nil, reason end
-    return clone(source.adminConfig or {})
+    local source = context.adminConfig
+    if source == nil then source = context.player.adminConfig end
+    if source ~= nil and type(source) ~= "table" then
+        return nil, "invalidTable:adminConfig"
+    end
+    return clone(source or {})
 end
 
 local function stageSystem(context)
     local source = context.player
-    local ok, reason = validateTables(source, { "history", "stats", "ui" })
+    local ok, reason = validateTables(source, { "history", "ui" })
     if not ok then return nil, reason end
     local transactionOperations = operationSource(context, "transactionOperations")
     local attributeOperations = operationSource(context, "attributeOperations")
@@ -223,7 +232,7 @@ local function stageSystem(context)
     ok, reason = validateBooleans(source, { "started", "currencyInitialized" })
     if not ok then return nil, reason end
     local result = copyFields(source, {
-        "version", "history", "stats", "ui", "started", "currencyInitialized",
+        "version", "history", "ui", "started", "currencyInitialized",
         "lastMoveX", "lastMoveY", "lastMoveZ",
         "attributeSyncPending",
     })
@@ -264,6 +273,8 @@ end
 Migration.Modules = {
     { id = "wallet.accounts", version = 1, bucket = "accounts",
         stage = stageWallet, validate = validateStaged, commit = commitStaged },
+    { id = "metrics", version = 1, bucket = "counters",
+        stage = stageMetrics, validate = validateStaged, commit = commitStaged },
     { id = "tasks.state", version = 1, bucket = "players",
         stage = stageTasks, validate = validateStaged, commit = commitStaged },
     { id = "shop.state", version = 1, bucket = "players",
@@ -310,7 +321,12 @@ local function migrationContext(snapshot, options)
     options = type(options) == "table" and options or {}
     local actorKey = tostring(options.actorKey or snapshot.actorKey or "local")
     if actorKey == "" then actorKey = "local" end
-    return { envelope = snapshot, player = player, actorKey = actorKey }
+    return {
+        envelope = snapshot,
+        player = player,
+        actorKey = actorKey,
+        adminConfig = options.adminConfig,
+    }
 end
 
 local function targetRoot(currentRoot)

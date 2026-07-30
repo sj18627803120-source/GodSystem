@@ -19,7 +19,7 @@ local function descriptor(moduleId, defaults)
         local function key(actor) return identity.key(actor) end
         local function normalized(data)
             data = type(data) == "table" and data or Support.copy(defaults)
-            data.stats = type(data.stats) == "table" and data.stats or {}
+            data.stats = nil
             if moduleId == "tasks.state" then
                 data.tasks = type(data.tasks) == "table" and data.tasks or {}
             elseif moduleId == "shop.state" then
@@ -61,11 +61,11 @@ local function descriptor(moduleId, defaults)
 end
 
 GodSystemTasksStatePlatform = GodSystemTasksStatePlatform
-    or descriptor("tasks.state", { tasks = {}, stats = {} })
+    or descriptor("tasks.state", { tasks = {} })
 GodSystemShopStatePlatform = GodSystemShopStatePlatform
-    or descriptor("shop.state", { unlockedShopItems = {}, stats = {} })
+    or descriptor("shop.state", { unlockedShopItems = {} })
 GodSystemRecycleStatePlatform = GodSystemRecycleStatePlatform
-    or descriptor("recycle.state", { stats = {} })
+    or descriptor("recycle.state", {})
 
 return {
     tasks = GodSystemTasksStatePlatform,

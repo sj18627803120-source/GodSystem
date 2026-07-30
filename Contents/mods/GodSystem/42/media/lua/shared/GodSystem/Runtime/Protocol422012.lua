@@ -1,0 +1,82 @@
+GodSystemProtocol422012 = GodSystemProtocol422012 or {}
+
+local Protocol = GodSystemProtocol422012
+
+Protocol.Version = "42.20.1.2"
+Protocol.Module = "GodSystem_CN_422012"
+Protocol.C2S = {
+    Hello = "hello",
+    Request = "request",
+}
+Protocol.S2C = {
+    Hello = "hello",
+    Response = "response",
+    Snapshot = "snapshot",
+}
+
+Protocol.Routes = {
+    ["wallet.balance"] = { moduleId = "feature.wallet", method = "getBalance" },
+    ["wallet.transfer"] = { moduleId = "feature.wallet", method = "transfer" },
+    ["bank.summary"] = { moduleId = "feature.bank", method = "summary" },
+    ["bank.execute"] = { moduleId = "feature.bank", method = "execute" },
+    ["tasks.generate"] = { moduleId = "feature.tasks", method = "generate" },
+    ["tasks.accept"] = { moduleId = "feature.tasks", method = "accept" },
+    ["tasks.progress"] = { moduleId = "feature.tasks", method = "progress" },
+    ["tasks.claim"] = { moduleId = "feature.tasks", method = "claim" },
+    ["tasks.fail"] = { moduleId = "feature.tasks", method = "fail" },
+    ["shop.list"] = { moduleId = "feature.shop", method = "listItem" },
+    ["shop.hide"] = { moduleId = "feature.shop", method = "setHidden" },
+    ["shop.delete"] = { moduleId = "feature.shop", method = "deleteListing" },
+    ["shop.purchase"] = { moduleId = "feature.shop", method = "purchase" },
+    ["shop.lottery"] = { moduleId = "feature.shop", method = "lottery" },
+    ["recycle.execute"] = { moduleId = "feature.recycle", method = "execute" },
+    ["upgrades.summary"] = { moduleId = "feature.upgrades", method = "summary" },
+    ["upgrades.purchase"] = { moduleId = "feature.upgrades", method = "upgrade" },
+    ["upgrades.refresh"] = { moduleId = "feature.upgrades", method = "refresh" },
+    ["medical.execute"] = { moduleId = "feature.medical", method = "execute" },
+    ["home.set"] = { moduleId = "feature.home", method = "setHome" },
+    ["home.buyTemp"] = { moduleId = "feature.home", method = "buyTemp" },
+    ["home.setTemp"] = { moduleId = "feature.home", method = "setTemp" },
+    ["home.teleport"] = { moduleId = "feature.home", method = "teleportHome" },
+    ["home.teleportTemp"] = { moduleId = "feature.home", method = "teleportTemp" },
+    ["home.return"] = { moduleId = "feature.home", method = "returnToDeparture" },
+    ["home.clearReturn"] = { moduleId = "feature.home", method = "clearReturn" },
+    ["home.upgradeSafeZone"] = { moduleId = "feature.home", method = "upgradeSafeZone" },
+    ["home.toggleSafeZone"] = { moduleId = "feature.home", method = "toggleSafeZone" },
+    ["home.clearSafeZone"] = { moduleId = "feature.home", method = "clearSafeZone" },
+    ["terminal.status"] = { moduleId = "feature.terminal", method = "status" },
+    ["terminal.execute"] = { moduleId = "feature.terminal", method = "execute" },
+    ["storage.status"] = { moduleId = "feature.storage", method = "status" },
+    ["storage.execute"] = { moduleId = "feature.storage", method = "execute" },
+    ["storage.index"] = { moduleId = "feature.storage", method = "startIndex" },
+    ["storage.process"] = { moduleId = "feature.storage", method = "processJobs" },
+    ["storage.snapshot"] = { moduleId = "feature.storage", method = "snapshot" },
+    ["storage.details"] = { moduleId = "feature.storage", method = "instanceDetails" },
+    ["autoloader.state"] = { moduleId = "feature.autoloader", method = "state" },
+    ["autoloader.deposit"] = { moduleId = "feature.autoloader", method = "startDeposit" },
+    ["autoloader.depositBatch"] = { moduleId = "feature.autoloader", method = "completeDepositBatch" },
+    ["autoloader.cancel"] = { moduleId = "feature.autoloader", method = "cancelDeposit" },
+    ["autoloader.withdraw"] = { moduleId = "feature.autoloader", method = "withdraw" },
+    ["autoloader.fill"] = { moduleId = "feature.autoloader", method = "manualFill" },
+    ["autoloader.reload"] = { moduleId = "feature.autoloader", method = "postReload" },
+    ["companion.state"] = { moduleId = "feature.companion", method = "getState" },
+    ["companion.purchase"] = { moduleId = "feature.companion", method = "purchase" },
+    ["companion.sight"] = { moduleId = "feature.companion", method = "activateSight" },
+    ["companion.combatMode"] = { moduleId = "feature.companion", method = "setCombatMode" },
+    ["companion.followMode"] = { moduleId = "feature.companion", method = "setFollowMode" },
+    ["companion.visible"] = { moduleId = "feature.companion", method = "toggleVisible" },
+    ["companion.guardian"] = { moduleId = "feature.companion", method = "toggleGuardian" },
+    ["companion.recall"] = { moduleId = "feature.companion", method = "recall" },
+    ["attributes.perks"] = { moduleId = "feature.attributes", method = "listPerks" },
+    ["attributes.quote"] = { moduleId = "feature.attributes", method = "quoteAttribute" },
+    ["attributes.purchase"] = { moduleId = "feature.attributes", method = "purchaseAttribute" },
+    ["attributes.traits"] = { moduleId = "feature.attributes", method = "listTraits" },
+    ["attributes.traitQuote"] = { moduleId = "feature.attributes", method = "quoteTrait" },
+    ["attributes.traitModify"] = { moduleId = "feature.attributes", method = "modifyTrait" },
+    ["admin.snapshot"] = { moduleId = "feature.admin", method = "snapshot" },
+    ["admin.save"] = { moduleId = "feature.admin", method = "save" },
+    ["admin.itemOverride"] = { moduleId = "feature.admin", method = "setItemOverride" },
+    ["admin.clearItemOverride"] = { moduleId = "feature.admin", method = "clearItemOverride" },
+}
+
+return Protocol
