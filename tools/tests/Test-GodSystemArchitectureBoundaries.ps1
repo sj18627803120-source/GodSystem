@@ -36,7 +36,7 @@ function Remove-LuaComments([string]$text) {
 }
 
 function Get-Layer([string]$moduleName) {
-    if ($moduleName -eq 'GodSystem/Bootstrap') {
+    if ($moduleName -eq 'GodSystem/Bootstrap' -or $moduleName -eq 'GodSystem/Composition') {
         return 'Bootstrap'
     }
     $parts = $moduleName -split '/'
