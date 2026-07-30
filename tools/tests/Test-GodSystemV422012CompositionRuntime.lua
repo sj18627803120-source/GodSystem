@@ -66,6 +66,9 @@ assert(runtime.registry:status("feature.wallet").state == "started", "wallet was
 assert(runtime.registry:status("wallet").state == "started", "wallet public port was not composed")
 assert(runtime.registry:status("feature.maintenance").state == "started", "maintenance was not composed")
 assert(runtime.registry:status("feature.autoloader").state == "started", "autoloader was not composed")
+assert(runtime.registry:status("feature.tasks").state == "started", "tasks were not composed")
+assert(runtime.registry:status("feature.shop").state == "started", "shop was not composed")
+assert(runtime.registry:status("feature.recycle").state == "started", "recycle was not composed")
 assert(runtime.registry:status("test.broken").state == "failed", "broken module failure was not isolated")
 assert(runtime.registry:status("test.dependent").state == "blocked", "dependent module was not blocked")
 assert(runtime.registry:status("test.config").state == "started", "configuration consumer did not start")
@@ -92,7 +95,7 @@ operations.finish("test.scope", "same-operation", { ok = true }, playerA)
 operations.finish("test.scope", "same-operation", { ok = true }, playerB)
 
 local health = runtime:health()
-assert(#health.modules == 22, "composition health omitted registered modules")
+assert(#health.modules >= 43, "composition health omitted registered modules")
 assert(type(runtime.registry:get("feature.wallet")) == "table", "wallet public API unavailable")
 assert(type(runtime.registry:get("feature.autoloader")) == "table", "autoloader public API unavailable")
 

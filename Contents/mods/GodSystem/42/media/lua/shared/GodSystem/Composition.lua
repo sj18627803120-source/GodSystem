@@ -13,11 +13,22 @@ require "GodSystem/Platform/AutoLoader/Store"
 require "GodSystem/Platform/AutoLoader/Sessions"
 require "GodSystem/Platform/AutoLoader/Operations"
 require "GodSystem/Platform/AutoLoader/Synchronization"
+require "GodSystem/Platform/Commerce/ActorIdentity"
+require "GodSystem/Platform/Commerce/ShopIdentity"
+require "GodSystem/Platform/Commerce/States"
+require "GodSystem/Platform/Commerce/ConfigSnapshots"
+require "GodSystem/Platform/Commerce/Inventory"
+require "GodSystem/Platform/Commerce/Wallet"
+require "GodSystem/Platform/Commerce/ItemEligibility"
+require "GodSystem/Platform/Commerce/ShopListings"
 require "GodSystem/Features/Wallet/Module"
 require "GodSystem/Features/Wallet/PublicPort"
 require "GodSystem/Features/Maintenance/Rules"
 require "GodSystem/Features/Maintenance/Module"
 require "GodSystem/Features/AutoLoader/Module"
+require "GodSystem/Features/Tasks/Module"
+require "GodSystem/Features/Shop/Module"
+require "GodSystem/Features/Recycle/Module"
 
 GodSystemComposition = GodSystemComposition or {}
 
@@ -38,11 +49,32 @@ local BASE_DESCRIPTORS = {
     GodSystemAutoLoaderSessionsPlatform,
     GodSystemAutoLoaderOperationsPlatform,
     GodSystemAutoLoaderSynchronizationPlatform,
+    GodSystemCommerceActorIdentityPlatform,
+    GodSystemShopIdentityPlatform,
+    GodSystemTasksStatePlatform,
+    GodSystemShopStatePlatform,
+    GodSystemRecycleStatePlatform,
+    GodSystemTasksConfigPlatform,
+    GodSystemShopConfigPlatform,
+    GodSystemRecycleConfigPlatform,
+    GodSystemCommerceInventoryPlatform,
+    GodSystemTasksInventoryPlatform,
+    GodSystemShopInventoryPlatform,
+    GodSystemRecycleInventoryPlatform,
+    GodSystemCommerceWalletPlatform,
+    GodSystemTasksWalletPlatform,
+    GodSystemShopWalletPlatform,
+    GodSystemRecycleWalletPlatform,
+    GodSystemItemEligibilityPlatform,
+    GodSystemShopListingsPlatform,
     GodSystemWalletFeatureModule,
     GodSystemWalletPublicPort,
     GodSystemMaintenanceRulesFeature,
     GodSystemMaintenanceFeatureModule,
     GodSystemAutoLoaderFeatureModule,
+    GodSystemTasksFeatureModule,
+    GodSystemShopFeatureModule,
+    GodSystemRecycleFeatureModule,
 }
 
 function Composition.create(options)
