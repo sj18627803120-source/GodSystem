@@ -278,6 +278,11 @@ local tasks = GodSystemTasksFeatureModule.create({
     ["tasks.state"] = taskState.public,
     ["tasks.inventory"] = tasksInventory.public,
     ["tasks.wallet"] = tasksWallet.public,
+    ["upgrades.read"] = {
+        limits = function()
+            return { dailyTaskCount = 2, maxActiveTasks = 3 }
+        end,
+    },
     clock = clock.public,
     random = random.public,
     operations = operations.public,

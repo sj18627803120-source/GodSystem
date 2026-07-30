@@ -10,6 +10,7 @@ Descriptor.dependencies = {
     "tasks.state",
     "tasks.inventory",
     "tasks.wallet",
+    "upgrades.read",
     "clock",
     "random",
     "operations",
@@ -77,6 +78,7 @@ function Descriptor.create(dependencies, context)
         { "count", "consume", "restore", "grant", "revoke" })
     local wallet = requiredPort(dependencies, "tasks.wallet",
         { "credit", "revokeCredit", "chargePenalty", "refundPenalty" })
+    local upgrades = requiredPort(dependencies, "upgrades.read", { "limits" })
     local clock = requiredPort(dependencies, "clock", { "nowHours", "currentDay" })
     local random = requiredPort(dependencies, "random", { "index" })
     local operations = requiredPort(dependencies, "operations", { "begin", "finish" })
@@ -220,7 +222,12 @@ function Descriptor.create(dependencies, context)
         for i = 1, #data.tasks do
             if data.tasks[i].status == "active" then kept[#kept + 1] = data.tasks[i] end
         end
-        local count = math.min(#templates, math.max(0, integer(config.getDailyCount(request.actor, data, request), 0)))
+        local limitsCalled, limits = callPort(upgrades.limits, request.actor, request)
+        if not limitsCalled or type(limits) ~= "table" then
+            return finish(id, makeResult(false, "upgradeStateUnavailable", nil, request), request)
+        end
+        local count = math.min(#templates, math.max(0,
+            integer(limits.dailyTaskCount, config.getDailyCount(request.actor, data, request))))
         local available = {}
         for i = 1, #templates do available[i] = templates[i] end
         for _ = 1, count do
@@ -260,7 +267,13 @@ function Descriptor.create(dependencies, context)
         end
         local active = 0
         for i = 1, #data.tasks do if data.tasks[i].status == "active" then active = active + 1 end end
-        if active >= math.max(0, integer(config.getMaxActive(request.actor, data, request), 0)) then
+        local limitsCalled, limits = callPort(upgrades.limits, request.actor, request)
+        if not limitsCalled or type(limits) ~= "table" then
+            return finish(id, makeResult(false, "upgradeStateUnavailable", nil, request), request)
+        end
+        local maximum = integer(limits.maxActiveTasks,
+            config.getMaxActive(request.actor, data, request))
+        if active >= math.max(0, maximum) then
             return finish(id, makeResult(false, "activeTaskLimit", nil, request), request)
         end
         local before = copy(data)

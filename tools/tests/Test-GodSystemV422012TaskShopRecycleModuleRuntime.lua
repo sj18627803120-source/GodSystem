@@ -173,6 +173,11 @@ local function taskFixture(environment)
                 return true
             end,
         },
+        ["upgrades.read"] = {
+            limits = function()
+                return { dailyTaskCount = 2, maxActiveTasks = 3 }
+            end,
+        },
         clock = {
             nowHours = function() return fixture.now end,
             currentDay = function() return fixture.day end,

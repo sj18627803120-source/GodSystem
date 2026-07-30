@@ -291,7 +291,26 @@ function Descriptor.create(dependencies, context)
         }, request), request)
     end
 
-    instance.public = { upgrade = upgrade, refresh = refresh }
+    local function summary(actor, request)
+        if not instance.started then return GodSystemResult.fail(moduleId, "moduleStopped") end
+        local data, failure = load(actor, type(request) == "table" and request or {})
+        if not data then return failure end
+        local upgrades = type(data.upgrades) == "table" and data.upgrades or {}
+        return GodSystemResult.ok(moduleId, "summary", {
+            carryCapacityLevel = math.max(0, integer(upgrades.carryCapacityLevel, 0)),
+            maxActiveTasks = math.max(0, integer(upgrades.maxActiveTasks, 3)),
+            dailyTaskCount = math.max(0, integer(upgrades.dailyTaskCount, 5)),
+            terminalCapacityLevel = math.max(1, integer(data.autoRecyclerCapacityLevel, 1)),
+            terminalReductionLevel = math.max(1, integer(data.autoRecyclerReductionLevel, 1)),
+            terminalReliefLevel = math.max(1, integer(data.autoRecyclerReliefLevel, 1)),
+        })
+    end
+
+    instance.public = {
+        upgrade = upgrade,
+        refresh = refresh,
+        summary = summary,
+    }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end
     function instance:health()

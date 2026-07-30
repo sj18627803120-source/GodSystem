@@ -21,6 +21,20 @@ require "GodSystem/Platform/Commerce/Inventory"
 require "GodSystem/Platform/Commerce/Wallet"
 require "GodSystem/Platform/Commerce/ItemEligibility"
 require "GodSystem/Platform/Commerce/ShopListings"
+require "GodSystem/Platform/Progression/UpgradesConfig"
+require "GodSystem/Platform/Progression/UpgradesState"
+require "GodSystem/Platform/Progression/UpgradesAbilities"
+require "GodSystem/Platform/Progression/UpgradesTasks"
+require "GodSystem/Platform/Progression/UpgradesWallet"
+require "GodSystem/Platform/Progression/MedicalConfig"
+require "GodSystem/Platform/Progression/MedicalState"
+require "GodSystem/Platform/Progression/MedicalBody"
+require "GodSystem/Platform/Progression/MedicalWallet"
+require "GodSystem/Platform/Progression/HomeConfig"
+require "GodSystem/Platform/Progression/HomeState"
+require "GodSystem/Platform/Progression/HomePosition"
+require "GodSystem/Platform/Progression/HomeWorld"
+require "GodSystem/Platform/Progression/HomeWallet"
 require "GodSystem/Features/Wallet/Module"
 require "GodSystem/Features/Wallet/PublicPort"
 require "GodSystem/Features/Maintenance/Rules"
@@ -29,6 +43,10 @@ require "GodSystem/Features/AutoLoader/Module"
 require "GodSystem/Features/Tasks/Module"
 require "GodSystem/Features/Shop/Module"
 require "GodSystem/Features/Recycle/Module"
+require "GodSystem/Features/Upgrades/Module"
+require "GodSystem/Features/Upgrades/PublicPort"
+require "GodSystem/Features/Medical/Module"
+require "GodSystem/Features/Home/Module"
 
 GodSystemComposition = GodSystemComposition or {}
 
@@ -67,6 +85,20 @@ local BASE_DESCRIPTORS = {
     GodSystemRecycleWalletPlatform,
     GodSystemItemEligibilityPlatform,
     GodSystemShopListingsPlatform,
+    GodSystemUpgradesConfigPlatform,
+    GodSystemUpgradesStatePlatform,
+    GodSystemUpgradesAbilitiesPlatform,
+    GodSystemUpgradesTasksPlatform,
+    GodSystemUpgradesWalletPlatform,
+    GodSystemMedicalConfigPlatform,
+    GodSystemMedicalStatePlatform,
+    GodSystemMedicalBodyPlatform,
+    GodSystemMedicalWalletPlatform,
+    GodSystemHomeConfigPlatform,
+    GodSystemHomeStatePlatform,
+    GodSystemHomePositionPlatform,
+    GodSystemHomeWorldPlatform,
+    GodSystemHomeWalletPlatform,
     GodSystemWalletFeatureModule,
     GodSystemWalletPublicPort,
     GodSystemMaintenanceRulesFeature,
@@ -75,6 +107,10 @@ local BASE_DESCRIPTORS = {
     GodSystemTasksFeatureModule,
     GodSystemShopFeatureModule,
     GodSystemRecycleFeatureModule,
+    GodSystemUpgradesFeatureModule,
+    GodSystemUpgradesPublicPort,
+    GodSystemMedicalFeatureModule,
+    GodSystemHomeFeatureModule,
 }
 
 function Composition.create(options)
