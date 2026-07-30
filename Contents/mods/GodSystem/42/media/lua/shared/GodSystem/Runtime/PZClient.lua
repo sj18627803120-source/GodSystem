@@ -40,6 +40,8 @@ function Client.new(options)
                 transport = transport,
                 diagnostics = diagnostics,
                 protocolVersion = GodSystemProtocol422012.Version,
+                onSnapshot = options.onSnapshot,
+                requireHello = false,
             })
             self.gateway = GodSystemClientGateway.new({
                 remote = self.remote,

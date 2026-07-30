@@ -48,9 +48,11 @@ function ActionAdapter.new(options)
         lastResult = nil,
     }
 
-    local function request(action, args)
+    local function request(action, args, callback)
         local primary, secondary = facade:request(action,
-            type(args) == "table" and args or {})
+            type(args) == "table" and args or {}, {
+                callback = callback,
+            })
         local result = type(primary) == "table" and primary or secondary
         instance.lastResult = result
         return type(result) == "table" and result.ok == true
@@ -116,6 +118,61 @@ function ActionAdapter.new(options)
         end,
         performMedicalService = function(action)
             return request("medical.execute", { action = action })
+        end,
+        useMaintenanceItem = function(action, consumable, targetItemId)
+            local names = {
+                repairHeld = "repairItem",
+                reinforceHeld = "enhanceDurability",
+                repairVehicle = "repairVehicle",
+            }
+            local moduleAction = names[tostring(action or "")]
+            if not moduleAction then return false end
+            local args = {
+                action = moduleAction,
+                consumableId = itemId(consumable),
+            }
+            if moduleAction == "repairVehicle" then
+                args.vehicleId = targetItemId
+            else
+                args.targetId = targetItemId
+            end
+            local targetItem = type(target.getPlayer) == "function"
+                and target.getPlayer() or (getPlayer and getPlayer() or nil)
+            targetItem = targetItem and targetItem.getPrimaryHandItem
+                and targetItem:getPrimaryHandItem() or nil
+            return request("maintenance.execute", args, function(result)
+                if not target.notify or not target.text then return end
+                local code = result.ok and ({
+                    repairItem = "MaintenanceRepairSuccess",
+                    enhanceDurability = "MaintenanceReinforceSuccess",
+                    repairVehicle = "VehicleRepaired",
+                })[moduleAction] or tostring(result.code or "MaintenanceFailed")
+                local data = type(result.data) == "table" and result.data or {}
+                local before = type(data.before) == "table" and data.before or {}
+                local after = type(data.after) == "table" and data.after or {}
+                local name = targetItem and targetItem.getDisplayName
+                    and targetItem:getDisplayName() or ""
+                local argsText
+                if moduleAction == "repairVehicle" then
+                    argsText = {
+                        before.damaged or 0,
+                        before.missing or 0,
+                    }
+                else
+                    argsText = {
+                        name,
+                        after.condition or 0,
+                        after.conditionMax or 0,
+                    }
+                end
+                local value = target.text("Notify_" .. code,
+                    target.text("Notify_MaintenanceFailed", "Maintenance failed"))
+                for index = 1, #argsText do
+                    value = tostring(value):gsub(
+                        "{" .. tostring(index) .. "}", tostring(argsText[index]))
+                end
+                target.notify(value)
+            end)
         end,
         performAttributePurchase = function(perkIndex, mode, value)
             return request("attributes.purchase", {

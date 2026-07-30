@@ -35,6 +35,7 @@ function Server.new(options)
         self.bridge = GodSystemServerBridge.new({
             transport = transport,
             protocolVersion = GodSystemProtocol422012.Version,
+            requireHello = false,
             actorKey = GodSystemPZBindings.identity,
             diagnostics = self.runtime.diagnostics,
             dispatcher = {
@@ -62,6 +63,16 @@ function Server.new(options)
         self.runtime:stop(reason)
         self.started = false
         return true
+    end
+
+    function instance:push(actor, data)
+        if not self.started then return false, "serverStopped" end
+        return transport:sendToClient(actor,
+            GodSystemProtocol422012.Module,
+            GodSystemProtocol422012.S2C.Snapshot, {
+                protocol = GodSystemProtocol422012.Version,
+                data = data,
+            })
     end
 
     function instance:health()

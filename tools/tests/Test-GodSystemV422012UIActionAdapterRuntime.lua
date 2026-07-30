@@ -13,15 +13,36 @@ local data = { autoTaskClaimEnabled = false }
 local calls = {}
 local facade = {
     data = function() return data end,
-    request = function(_, action, args)
+    request = function(_, action, args, options)
         calls[#calls + 1] = { action = action, args = args }
-        return { ok = true, code = "accepted", data = {} }
+        local result = { ok = true, code = "accepted", data = {} }
+        if action == "maintenance.execute" then
+            result.code = "completed"
+            result.data = {
+                before = { condition = 4, conditionMax = 10 },
+                after = { condition = 10, conditionMax = 10 },
+            }
+        end
+        if options and options.callback then options.callback(result) end
+        return result
     end,
 }
 local originalBank = function() return "old-bank" end
 local originalVisible = function() return "old-visible" end
-local target = {
+local target
+target = {
     performBankAction = originalBank,
+    text = function(key) return key end,
+    notify = function(value) target.lastNotification = value end,
+    getPlayer = function()
+        return {
+            getPrimaryHandItem = function()
+                return {
+                    getDisplayName = function() return "Axe" end,
+                }
+            end,
+        }
+    end,
     getInventoryRecycleGroups = function()
         return {
             ["Base.Scrap"] = {
@@ -87,6 +108,15 @@ assert(calls[#calls].action == "recycle.preference"
     and calls[#calls].args.key == "waistAutoRecycleEnabled"
     and calls[#calls].args.value == true,
     "auto recycle preference mapping")
+assert(target.useMaintenanceItem("repairHeld", { id = "repair-kit" }, "axe-1"),
+    "maintenance action accepted")
+assert(calls[#calls].action == "maintenance.execute"
+    and calls[#calls].args.action == "repairItem"
+    and calls[#calls].args.consumableId == "repair-kit"
+    and calls[#calls].args.targetId == "axe-1",
+    "maintenance action mapping")
+assert(target.lastNotification == "Notify_MaintenanceRepairSuccess",
+    "maintenance completion uses localized notification")
 
 assert(adapter:stop(), "action adapter stop")
 assert(target.performBankAction() == "old-bank", "bank action restored")

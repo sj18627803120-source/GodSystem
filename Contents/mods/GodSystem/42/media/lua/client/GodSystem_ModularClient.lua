@@ -4,6 +4,9 @@ require "GodSystem/UI/Facade"
 require "GodSystem/UI/ShellAdapter"
 require "GodSystem/UI/ActionAdapter"
 require "GodSystem/UI/StorageAdapter"
+require "GodSystem/UI/AutoLoaderAdapter"
+require "GodSystem_AutoLoaderClient"
+require "GodSystem_AutoLoaderUI"
 require "GodSystem_UI"
 
 GodSystemModularClient = GodSystemModularClient or {
@@ -13,6 +16,7 @@ GodSystemModularClient = GodSystemModularClient or {
     shell = nil,
     actions = nil,
     storage = nil,
+    autoloader = nil,
 }
 
 function GodSystemModularClient.start()
@@ -31,6 +35,11 @@ function GodSystemModularClient.start()
         onResult = function()
             if GodSystemUI.window and GodSystemUI.window.requestDeferredPopulate then
                 GodSystemUI.window:requestDeferredPopulate(1)
+            end
+        end,
+        onSnapshot = function(data)
+            if GodSystemModularClient.autoloader then
+                GodSystemModularClient.autoloader:receive(data)
             end
         end,
     })
@@ -69,10 +78,18 @@ function GodSystemModularClient.start()
         multiplayer = multiplayer,
     })
     storage:install()
+    local autoloader = GodSystemUIAutoLoaderAdapter.new({
+        facade = facade,
+        target = GodSystemAutoLoaderClient,
+        helpers = GodSystemAutoLoader,
+        ui = GodSystemAutoLoaderUI,
+    })
+    autoloader:install()
     GodSystemModularClient.facade = facade
     GodSystemModularClient.shell = shell
     GodSystemModularClient.actions = actions
     GodSystemModularClient.storage = storage
+    GodSystemModularClient.autoloader = autoloader
     GodSystemUI.bindRuntime(instance.runtime or instance)
     GodSystemUI.bindGateway(instance.gateway)
     GodSystemUI.bindFacade(facade)
@@ -81,6 +98,9 @@ function GodSystemModularClient.start()
 end
 
 function GodSystemModularClient.stop(reason)
+    if GodSystemModularClient.autoloader then
+        GodSystemModularClient.autoloader:stop()
+    end
     if GodSystemModularClient.storage then
         GodSystemModularClient.storage:stop()
     end
@@ -105,6 +125,7 @@ function GodSystemModularClient.stop(reason)
     GodSystemModularClient.shell = nil
     GodSystemModularClient.actions = nil
     GodSystemModularClient.storage = nil
+    GodSystemModularClient.autoloader = nil
 end
 
 function GodSystemModularClient.receive(moduleName, command, packet)

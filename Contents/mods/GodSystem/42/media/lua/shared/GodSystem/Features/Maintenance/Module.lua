@@ -260,6 +260,8 @@ function Descriptor.create(dependencies, context)
                 action = action,
                 cost = cost,
                 outcome = applyPayloadOrCode,
+                before = snapshot,
+                after = applyPayloadOrCode,
             }, request)
         end
 

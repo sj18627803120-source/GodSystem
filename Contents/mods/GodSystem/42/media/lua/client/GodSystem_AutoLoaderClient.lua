@@ -285,6 +285,18 @@ function Client.installReloadHook()
     return true
 end
 
+function Client.uninstallReloadHook()
+    if Client.originalBeginAutomaticReload
+        and ISReloadWeaponAction
+        and ISReloadWeaponAction.BeginAutomaticReload == Client.reloadWrapper
+    then
+        ISReloadWeaponAction.BeginAutomaticReload = Client.originalBeginAutomaticReload
+    end
+    Client.reloadWrapper = nil
+    Client.originalBeginAutomaticReload = nil
+    return true
+end
+
 function Client.clear()
     Client.states = {}
     Client.queuedSessions = {}
