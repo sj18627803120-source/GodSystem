@@ -75,7 +75,7 @@ function Kernel.create(options)
     local disabled = {}
     for moduleId, reason in pairs(migration.disabledModules or {}) do disabled[moduleId] = reason end
     for moduleId, reason in pairs(options.disabledModules or {}) do disabled[moduleId] = reason end
-    local configSnapshot = options.configSnapshot or GodSystemConfigSnapshot.build({
+    local configSnapshot = options.configSnapshot or GodSystemRuntimeConfigSnapshot.build({
         config = options.config,
         adminSettings = options.adminSettings,
         itemOverrides = options.itemOverrides,

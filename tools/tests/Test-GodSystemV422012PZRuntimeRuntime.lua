@@ -65,7 +65,6 @@ local sp = PZClient.new({
     eventAdapter = eventAdapter,
     transport = transport,
     legacySnapshots = { { actorKey = "local", snapshot = legacy } },
-    configSnapshot = { tasks = { templates = {} } },
 })
 assert(sp:start(), "SP PZ client start")
 local balance = sp.gateway:request("wallet.balance", { scope = "current" })
