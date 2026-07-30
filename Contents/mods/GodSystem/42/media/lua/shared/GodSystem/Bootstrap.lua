@@ -16,6 +16,7 @@ function Bootstrap.create(options)
         environment = tostring(options.environment or "unknown"),
         adapters = options.adapters or {},
         bindings = options.bindings or {},
+        configSnapshot = type(options.configSnapshot) == "table" and options.configSnapshot or {},
     }
     runtime.diagnostics = GodSystemDiagnostics.new({
         version = runtime.version,
@@ -47,6 +48,7 @@ function Bootstrap.create(options)
             protocolVersion = self.protocolVersion,
             environment = self.environment,
             binding = self.bindings[moduleId],
+            configSnapshot = self.configSnapshot,
             state = self.state:scoped(moduleId, descriptor and descriptor.stateVersion or 1),
         }
         context.events = {

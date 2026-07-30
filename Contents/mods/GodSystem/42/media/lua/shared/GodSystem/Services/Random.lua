@@ -18,7 +18,15 @@ function Descriptor.create()
         end
         return math.random(minimum, maximum)
     end
-    instance.public = { nextInt = nextInt }
+    local function index(maximum)
+        maximum = math.floor(tonumber(maximum) or 0)
+        if maximum <= 0 then return nil end
+        return nextInt(1, maximum)
+    end
+    instance.public = {
+        nextInt = nextInt,
+        index = index,
+    }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end
     function instance:health()

@@ -36,7 +36,7 @@ function Descriptor.create(_, context)
             if first == public then return row, replay end
             if not row then return false, replay end
             if replay then return "replay", row.result or replay end
-            return "started", row
+            return "new", row
         end,
         finish = function(first, second, third)
             local moduleId, operationId, result = arguments(first, second, third)
