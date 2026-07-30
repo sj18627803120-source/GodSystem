@@ -110,9 +110,6 @@ function GodSystemModularClient.start()
     GodSystemUI.bindRuntime(instance.runtime or instance)
     GodSystemUI.bindGateway(instance.gateway)
     GodSystemUI.bindFacade(facade)
-    facade:refresh(GodSystemUIFacade.defaultQueries({
-        includeCompanion = not multiplayer,
-    }))
     GodSystemUI.onGameStart()
     if not multiplayer and GodSystemCompanionUI
         and GodSystemCompanionUI.restoreShortcut
@@ -180,6 +177,12 @@ function GodSystemModularClient.installLifecycle()
         if runtime and runtime.coordinator then
             actor = actor or (getPlayer and getPlayer() or nil)
             if actor then runtime.coordinator.actorCreated(actor) end
+        end
+        local facade = GodSystemModularClient.facade
+        if facade then
+            facade:refresh(GodSystemUIFacade.defaultQueries({
+                includeCompanion = not (instance and instance.multiplayer),
+            }))
         end
     end
     local function receive(moduleName, command, packet)

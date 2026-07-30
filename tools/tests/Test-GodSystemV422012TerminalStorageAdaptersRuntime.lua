@@ -253,6 +253,18 @@ do
     local audit = GodSystemTerminalAuditPlatform.create({}, context)
     local instances = GodSystemTerminalInstancesPlatform.create({}, context)
     config:start(); state:start(); audit:start(); instances:start()
+    local nestedRuntimeState = {}
+    nestedRuntimeState.self = nestedRuntimeState
+    local diagnosticAdapter = GodSystemTerminalPlatformSupport.lifecycle(
+        "terminal.diagnostic", {}, {
+            calls = 1,
+            runtimeState = nestedRuntimeState,
+        })
+    diagnosticAdapter:start()
+    local diagnosticHealth = diagnosticAdapter:health()
+    expect(diagnosticHealth.data.calls == 1
+        and diagnosticHealth.data.runtimeState == nil,
+        "terminal health only exposes scalar counters")
     expect(config.public.snapshot().enabled == true, "terminal config adapter")
     local initial, revision = state.public.load(actor)
     expect(type(initial) == "table" and revision == 0, "terminal scoped state load")

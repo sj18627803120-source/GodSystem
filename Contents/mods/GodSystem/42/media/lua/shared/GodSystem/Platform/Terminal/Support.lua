@@ -212,16 +212,25 @@ function Support.lifecycle(moduleId, public, counters)
     local instance = {
         started = false,
         public = public or {},
-        counters = counters or { failures = 0 },
+        counters = type(counters) == "table" and counters or { failures = 0 },
     }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end
     function instance:health()
+        local counters = {}
+        for key, value in pairs(self.counters) do
+            local keyType, valueType = type(key), type(value)
+            if (keyType == "string" or keyType == "number")
+                and (valueType == "number" or valueType == "string" or valueType == "boolean")
+            then
+                counters[key] = value
+            end
+        end
         return {
             ok = self.started and (self.counters.failures or 0) == 0,
             code = (self.counters.failures or 0) > 0 and "adapterFailure"
                 or (self.started and "healthy" or "stopped"),
-            data = Support.copy(self.counters),
+            data = counters,
             moduleId = moduleId,
         }
     end
