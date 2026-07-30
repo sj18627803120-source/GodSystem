@@ -51,7 +51,6 @@ GodSystemConfig.MedicalCheckInfectionCost = 50
 GodSystemConfig.MedicalHealInjuriesCost = 5000
 GodSystemConfig.MedicalCureInfectionCost = 2000
 GodSystemConfig.HistoryLimit = 40
-GodSystemConfig.EnableDebugTools = false
 GodSystemConfig.HomeSetCost = 100
 GodSystemConfig.HomeTravelCost = 10
 GodSystemConfig.TempTeleportSlotCost = 500

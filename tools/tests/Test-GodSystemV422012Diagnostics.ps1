@@ -16,7 +16,7 @@ $text = [IO.File]::ReadAllText($viewModel, [Text.Encoding]::UTF8)
 if ($text -match 'GodSystem_Core|GodSystem_Server|GodSystem_UI|sendClientCommand|sendServerCommand|Events\.') {
     throw 'Diagnostics view model reaches into legacy runtime or PZ gateways'
 }
-foreach ($required in @('ViewModel.build', 'ViewModel.advancedText', 'statusLabel', 'moduleState', 'advice', 'rows')) {
+foreach ($required in @('ViewModel.build', 'ViewModel.advancedText', 'localized', 'moduleState', 'advice', 'rows')) {
     if ($text -notmatch [regex]::Escape($required)) {
         throw "Player diagnostics presentation is missing: $required"
     }

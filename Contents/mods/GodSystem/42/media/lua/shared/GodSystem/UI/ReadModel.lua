@@ -43,6 +43,7 @@ local function defaults(version)
             lastIssue = nil,
             storage = nil,
             terminal = nil,
+            diagnostics = nil,
         },
     }
 end
@@ -63,6 +64,9 @@ function ReadModel.new(options)
 
     local handlers = {}
 
+    handlers["diagnostics.snapshot"] = function(data)
+        instance.value.modular.diagnostics = copy(data)
+    end
     handlers["system.snapshot"] = function(data)
         merge(instance.value, data)
         instance.value.ui = type(instance.value.ui) == "table" and instance.value.ui or {}

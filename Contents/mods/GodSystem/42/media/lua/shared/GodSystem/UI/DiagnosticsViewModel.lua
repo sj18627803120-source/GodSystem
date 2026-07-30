@@ -8,38 +8,43 @@ local function copy(value, seen)
     if seen[value] then return seen[value] end
     local result = {}
     seen[value] = result
-    for key, child in pairs(value) do result[copy(key, seen)] = copy(child, seen) end
+    for key, child in pairs(value) do
+        result[copy(key, seen)] = copy(child, seen)
+    end
     return result
 end
 
 local function text(value, fallback)
     value = tostring(value or "")
-    if value == "" then return tostring(fallback or "-") end
-    return value
+    return value ~= "" and value or tostring(fallback or "-")
 end
 
-local function moduleState(row)
-    local state = tostring(row and row.state or "unknown")
-    local health = type(row and row.health) == "table" and row.health or nil
+local function moduleState(module)
+    local state = tostring(module and module.state or "unknown")
+    local health = type(module and module.health) == "table"
+        and module.health or nil
     if state == "failed" or state == "blocked" then return "error" end
-    if state ~= "started" then return "warning" end
-    if health and health.ok == false then return "warning" end
+    if state ~= "started" or (health and health.ok == false) then
+        return "warning"
+    end
     return "healthy"
 end
 
-local function statusLabel(status)
-    if status == "error" then return "存在功能故障" end
-    if status == "warning" then return "需要注意" end
-    return "运行正常"
-end
-
-local function row(labelKey, label, value, severity, detail)
+local function row(labelKey, fallback, value, severity, detail)
     return {
         labelKey = tostring(labelKey or ""),
-        label = tostring(label or ""),
-        value = tostring(value or "-"),
+        fallback = tostring(fallback or ""),
+        value = value,
         severity = tostring(severity or "info"),
         detail = detail and tostring(detail) or nil,
+    }
+end
+
+local function localized(key, fallback, args)
+    return {
+        key = tostring(key or ""),
+        fallback = tostring(fallback or ""),
+        args = copy(args or {}),
     }
 end
 
@@ -53,16 +58,12 @@ local function sortedModules(source)
 end
 
 local function appendValue(lines, prefix, value, depth, seen)
-    depth = depth or 0
-    seen = seen or {}
+    depth, seen = depth or 0, seen or {}
     if type(value) ~= "table" then
         lines[#lines + 1] = prefix .. "=" .. tostring(value)
         return
     end
-    if seen[value] then
-        lines[#lines + 1] = prefix .. "=<cycle>"
-        return
-    end
+    if seen[value] then lines[#lines + 1] = prefix .. "=<cycle>" return end
     if depth >= 8 then
         lines[#lines + 1] = prefix .. "=<depth-limit>"
         return
@@ -70,18 +71,21 @@ local function appendValue(lines, prefix, value, depth, seen)
     seen[value] = true
     local keys = {}
     for key in pairs(value) do keys[#keys + 1] = key end
-    table.sort(keys, function(left, right) return tostring(left) < tostring(right) end)
+    table.sort(keys, function(left, right)
+        return tostring(left) < tostring(right)
+    end)
     if #keys == 0 then lines[#lines + 1] = prefix .. "={}" end
     for index = 1, #keys do
         local key = keys[index]
-        local childPrefix = prefix == "" and tostring(key) or (prefix .. "." .. tostring(key))
+        local childPrefix = prefix == "" and tostring(key)
+            or (prefix .. "." .. tostring(key))
         appendValue(lines, childPrefix, value[key], depth + 1, seen)
     end
     seen[value] = nil
 end
 
 function ViewModel.advancedText(input)
-    local lines = { "GodSystem Diagnostics" }
+    local lines = { "GodSystem Diagnostics 42.20.1.2" }
     appendValue(lines, "", copy(type(input) == "table" and input or {}), 0, {})
     return table.concat(lines, "\n")
 end
@@ -89,81 +93,108 @@ end
 function ViewModel.build(input)
     input = type(input) == "table" and input or {}
     local modules = sortedModules(input.modules)
-    local healthy, warnings, errors = 0, 0, 0
-    local firstModuleProblem = nil
+    local healthy, warnings, errors, firstProblem = 0, 0, 0, nil
     for index = 1, #modules do
-        local status = moduleState(modules[index])
-        if status == "healthy" then healthy = healthy + 1
-        elseif status == "warning" then warnings = warnings + 1
+        local state = moduleState(modules[index])
+        if state == "healthy" then healthy = healthy + 1
+        elseif state == "warning" then warnings = warnings + 1
         else errors = errors + 1 end
-        if status ~= "healthy" and not firstModuleProblem then firstModuleProblem = modules[index] end
+        if state ~= "healthy" and not firstProblem then
+            firstProblem = modules[index]
+        end
     end
 
     local migration = type(input.migration) == "table" and input.migration or nil
     local client = type(input.client) == "table" and input.client or {}
     local server = type(input.server) == "table" and input.server or {}
-    local mode = tostring(input.mode or "SP")
     local lastIssue = type(input.lastIssue) == "table" and input.lastIssue or nil
+    local mode = tostring(input.mode or "SP")
+    local severity = errors > 0 and "error"
+        or (warnings > 0 and "warning" or "healthy")
+    local advice = localized("Diag_AdviceHealthy",
+        "No action is currently required.")
 
-    local severity = errors > 0 and "error" or (warnings > 0 and "warning" or "healthy")
-    local advice = "当前未发现需要处理的问题。"
     if errors > 0 then
-        advice = "有功能未能启动；复制高级报告并反馈，其他独立功能仍可继续使用。"
+        advice = localized("Diag_AdviceModuleError",
+            "One feature failed to start. Other independent features can still be used; copy the advanced report when asking for help.")
     elseif migration and migration.ok == false then
         severity = "error"
-        advice = "旧存档迁移失败；请保留存档并复制高级报告，不要重复购买或生成物品。"
+        advice = localized("Diag_AdviceMigrationError",
+            "Save migration failed. Keep the save unchanged and copy the advanced report.")
     elseif mode == "MP" and (tonumber(client.pendingTimeouts) or 0) > 0 then
         severity = "warning"
-        advice = "多人同步曾超时；先刷新诊断，若持续出现请复制高级报告。"
+        advice = localized("Diag_AdviceTimeout",
+            "Multiplayer synchronization timed out. Refresh diagnostics and copy the report if it continues.")
     elseif mode == "MP" and client.hasServerState ~= true then
         severity = "warning"
-        advice = "正在等待服务器状态；短暂等待后可刷新诊断。"
+        advice = localized("Diag_AdviceSyncing",
+            "Waiting for server state. Wait briefly, then refresh diagnostics.")
     elseif lastIssue then
         severity = severity == "healthy" and "warning" or severity
-        advice = "记录到最近一次问题；如果功能仍异常，请复制高级报告。"
+        advice = localized("Diag_AdviceRecentIssue",
+            "A recent issue was recorded. Copy the advanced report if the feature is still abnormal.")
     end
 
+    local statusKeys = {
+        healthy = { "Diag_StatusHealthy", "Running normally" },
+        warning = { "Diag_StatusWarning", "Needs attention" },
+        error = { "Diag_StatusError", "Feature fault detected" },
+    }
+    local status = statusKeys[severity]
     local rows = {
-        row("Diag_OverallStatus", "总体状态", statusLabel(severity), severity),
-        row("Diag_VersionMode", "版本与模式", text(input.version, "?") .. " / " .. mode, "info"),
-        row("Diag_Modules", "功能模块", tostring(healthy) .. " 正常 / " .. tostring(warnings) ..
-            " 注意 / " .. tostring(errors) .. " 故障", errors > 0 and "error"
-            or (warnings > 0 and "warning" or "healthy")),
+        row("Diag_OverallStatus", "Overall status",
+            localized(status[1], status[2]), severity),
+        row("Diag_VersionMode", "Version and mode",
+            text(input.version, "?") .. " / " .. mode, "info"),
+        row("Diag_Modules", "Feature modules",
+            localized("Diag_ModuleSummary",
+                "{1} healthy / {2} attention / {3} failed",
+                { healthy, warnings, errors }),
+            errors > 0 and "error" or (warnings > 0 and "warning" or "healthy")),
     }
     if migration then
-        rows[#rows + 1] = row("Diag_Migration", "存档迁移",
-            migration.ok == false and "失败" or text(migration.code or migration.state, "完成"),
-            migration.ok == false and "error" or "healthy")
+        rows[#rows + 1] = row("Diag_Migration", "Save migration",
+            migration.ok == false
+                and localized("Diag_MigrationFailed", "Failed")
+                or localized("Diag_MigrationCompleted", "Completed"),
+            migration.ok == false and "error" or "healthy",
+            migration.ok == false and text(migration.code, "migrationFailed") or nil)
     end
     if mode == "MP" then
-        rows[#rows + 1] = row("Diag_MPSync", "多人同步",
-            client.hasServerState == true and "已同步" or
-                (client.pendingState == true and "同步中" or "未同步"),
+        local syncKey = client.hasServerState == true and "Diag_SyncComplete"
+            or (client.pendingState == true and "Diag_SyncPending"
+                or "Diag_SyncMissing")
+        local syncFallback = client.hasServerState == true and "Synchronized"
+            or (client.pendingState == true and "Synchronizing" or "Not synchronized")
+        rows[#rows + 1] = row("Diag_MPSync", "Multiplayer sync",
+            localized(syncKey, syncFallback),
             client.hasServerState == true and "healthy" or "warning")
     end
-    if firstModuleProblem then
-        rows[#rows + 1] = row("Diag_ProblemModule", "异常功能",
-            text(firstModuleProblem.moduleId, "未知"),
-            "error", text(firstModuleProblem.code, firstModuleProblem.state))
+    if firstProblem then
+        rows[#rows + 1] = row("Diag_ProblemModule", "Affected feature",
+            text(firstProblem.moduleId, "unknown"), "error",
+            text(firstProblem.code, firstProblem.state))
     end
     if lastIssue then
-        rows[#rows + 1] = row("Diag_LastIssue", "最近问题",
-            text(lastIssue.moduleId, "core") .. " / " .. text(lastIssue.code, "unexpectedError"),
+        rows[#rows + 1] = row("Diag_LastIssue", "Most recent issue",
+            text(lastIssue.moduleId, "core") .. " / "
+                .. text(lastIssue.code, "unexpectedError"),
             "warning", text(lastIssue.message, "-"))
     elseif text(client.lastError, "") ~= "" then
-        rows[#rows + 1] = row("Diag_LastIssue", "最近问题",
+        rows[#rows + 1] = row("Diag_LastIssue", "Most recent issue",
             text(client.lastError, "-"), "warning")
     elseif text(server.lastError, "") ~= "" then
-        rows[#rows + 1] = row("Diag_LastIssue", "最近问题",
+        rows[#rows + 1] = row("Diag_LastIssue", "Most recent issue",
             text(server.lastError, "-"), "warning")
     end
-    rows[#rows + 1] = row("Diag_Advice", "建议", advice, severity)
+    rows[#rows + 1] = row("Diag_Advice", "Suggested action",
+        advice, severity)
 
     local reportSource = copy(input)
     reportSource.modules = modules
     return {
         status = severity,
-        title = statusLabel(severity),
+        title = localized(status[1], status[2]),
         advice = advice,
         rows = rows,
         advancedText = ViewModel.advancedText(reportSource),

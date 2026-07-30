@@ -1,4 +1,5 @@
 require "GodSystem/Composition"
+require "GodSystem/Core/Result"
 require "GodSystem/Platform/PZEventSource"
 require "GodSystem/Platform/PZCommandTransport"
 require "GodSystem/Platform/PZModDataAdapter"
@@ -121,6 +122,25 @@ function Kernel.create(options)
         end,
     })
     runtime.dispatch = function(self, packet, actor)
+        if type(packet) == "table"
+            and tostring(packet.protocol or "") == VERSION
+            and tostring(packet.action or "") == "diagnostics.snapshot"
+        then
+            local health = self:health()
+            local simple = self.diagnostics:simpleReport()
+            local advanced = self.diagnostics:advancedReport()
+            return GodSystemResult.ok("runtime.diagnostics", "snapshot", {
+                version = VERSION,
+                environment = env,
+                migration = copy(simple.migration),
+                modules = copy(health.modules or simple.modules or {}),
+                lastIssue = copy(simple.lastIssue),
+                protocol = copy(advanced.protocol),
+                issues = copy(advanced.issues or {}),
+                events = copy(health.events),
+                commands = copy(health.commands),
+            }, tostring(packet.operationId or packet.requestId or ""))
+        end
         local result = self.dispatcher:dispatch(packet, actor)
         local saved = self:save()
         if saved ~= true then

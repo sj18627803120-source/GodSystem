@@ -4,6 +4,7 @@ require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
 require "GodSystem/UI/DiagnosticsViewModel"
+require "GodSystem/UI/PageRegistry"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -868,70 +869,6 @@ function GodSystemShortcutWindow:close()
     end
     if GodSystemUI.shortcutWindow == self then
         GodSystemUI.shortcutWindow = nil
-    end
-end
-
-GodSystemSecretGrantDialog = ISCollapsableWindow:derive("GodSystemSecretGrantDialog")
-
-function GodSystemSecretGrantDialog:new(x, y, width, height, owner)
-    local o = ISCollapsableWindow.new(self, x, y, width, height)
-    o.title = "GodSystem"
-    o.owner = owner
-    o.resizable = false
-    return o
-end
-
-function GodSystemSecretGrantDialog:createChildren()
-    ISCollapsableWindow.createChildren(self)
-    self.entry = ISTextEntryBox:new("", 16, 42, self.width - 32, 26)
-    self.entry:initialise()
-    self.entry:instantiate()
-    self.entry.font = UIFont.Small
-    self:addChild(self.entry)
-
-    self.confirmButton = ISButton:new(16, 82, 96, 28, "OK", self, self.onConfirm)
-    self.confirmButton:initialise()
-    gsStyleButton(self.confirmButton, false)
-    self:addChild(self.confirmButton)
-
-    self.cancelButton = ISButton:new(self.width - 112, 82, 96, 28, "Cancel", self, self.onCancel)
-    self.cancelButton:initialise()
-    gsStyleButton(self.cancelButton, false)
-    self:addChild(self.cancelButton)
-end
-
-function GodSystemSecretGrantDialog:prerender()
-    ISCollapsableWindow.prerender(self)
-    gsDrawRect(self, 0, 16, self.width, self.height - 16, gsThemeColor("shell"))
-    gsDrawRectBorder(self, 1, 17, self.width - 2, self.height - 18, gsThemeColor("borderStrong"))
-end
-
-function GodSystemSecretGrantDialog:onConfirm()
-    local text = ""
-    if self.entry and self.entry.getInternalText then
-        text = self.entry:getInternalText() or ""
-    end
-    if gsTrim(text) ~= "12130" then
-        GodSystem.notify("Code error")
-        self:onCancel()
-        return
-    end
-    local sent = true
-    if gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.send then
-        sent = GodSystemNetwork.send("debugGrant", { code = "12130" })
-    else
-        sent = GodSystem.addPoints(10000, GodSystem.text("Reason_Debug", "Debug"))
-    end
-    if self.owner and self.owner.finishMultiplayerCommand then
-        self.owner:finishMultiplayerCommand(sent)
-    end
-    self:onCancel()
-end
-
-function GodSystemSecretGrantDialog:onCancel()
-    self:setVisible(false)
-    if self.removeFromUIManager then
-        self:removeFromUIManager()
     end
 end
 
@@ -2222,42 +2159,12 @@ function GodSystemWindow:onModeButton(button)
     end
     self:captureSelection()
     self.mode = button.internal
-    if self.mode == "info" then
-        self:recordInfoSecretClick()
-    end
     if self.mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
         GodSystemNetwork.requestTerminalState()
     end
     self:updateModeButtonStyles()
     self:populateList()
     self:requestDeferredPopulate(1)
-end
-
-function GodSystemWindow:recordInfoSecretClick()
-    local now = gsNowMs()
-    if now - (self.infoSecretLastClickMs or 0) > 4000 then
-        self.infoSecretClicks = 0
-    end
-    self.infoSecretLastClickMs = now
-    self.infoSecretClicks = (self.infoSecretClicks or 0) + 1
-    if self.infoSecretClicks >= 5 then
-        self.infoSecretClicks = 0
-        self:showSecretGrantDialog()
-    end
-end
-
-function GodSystemWindow:showSecretGrantDialog()
-    if GodSystemUI.secretGrantDialog and GodSystemUI.secretGrantDialog.getIsVisible and GodSystemUI.secretGrantDialog:getIsVisible() then
-        return
-    end
-    local w, h = 300, 130
-    local x = math.max(80, (getCore():getScreenWidth() / 2) - (w / 2))
-    local y = math.max(80, (getCore():getScreenHeight() / 2) - (h / 2))
-    local dialog = GodSystemSecretGrantDialog:new(x, y, w, h, self)
-    dialog:initialise()
-    dialog:addToUIManager()
-    dialog:setVisible(true)
-    GodSystemUI.secretGrantDialog = dialog
 end
 
 function GodSystemWindow:updateModeButtonStyles()
@@ -4171,10 +4078,7 @@ end
 
 function GodSystemWindow:populateInfo()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_Close", "Close"))
-    self.secondaryButton:setVisible(GodSystemConfig.EnableDebugTools == true)
-    if GodSystemConfig.EnableDebugTools then
-        gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_DebugCurrency", "Debug +500"))
-    end
+    self.secondaryButton:setVisible(false)
     local text = GodSystem.text("Info_Kill", "Zombie kill reward: +") .. tostring(GodSystemConfig.KillPointReward or 0)
     self:addWrappedListText(text, { kind = "info", data = text })
     text = GodSystem.text("Info_Shop", "Shop uses currency items in your inventory.")
@@ -4203,14 +4107,22 @@ function GodSystemWindow:populateDiagnostics()
     gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_DiagnosticsCopy", "Copy advanced report"))
 
     local data = GodSystem.getData() or {}
-    local server = data.serverDiagnostics or {}
+    local server = type(data.modular) == "table"
+        and type(data.modular.diagnostics) == "table"
+        and data.modular.diagnostics or {}
     local client = {}
-    if GodSystemNetwork and GodSystemNetwork.getDiagnostics then
-        client = GodSystemNetwork.getDiagnostics() or {}
+    if self.modularGateway and type(self.modularGateway.health) == "function" then
+        local clientHealth = self.modularGateway:health()
+        client = type(clientHealth) == "table"
+            and type(clientHealth.data) == "table"
+            and clientHealth.data or {}
+        client.hasServerState = server.version ~= nil
+        client.pendingState = (tonumber(client.pending) or 0) > 0
+        client.pendingTimeouts = tonumber(client.failures) or 0
     end
 
     local runtime = self.modularRuntime
-    local simple, advanced, modules = {}, {}, {}
+    local simple, advanced, modules = server, server, server.modules or {}
     if runtime then
         local health = runtime:health()
         modules = health.modules or {}
@@ -4229,10 +4141,15 @@ function GodSystemWindow:populateDiagnostics()
         server = server,
     })
     self.diagnosticsAdvancedText = view.advancedText
+    local function diagnosticText(value)
+        if type(value) ~= "table" then return tostring(value or "-") end
+        local translated = GodSystem.text(value.key, value.fallback)
+        return gsFormatTemplate(translated, value.args or {})
+    end
     for i = 1, #view.rows do
         local diagnostic = view.rows[i]
-        local label = GodSystem.text(diagnostic.labelKey, diagnostic.label)
-        local line = tostring(label) .. ": " .. tostring(diagnostic.value)
+        local label = GodSystem.text(diagnostic.labelKey, diagnostic.fallback)
+        local line = tostring(label) .. ": " .. diagnosticText(diagnostic.value)
         self:addWrappedListText(line, { kind = "diagnostics", data = diagnostic })
         if diagnostic.detail and diagnostic.detail ~= "" then
             self:addWrappedListText("  " .. tostring(diagnostic.detail),
@@ -4374,9 +4291,7 @@ function GodSystemWindow:populateList()
     self.secondaryButton:setVisible(true)
     self.primaryButton:setVisible(true)
     self:applyBaseLayout()
-    self:setTaskLayout(self.mode == "tasks")
-    self:setShopLayout(self.mode == "shop" or self.mode == "recycle" or self.mode == "admin" or self.mode == "lottery" or self.mode == "attribute")
-    self:setTextPageLayout(self.mode == "history" or self.mode == "info" or self.mode == "diagnostics")
+    GodSystemUIPageRegistry.prepare(self, self.mode)
     self:updateModeButtonStyles()
 
     if self:needsServerState() then
@@ -4389,60 +4304,8 @@ function GodSystemWindow:populateList()
         return
     end
 
-    if self.mode == "shop" then
-        self:populateShop()
-    elseif self.mode == "lottery" then
-        self:populateLottery()
-    elseif self.mode == "recycle" then
-        self:populateRecycle()
-    elseif self.mode == "waist" then
-        self:populateWaistSpace()
-    elseif self.mode == "storage" then
-        self:populateStorageNetwork()
-    elseif self.mode == "bank" then
-        self:populateBank()
-    elseif self.mode == "traits" then
-        self:populateTraits()
-    elseif self.mode == "attribute" then
-        self:populateAttributes()
-    elseif self.mode == "home" then
-        self:populateHome()
-    elseif self.mode == "tasks" then
-        self:populateTasks()
-    elseif self.mode == "upgrades" then
-        self:populateUpgrades()
-    elseif self.mode == "companion" then
-        self:populateCompanion()
-    elseif self.mode == "history" then
-        self:populateHistory()
-    elseif self.mode == "info" then
-        self:populateInfo()
-    elseif self.mode == "diagnostics" then
-        self:populateDiagnostics()
-    elseif self.mode == "attribute" then
-        self:applyAttributeActionBar(self:getSelectedPayload())
-    elseif self.mode == "admin" then
-        self:populateAdmin()
-    end
-
-    if self.mode == "shop" then
-        self:applyShopActionLayout()
-    elseif self.mode == "lottery" then
-        self:applyLotteryActionLayout()
-    elseif self.mode == "recycle" then
-        self:applyRecycleActionLayout()
-    elseif self.mode == "home" then
-        self:applyHomeActionBar(self:getSelectedPayload())
-    elseif self.mode == "admin" then
-        self:setActionBar({
-            { id = "searchBox", width = 240, minWidth = 150 },
-            { id = "primary", width = 118 },
-            { id = "secondary", width = 118 },
-            { id = "third", width = 118 },
-        })
-    else
-        self:setStandardActionBar()
-    end
+    GodSystemUIPageRegistry.populate(self, self.mode)
+    GodSystemUIPageRegistry.finish(self, self.mode)
     local selectionRestored = self:restoreSelection()
     self:restoreScrollState()
     if selectionRestored and self.pendingRestoreMode == self.mode then
@@ -5665,15 +5528,12 @@ function GodSystemWindow:onSecondaryAction()
         local sent = GodSystem.refreshOpenTasks()
         self:finishMultiplayerCommand(sent)
     elseif self.mode == "diagnostics" then
-        if gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestDiagnostics then
-            local sent = GodSystemNetwork.requestDiagnostics()
-            self:finishMultiplayerCommand(sent)
-        else
-            self:populateList()
+        if self.modularFacade then
+            self.modularFacade:refresh({ "diagnostics.snapshot" })
+            self:requestDeferredPopulate(1)
+            return
         end
-    elseif self.mode == "info" and GodSystemConfig.EnableDebugTools then
-        local sent = GodSystem.debugAddPoints()
-        self:finishMultiplayerCommand(sent)
+        self:populateList()
     end
 end
 

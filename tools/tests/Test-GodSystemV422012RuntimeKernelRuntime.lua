@@ -8,9 +8,14 @@ package.path = table.concat({
 }, ";")
 
 local persisted = {}
+local saveCount = 0
 local stateAdapter = {
     load = function() return persisted end,
-    save = function(_, value) persisted = value return true end,
+    save = function(_, value)
+        persisted = value
+        saveCount = saveCount + 1
+        return true
+    end,
 }
 local eventAdapter = {
     add = function() return true end,
@@ -59,6 +64,20 @@ assert(persisted.modules["wallet.accounts"].data.accounts["local"].current == 75
     "runtime did not migrate before module state load")
 assert(runtime.configSnapshot.tasks and type(runtime.configSnapshot.tasks.templates) == "table",
     "runtime did not build a configuration snapshot")
+local savesBeforeDiagnostics = saveCount
+local diagnostics = runtime:dispatch({
+    protocol = "42.20.1.2",
+    requestId = "kernel-diagnostics",
+    action = "diagnostics.snapshot",
+    args = {},
+}, { actorKey = "local" })
+assert(diagnostics.ok and diagnostics.moduleId == "runtime.diagnostics",
+    "runtime diagnostics endpoint failed")
+assert(type(diagnostics.data.modules) == "table"
+    and diagnostics.data.version == "42.20.1.2",
+    "runtime diagnostics snapshot was incomplete")
+assert(saveCount == savesBeforeDiagnostics,
+    "read-only diagnostics unexpectedly saved player state")
 local dispatched = runtime:dispatch({
     protocol = "42.20.1.2",
     requestId = "kernel-balance",

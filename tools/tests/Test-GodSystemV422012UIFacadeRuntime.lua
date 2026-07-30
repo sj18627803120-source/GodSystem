@@ -13,6 +13,12 @@ local Facade = require "GodSystem/UI/Facade"
 local observer
 local calls = {}
 local responses = {
+    ["diagnostics.snapshot"] = {
+        version = "42.20.1.2",
+        environment = "server",
+        migration = { ok = true },
+        modules = { { moduleId = "feature.wallet", state = "started" } },
+    },
     ["system.snapshot"] = {
         started = true,
         ui = { windowX = 10 },
@@ -102,6 +108,9 @@ assert(data.homeSystem.homeSet and data.companion.purchased
     and data.adminConfig.settings.ShopEnabled, "feature projections")
 assert(data.modular.storage.networkId == "N1"
     and data.modular.terminal.owned, "storage projection")
+assert(data.modular.diagnostics.version == "42.20.1.2"
+    and data.modular.diagnostics.modules[1].moduleId == "feature.wallet",
+    "diagnostics projection")
 
 local before = #calls
 facade:request("bank.execute", { action = "deposit", amount = 5 })

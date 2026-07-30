@@ -7360,14 +7360,6 @@ function GodSystem.onGameExit()
     GodSystem.autoRecyclerCache = nil
 end
 
-function GodSystem.debugAddPoints()
-    if not GodSystemConfig.EnableDebugTools then
-        return false
-    end
-    GodSystem.addPoints(500, GodSystem.text("Reason_Debug", "Debug"))
-    return true
-end
-
 if GodSystemRuntimeMode.legacyBusinessEnabled() then
     if Events.OnInitGlobalModData then
         Events.OnInitGlobalModData.Add(GodSystem.onInitGlobalModData)

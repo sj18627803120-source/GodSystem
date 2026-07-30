@@ -2723,20 +2723,6 @@ function Commands.syncKills(_, _, player, args)
     end
 end
 
-function Commands.debugGrant(_, _, player, args)
-    local code = tostring(args and args.code or "")
-    if code ~= "12130" then
-        return finish(player, false, "测试码错误")
-    end
-    local data = playerData(player)
-    local amount = 10000
-    if not giveCurrency(player, amount) then
-        return finish(player, false, "测试点数发放失败")
-    end
-    appendHistory(data, historyEntry("points", "DebugGrant", { amount }))
-    finish(player, true, "测试点数 +" .. tostring(amount))
-end
-
 function Commands.bank(_, _, player, args)
     applyAdminConfigStore()
     if GodSystemAdminConfig.isFeatureEnabled("EnableBank") == false then return finish(player, false, "Bank disabled") end

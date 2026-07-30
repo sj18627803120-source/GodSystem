@@ -15,6 +15,11 @@ Protocol.S2C = {
 }
 
 Protocol.Routes = {
+    ["diagnostics.snapshot"] = {
+        moduleId = "runtime.diagnostics",
+        method = "snapshot",
+        runtime = true,
+    },
     ["system.initialize"] = { moduleId = "feature.system", method = "ensureInitialized" },
     ["system.snapshot"] = { moduleId = "feature.system", method = "snapshot" },
     ["system.preference"] = { moduleId = "feature.system", method = "setPreference" },

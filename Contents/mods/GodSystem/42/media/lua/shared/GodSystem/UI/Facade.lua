@@ -5,6 +5,7 @@ GodSystemUIFacade = GodSystemUIFacade or {}
 local Facade = GodSystemUIFacade
 
 local DEFAULT_QUERIES = {
+    "diagnostics.snapshot",
     "system.snapshot",
     "wallet.balance",
     "bank.summary",

@@ -1520,10 +1520,6 @@ wrap("performLotteryDraw", function(mode, categoryKey, count)
     return send((Protocol.C2S and Protocol.C2S.LotteryDraw) or "lotteryDraw", { mode = mode, categoryKey = categoryKey, count = count }), nil, 0
 end)
 
-wrap("debugAddPoints", function()
-    return send("debugGrant", { code = "12130" })
-end)
-
 function GodSystemNetwork.requestDiagnostics()
     return send((Protocol.C2S and Protocol.C2S.Diagnostics) or "diagnostics", {})
 end

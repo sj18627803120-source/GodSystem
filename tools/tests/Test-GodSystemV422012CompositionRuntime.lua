@@ -117,12 +117,18 @@ assert(#health.modules >= 43, "composition health omitted registered modules")
 assert(type(runtime.registry:get("feature.wallet")) == "table", "wallet public API unavailable")
 assert(type(runtime.registry:get("feature.autoloader")) == "table", "autoloader public API unavailable")
 for action, route in pairs(GodSystemProtocol422012.Routes) do
-    local public = runtime.registry:get(route.moduleId)
-    assert(type(public) == "table",
-        "protocol route module unavailable: " .. tostring(action))
-    assert(type(public[route.method]) == "function",
-        "protocol route method unavailable: " .. tostring(action)
-            .. " -> " .. tostring(route.moduleId) .. "." .. tostring(route.method))
+    if route.runtime == true then
+        assert(route.moduleId == "runtime.diagnostics"
+            and action == "diagnostics.snapshot",
+            "unknown runtime-owned protocol route: " .. tostring(action))
+    else
+        local public = runtime.registry:get(route.moduleId)
+        assert(type(public) == "table",
+            "protocol route module unavailable: " .. tostring(action))
+        assert(type(public[route.method]) == "function",
+            "protocol route method unavailable: " .. tostring(action)
+                .. " -> " .. tostring(route.moduleId) .. "." .. tostring(route.method))
+    end
 end
 
 runtime:stop("test")
