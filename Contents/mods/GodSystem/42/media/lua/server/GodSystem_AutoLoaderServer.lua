@@ -1,5 +1,6 @@
 if not (isServer and isServer()) then return end
 
+require "GodSystem_RuntimeMode"
 require "GodSystem_AutoLoader"
 
 GodSystemAutoLoaderServer = GodSystemAutoLoaderServer or {}
@@ -148,13 +149,15 @@ function Server.onTick()
     AutoLoader.cleanupSessions()
 end
 
-if Events.OnClientCommand then
-    Events.OnClientCommand.Remove(Server.onClientCommand)
-    Events.OnClientCommand.Add(Server.onClientCommand)
-end
-if Events.OnTick then
-    Events.OnTick.Remove(Server.onTick)
-    Events.OnTick.Add(Server.onTick)
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    if Events.OnClientCommand then
+        Events.OnClientCommand.Remove(Server.onClientCommand)
+        Events.OnClientCommand.Add(Server.onClientCommand)
+    end
+    if Events.OnTick then
+        Events.OnTick.Remove(Server.onTick)
+        Events.OnTick.Add(Server.onTick)
+    end
 end
 
 return Server

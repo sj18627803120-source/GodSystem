@@ -1,4 +1,5 @@
 require "GodSystem_Config"
+require "GodSystem_RuntimeMode"
 require "GodSystem_Prices"
 require "GodSystem_ItemEligibility"
 require "GodSystem_Localization"
@@ -7367,21 +7368,23 @@ function GodSystem.debugAddPoints()
     return true
 end
 
-if Events.OnInitGlobalModData then
-    Events.OnInitGlobalModData.Add(GodSystem.onInitGlobalModData)
-end
-if Events.OnGameStart then
-    Events.OnGameStart.Add(GodSystem.onGameStart)
-end
-if Events.OnCreatePlayer then
-    Events.OnCreatePlayer.Add(GodSystem.onCreatePlayer)
-end
-if Events.OnPlayerUpdate then
-    Events.OnPlayerUpdate.Add(GodSystem.onPlayerUpdate)
-end
-if Events.OnPlayerDeath then
-    Events.OnPlayerDeath.Add(GodSystem.onPlayerDeath)
-end
-if Events.OnGameExit then
-    Events.OnGameExit.Add(GodSystem.onGameExit)
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    if Events.OnInitGlobalModData then
+        Events.OnInitGlobalModData.Add(GodSystem.onInitGlobalModData)
+    end
+    if Events.OnGameStart then
+        Events.OnGameStart.Add(GodSystem.onGameStart)
+    end
+    if Events.OnCreatePlayer then
+        Events.OnCreatePlayer.Add(GodSystem.onCreatePlayer)
+    end
+    if Events.OnPlayerUpdate then
+        Events.OnPlayerUpdate.Add(GodSystem.onPlayerUpdate)
+    end
+    if Events.OnPlayerDeath then
+        Events.OnPlayerDeath.Add(GodSystem.onPlayerDeath)
+    end
+    if Events.OnGameExit then
+        Events.OnGameExit.Add(GodSystem.onGameExit)
+    end
 end

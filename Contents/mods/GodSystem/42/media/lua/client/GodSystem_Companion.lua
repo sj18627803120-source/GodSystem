@@ -1,5 +1,6 @@
 if (isClient and isClient()) or (isServer and isServer()) then return end
 
+require "GodSystem_RuntimeMode"
 require "GodSystem_CompanionConfig"
 require "GodSystem_CompanionVisual"
 
@@ -1293,9 +1294,11 @@ local function onPlayerDeath(player)
     if not player or player == playerObject() then Companion.shutdown() end
 end
 
-if Events.OnGameStart then Events.OnGameStart.Add(onGameStart) end
-if Events.OnPlayerUpdate then Events.OnPlayerUpdate.Add(updateCompanion) end
-if Events.OnPlayerDeath then Events.OnPlayerDeath.Add(onPlayerDeath) end
-if Events.OnPreUIDraw then Events.OnPreUIDraw.Add(renderCompanionEffects) end
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    if Events.OnGameStart then Events.OnGameStart.Add(onGameStart) end
+    if Events.OnPlayerUpdate then Events.OnPlayerUpdate.Add(updateCompanion) end
+    if Events.OnPlayerDeath then Events.OnPlayerDeath.Add(onPlayerDeath) end
+    if Events.OnPreUIDraw then Events.OnPreUIDraw.Add(renderCompanionEffects) end
+end
 
 return GodSystemCompanion

@@ -36,6 +36,16 @@ local ACTIONS = {
     deathPenalty = true,
 }
 
+local function copy(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do result[copy(key, seen)] = copy(child, seen) end
+    return result
+end
+
 local function traceback(message)
     if debug and debug.traceback then return debug.traceback(tostring(message or ""), 2) end
     return tostring(message or "")
@@ -727,6 +737,7 @@ function Descriptor.create(dependencies, context)
         local bank, now, loadError = loadBank(actor, request)
         if not bank then return loadError end
         local value = Rules.summary(bank, now, spentPoints(actor), config)
+        value.state = copy(bank)
         local called, cash = callback(wallet, "getBalance", actor, "cash")
         value.cash = called and math.max(0, math.floor(tonumber(cash) or 0)) or 0
         return GodSystemResult.ok(moduleId, "BankSummary", value)

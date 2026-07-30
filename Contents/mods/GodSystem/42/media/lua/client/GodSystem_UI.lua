@@ -25,6 +25,7 @@ GodSystemUI.shortcutWindow = nil
 GodSystemUI.shopHiddenWindow = nil
 GodSystemUI.runtime = nil
 GodSystemUI.gateway = nil
+GodSystemUI.facade = nil
 
 function GodSystemUI.bindRuntime(runtime)
     GodSystemUI.runtime = runtime
@@ -34,6 +35,11 @@ end
 function GodSystemUI.bindGateway(gateway)
     GodSystemUI.gateway = gateway
     if GodSystemUI.window then GodSystemUI.window.modularGateway = gateway end
+end
+
+function GodSystemUI.bindFacade(facade)
+    GodSystemUI.facade = facade
+    if GodSystemUI.window then GodSystemUI.window.modularFacade = facade end
 end
 
 local function gsSetLabel(label, text)

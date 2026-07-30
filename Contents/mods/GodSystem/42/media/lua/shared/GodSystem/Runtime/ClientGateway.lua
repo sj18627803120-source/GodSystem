@@ -22,6 +22,8 @@ function Gateway.new(options)
     local actor = type(options.actor) == "function" and options.actor or function() return nil end
     local protocol = tostring(options.protocolVersion or GodSystemProtocol422012.Version)
     local onResult = options.onResult
+    local observers = {}
+    if type(onResult) == "function" then observers[1] = onResult end
     local sequence = 0
     local instance = {
         cache = {},
@@ -46,7 +48,9 @@ function Gateway.new(options)
         instance.completed = instance.completed + 1
         if result.ok ~= true then instance.failures = instance.failures + 1 end
         if type(callback) == "function" then callback(copy(result)) end
-        if type(onResult) == "function" then onResult(action, copy(result)) end
+        for index = 1, #observers do
+            observers[index](action, copy(result))
+        end
         return result
     end
 
@@ -121,6 +125,23 @@ function Gateway.new(options)
             },
             moduleId = "runtime.client",
         }
+    end
+
+    function instance:subscribe(callback)
+        assert(type(callback) == "function", "gateway observer required")
+        observers[#observers + 1] = callback
+        local active = true
+        return function()
+            if not active then return false end
+            active = false
+            for index = #observers, 1, -1 do
+                if observers[index] == callback then
+                    table.remove(observers, index)
+                    return true
+                end
+            end
+            return false
+        end
     end
 
     return instance

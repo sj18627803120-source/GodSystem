@@ -1,4 +1,5 @@
 require "GodSystem_StorageManager"
+require "GodSystem_RuntimeMode"
 
 GodSystemStorageClient = GodSystemStorageClient or {}
 
@@ -675,17 +676,19 @@ function Client.reset()
     if GodSystemStorageUI and GodSystemStorageUI.close then GodSystemStorageUI.close() end
 end
 
-Events.OnServerCommand.Remove(Client.onServerCommand)
-Events.OnServerCommand.Add(Client.onServerCommand)
-Events.OnTick.Remove(Client.onTick)
-Events.OnTick.Add(Client.onTick)
-if Events.OnDisconnect then
-    Events.OnDisconnect.Remove(Client.reset)
-    Events.OnDisconnect.Add(Client.reset)
-end
-if Events.OnMainMenuEnter then
-    Events.OnMainMenuEnter.Remove(Client.reset)
-    Events.OnMainMenuEnter.Add(Client.reset)
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    Events.OnServerCommand.Remove(Client.onServerCommand)
+    Events.OnServerCommand.Add(Client.onServerCommand)
+    Events.OnTick.Remove(Client.onTick)
+    Events.OnTick.Add(Client.onTick)
+    if Events.OnDisconnect then
+        Events.OnDisconnect.Remove(Client.reset)
+        Events.OnDisconnect.Add(Client.reset)
+    end
+    if Events.OnMainMenuEnter then
+        Events.OnMainMenuEnter.Remove(Client.reset)
+        Events.OnMainMenuEnter.Add(Client.reset)
+    end
 end
 
 return Client

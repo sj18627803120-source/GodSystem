@@ -1,4 +1,5 @@
 require "GodSystem_Config"
+require "GodSystem_RuntimeMode"
 require "GodSystem_Prices"
 require "GodSystem_ItemEligibility"
 require "GodSystem_Localization"
@@ -4553,6 +4554,7 @@ local function onPlayerUpdate(player)
     updateHomeSafeZone(player)
 end
 
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
 Events.OnPlayerUpdate.Add(onPlayerUpdate)
 Events.OnClientCommand.Add(function(module, command, player, args)
     if module ~= MODULE then return end
@@ -4575,6 +4577,7 @@ Events.OnClientCommand.Add(function(module, command, player, args)
         sendState(player)
     end
 end)
+end
 
 function GodSystemServer.storageControllerCharge(player, cost)
     local data = playerData(player)
@@ -4608,6 +4611,8 @@ function GodSystemServer.storageControllerCommit(player, cost, recovered, receip
     sendState(player)
 end
 
-require "GodSystem_StorageServer"
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    require "GodSystem_StorageServer"
+end
 
 return Commands

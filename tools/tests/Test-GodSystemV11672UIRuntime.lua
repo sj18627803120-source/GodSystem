@@ -1,5 +1,5 @@
 local luaRoot = assert(arg[1], "lua root is required")
-package.path = luaRoot .. "/client/?.lua;" .. package.path
+package.path = luaRoot .. "/shared/?.lua;" .. luaRoot .. "/client/?.lua;" .. package.path
 
 GodSystemStorage = {
     number = function(value, fallback) return tonumber(value) or fallback or 0 end,

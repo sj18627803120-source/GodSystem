@@ -1,10 +1,14 @@
 require "GodSystem/Runtime/PZClient"
 require "GodSystem/Platform/Companion/PZVisuals"
+require "GodSystem/UI/Facade"
+require "GodSystem/UI/ShellAdapter"
 require "GodSystem_UI"
 
 GodSystemModularClient = GodSystemModularClient or {
     instance = nil,
     visuals = nil,
+    facade = nil,
+    shell = nil,
 }
 
 function GodSystemModularClient.start()
@@ -32,12 +36,36 @@ function GodSystemModularClient.start()
         return false, code
     end
     GodSystemModularClient.instance = instance
+    local facade = GodSystemUIFacade.new({
+        gateway = instance.gateway,
+        version = "42.20.1.2",
+        onChanged = function()
+            if GodSystemUI.window and GodSystemUI.window.requestDeferredPopulate then
+                GodSystemUI.window:requestDeferredPopulate(1)
+            end
+        end,
+    })
+    local shell = GodSystemUIShellAdapter.new({
+        facade = facade,
+        target = GodSystem,
+    })
+    shell:install()
+    GodSystemModularClient.facade = facade
+    GodSystemModularClient.shell = shell
     GodSystemUI.bindRuntime(instance.runtime or instance)
     GodSystemUI.bindGateway(instance.gateway)
+    GodSystemUI.bindFacade(facade)
+    facade:refresh()
     return true
 end
 
 function GodSystemModularClient.stop(reason)
+    if GodSystemModularClient.shell then
+        GodSystemModularClient.shell:stop()
+    end
+    if GodSystemModularClient.facade then
+        GodSystemModularClient.facade:stop()
+    end
     if GodSystemModularClient.instance then
         GodSystemModularClient.instance:stop(reason)
     end
@@ -46,6 +74,8 @@ function GodSystemModularClient.stop(reason)
     end
     GodSystemModularClient.instance = nil
     GodSystemModularClient.visuals = nil
+    GodSystemModularClient.facade = nil
+    GodSystemModularClient.shell = nil
 end
 
 function GodSystemModularClient.receive(moduleName, command, packet)

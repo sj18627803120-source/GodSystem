@@ -1,4 +1,5 @@
 require "GodSystem_Config"
+require "GodSystem_RuntimeMode"
 require "GodSystem_Core"
 require "GodSystem_Protocol"
 require "GodSystem_Maintenance"
@@ -1239,6 +1240,7 @@ function GodSystemNetwork.onPlayerDeath(p)
     send((Protocol.C2S and Protocol.C2S.Death) or "death", {})
 end
 
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
 Events.OnServerCommand.Remove(OnServerCommand)
 Events.OnServerCommand.Add(OnServerCommand)
 if GodSystem then
@@ -1524,4 +1526,5 @@ end)
 
 function GodSystemNetwork.requestDiagnostics()
     return send((Protocol.C2S and Protocol.C2S.Diagnostics) or "diagnostics", {})
+end
 end

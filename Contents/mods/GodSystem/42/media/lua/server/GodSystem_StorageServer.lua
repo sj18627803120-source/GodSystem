@@ -1,4 +1,5 @@
 require "GodSystem_StorageManager"
+require "GodSystem_RuntimeMode"
 
 if not (isServer and isServer()) then return end
 
@@ -388,17 +389,19 @@ function Server.onLoadGridSquare(square)
     Manager.calibrateLoadedSquare(square)
 end
 
-Events.OnClientCommand.Remove(Server.onClientCommand)
-Events.OnClientCommand.Add(Server.onClientCommand)
-Events.OnTick.Remove(Server.onTick)
-Events.OnTick.Add(Server.onTick)
-if Events.OnInitGlobalModData then
-    Events.OnInitGlobalModData.Remove(Server.onInitGlobalModData)
-    Events.OnInitGlobalModData.Add(Server.onInitGlobalModData)
-end
-if Events.LoadGridsquare then
-    Events.LoadGridsquare.Remove(Server.onLoadGridSquare)
-    Events.LoadGridsquare.Add(Server.onLoadGridSquare)
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    Events.OnClientCommand.Remove(Server.onClientCommand)
+    Events.OnClientCommand.Add(Server.onClientCommand)
+    Events.OnTick.Remove(Server.onTick)
+    Events.OnTick.Add(Server.onTick)
+    if Events.OnInitGlobalModData then
+        Events.OnInitGlobalModData.Remove(Server.onInitGlobalModData)
+        Events.OnInitGlobalModData.Add(Server.onInitGlobalModData)
+    end
+    if Events.LoadGridsquare then
+        Events.LoadGridsquare.Remove(Server.onLoadGridSquare)
+        Events.LoadGridsquare.Add(Server.onLoadGridSquare)
+    end
 end
 
 return Server

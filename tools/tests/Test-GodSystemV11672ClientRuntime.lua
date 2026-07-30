@@ -1,5 +1,5 @@
 local luaRoot = assert(arg[1], "lua root is required")
-package.path = luaRoot .. "/client/?.lua;" .. package.path
+package.path = luaRoot .. "/shared/?.lua;" .. luaRoot .. "/client/?.lua;" .. package.path
 
 GodSystem = {
     notices = {},

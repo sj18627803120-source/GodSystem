@@ -1,5 +1,6 @@
 require "GodSystem_Protocol"
 require "GodSystem_Maintenance"
+require "GodSystem_RuntimeMode"
 
 if (isClient and isClient()) or (isServer and isServer()) then return end
 
@@ -139,7 +140,7 @@ function Bridge.onClientCommand(module, command, player, args)
     sendResult(player, true, "VehicleRepaired", { before.damaged, before.missing }, payload)
 end
 
-if Events.OnClientCommand then
+if GodSystemRuntimeMode.legacyBusinessEnabled() and Events.OnClientCommand then
     Events.OnClientCommand.Remove(Bridge.onClientCommand)
     Events.OnClientCommand.Add(Bridge.onClientCommand)
     trace("OnClientCommand handler registered")

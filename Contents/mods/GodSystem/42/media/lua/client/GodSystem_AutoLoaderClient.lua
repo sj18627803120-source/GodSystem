@@ -1,4 +1,5 @@
 require "GodSystem_Core"
+require "GodSystem_RuntimeMode"
 require "GodSystem_AutoLoader"
 require "TimedActions/ISGodSystemAutoLoaderDepositAction"
 require "TimedActions/ISGodSystemAutoLoaderPostReloadAction"
@@ -289,22 +290,24 @@ function Client.clear()
     Client.queuedSessions = {}
 end
 
-Client.installReloadHook()
-if Events.OnGameStart then
-    Events.OnGameStart.Remove(Client.installReloadHook)
-    Events.OnGameStart.Add(Client.installReloadHook)
-end
-if Events.OnServerCommand then
-    Events.OnServerCommand.Remove(Client.onServerCommand)
-    Events.OnServerCommand.Add(Client.onServerCommand)
-end
-if Events.OnDisconnect then
-    Events.OnDisconnect.Remove(Client.clear)
-    Events.OnDisconnect.Add(Client.clear)
-end
-if Events.OnMainMenuEnter then
-    Events.OnMainMenuEnter.Remove(Client.clear)
-    Events.OnMainMenuEnter.Add(Client.clear)
+if GodSystemRuntimeMode.legacyBusinessEnabled() then
+    Client.installReloadHook()
+    if Events.OnGameStart then
+        Events.OnGameStart.Remove(Client.installReloadHook)
+        Events.OnGameStart.Add(Client.installReloadHook)
+    end
+    if Events.OnServerCommand then
+        Events.OnServerCommand.Remove(Client.onServerCommand)
+        Events.OnServerCommand.Add(Client.onServerCommand)
+    end
+    if Events.OnDisconnect then
+        Events.OnDisconnect.Remove(Client.clear)
+        Events.OnDisconnect.Add(Client.clear)
+    end
+    if Events.OnMainMenuEnter then
+        Events.OnMainMenuEnter.Remove(Client.clear)
+        Events.OnMainMenuEnter.Add(Client.clear)
+    end
 end
 
 return Client
