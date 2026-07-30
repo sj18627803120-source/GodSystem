@@ -117,21 +117,6 @@ local function isDeadZombie(zombie)
     return okAlive and alive == false
 end
 
-local function isLegacyProjection(zombie)
-    if not zombie or not zombie.getModData then return false end
-    local ok, data = pcall(function() return zombie:getModData() end)
-    return ok and data and data.GodSystemProjection == true
-end
-
-local function removeLegacyProjection(zombie)
-    if not zombie then return end
-    pcall(function() zombie:setTarget(nil) end)
-    pcall(function() zombie:clearAggroList() end)
-    pcall(function() zombie:clearItemsToSpawnAtDeath() end)
-    pcall(function() zombie:removeFromWorld() end)
-    pcall(function() zombie:removeFromSquare() end)
-end
-
 local function removeLight()
     local runtime = Companion.runtime
     if runtime.light and runtime.lightCell then
@@ -431,7 +416,7 @@ local function ensureLight(player, data)
 end
 
 local function validZombie(zombie, player)
-    return zombie and not isLegacyProjection(zombie) and not isDeadZombie(zombie) and sameFloor(zombie, player)
+    return zombie and not isDeadZombie(zombie) and sameFloor(zombie, player)
 end
 
 chooseCombatStrafeTarget = function(player, data, now)
@@ -1075,16 +1060,6 @@ function Companion.getStateDetail()
     return localized("Companion_State", "State") .. ": " .. localized("Companion_Robot", "Blue pixel robot") .. " | " .. combat .. " | " .. follow .. " | " .. visible
 end
 
-function Companion.cleanupOrphans()
-    local cell = getCell and getCell() or nil
-    local zombies = cell and cell.getZombieList and cell:getZombieList() or nil
-    if not zombies then return end
-    for i = zombies:size() - 1, 0, -1 do
-        local zombie = zombies:get(i)
-        if isLegacyProjection(zombie) then removeLegacyProjection(zombie) end
-    end
-end
-
 function GodSystemCompanion.shutdown()
     clearTransientEffects(true)
     local runtime = Companion.runtime
@@ -1312,7 +1287,6 @@ end
 
 local function onGameStart()
     Companion.shutdown()
-    Companion.cleanupOrphans()
 end
 
 local function onPlayerDeath(player)

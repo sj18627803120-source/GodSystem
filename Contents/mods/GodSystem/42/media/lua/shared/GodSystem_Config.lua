@@ -99,7 +99,6 @@ GodSystemConfig.BankLoanZombieDebtPerZombie = 50
 GodSystemConfig.BankLoanZombieMaxCount = 100
 GodSystemConfig.BankLoanZombieMinDistance = 20
 GodSystemConfig.BankLoanZombieMaxDistance = 45
-GodSystemConfig.BatchRecycleCount = 5
 GodSystemConfig.AllowRecycleContainers = false
 GodSystemConfig.AutoRecyclerFullType = "GodSystem.SystemSpaceTerminal"
 GodSystemConfig.AutoRecyclerFullTypes = {
@@ -111,7 +110,6 @@ GodSystemConfig.TaskItemBlacklist = {
     ["GodSystem.StorageController"] = true,
 }
 GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
-GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
 GodSystemConfig.AutoRecyclerCapacityLevelKey = "GodSystemTerminalCapacityLevel"
 GodSystemConfig.AutoRecyclerReductionLevelKey = "GodSystemTerminalReductionLevel"
 GodSystemConfig.TerminalReliefFullType = "GodSystem.SystemTerminalRelief"
@@ -123,21 +121,8 @@ GodSystemConfig.TerminalReliefVersionKey = "GodSystemTerminalReliefVersion"
 GodSystemConfig.TerminalReliefUpgradeCost = 2000
 GodSystemConfig.TerminalReliefPerLevel = 5
 GodSystemConfig.TerminalReliefMaxOffset = 2000
-GodSystemConfig.AutoRecyclerCapacity = 10
-GodSystemConfig.AutoRecyclerWeightReduction = 50
-GodSystemConfig.AutoRecyclerIntervalHours = 0
 GodSystemConfig.WaistAutoRecycleUnlockCost = 100
 GodSystemConfig.WaistAutoRecycleIntervalHours = 1
-GodSystemConfig.AutoRecyclerLevels = {
-    { level = 1, capacity = 10, weightReduction = 50, upgradeCost = 0 },
-    { level = 2, capacity = 15, weightReduction = 55, upgradeCost = 60 },
-    { level = 3, capacity = 20, weightReduction = 60, upgradeCost = 120 },
-    { level = 4, capacity = 25, weightReduction = 65, upgradeCost = 220 },
-    { level = 5, capacity = 30, weightReduction = 70, upgradeCost = 350 },
-    { level = 6, capacity = 35, weightReduction = 80, upgradeCost = 550 },
-    { level = 7, capacity = 42, weightReduction = 90, upgradeCost = 800 },
-    { level = 8, capacity = 49, weightReduction = 99, upgradeCost = 1100 },
-}
 GodSystemConfig.TerminalCapacityLevels = {
     { level = 1, value = 10, upgradeCost = 0 },
     { level = 2, value = 15, upgradeCost = 60 },
@@ -237,8 +222,6 @@ GodSystemConfig.ModCategoryBuyPrices = {
     vehicle = 320,
     weapon = 600,
 }
-GodSystemConfig.UnknownModItemRecycleValue = 1
-GodSystemConfig.DefaultRecycleValueCap = 5
 GodSystemConfig.LooseAmmoRecycleDivisor = 10
 GodSystemConfig.LooseShellRecycleDivisor = 5
 GodSystemConfig.SmallUnitRecycleDivisor = 10

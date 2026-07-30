@@ -263,13 +263,6 @@ local function gsDrawText(ui, text, x, y, color, font)
     ui:drawText(tostring(text or ""), x, y, r, g, b, a, font or UIFont.Small)
 end
 
-local function gsDrawTextRight(ui, text, x, y, width, color, font)
-    text = tostring(text or "")
-    font = font or UIFont.Small
-    local textW = gsMeasureText(font, text)
-    gsDrawText(ui, text, x + math.max(0, (width or 0) - textW), y, color, font)
-end
-
 local function gsDrawProgressBar(ui, x, y, width, height, value, maxValue, fillColor)
     value = math.max(0, tonumber(value) or 0)
     maxValue = math.max(1, tonumber(maxValue) or 1)

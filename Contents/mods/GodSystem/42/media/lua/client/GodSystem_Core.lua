@@ -2602,29 +2602,6 @@ local function gsArrayFromList(list)
     return result
 end
 
-local function gsArrayFromMapValues(map)
-    local result = {}
-    if not map then
-        return result
-    end
-    if type(map) == "table" then
-        for _, value in pairs(map) do
-            table.insert(result, value)
-        end
-        return result
-    end
-    if map.values then
-        local values = map:values()
-        if values then
-            local list = gsArrayFromList(values)
-            for i = 1, #list do
-                table.insert(result, list[i])
-            end
-        end
-    end
-    return result
-end
-
 local MEDICAL_SERVICE_ORDER = {
     "checkInfection",
     "healInjuries",
@@ -2806,17 +2783,6 @@ local function gsMedicalClearInfection(body, targetPlayer)
         gsMedicalClearBodyPartInfection(parts[i])
     end
     return gsMedicalIsInfected(body) ~= true
-end
-
-local function gsMedicalFormatTemplate(template, args)
-    local text = tostring(template or "")
-    args = args or {}
-    for i = 1, #args do
-        text = string.gsub(text, "{" .. tostring(i) .. "}", function()
-            return tostring(args[i] or "")
-        end)
-    end
-    return text
 end
 
 local function gsMedicalHealPart(part)

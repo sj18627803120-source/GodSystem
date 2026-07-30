@@ -1198,32 +1198,6 @@ local function applyBankLoanBankruptcy(player, data, bank, loan, debt)
     return true, spawned
 end
 
-local function getBankLoanSummary(data)
-    local bank = getBank(data)
-    local now = nowHours()
-    local loan = bank.loan
-    local amounts = refreshBankLoanStatus(loan, now)
-    local penalty = bankLoanOverduePenalty(loan, now, amounts)
-    local total, available, growth, used = bankLoanCredit(data, bank)
-    local graceHours = math.max(1, floor(GodSystemConfig.BankLoanBankruptcyGraceHours, 240))
-    return {
-        creditTotal = total,
-        creditAvailable = available,
-        creditGrowth = growth,
-        creditUsed = used,
-        loan = loan,
-        dueNow = amounts.due + penalty,
-        dueBase = amounts.due,
-        overduePenalty = penalty,
-        payoff = amounts.due + penalty + amounts.futurePrincipal + math.floor(amounts.futureInterest * 0.5),
-        unpaidTotal = amounts.unpaidTotal + penalty,
-        nextDueHour = amounts.nextDueHour,
-        overdueStartHour = amounts.overdueStartHour,
-        freezeLeftHours = math.max(0, math.ceil((bank.loanFrozenUntilHour or 0) - now)),
-        bankruptcyInHours = amounts.overdueStartHour and math.max(0, math.ceil(graceHours - (now - amounts.overdueStartHour))) or nil,
-    }
-end
-
 local function updateBankLoanForData(player, data)
     local bank = getBank(data)
     local loan = bank.loan
@@ -2017,31 +1991,6 @@ local function groupLotteryItems(items)
     for i = 1, #order do result[#result + 1] = grouped[order[i]] end
     table.sort(result, function(a, b) return tostring(a.label or a.fullType) < tostring(b.label or b.fullType) end)
     return result
-end
-
-local function autoRecyclerLevels()
-    return GodSystemTerminalUpgrades.getLevels("capacity")
-end
-
-local function autoRecyclerMaxLevel()
-    return math.max(1, #autoRecyclerLevels())
-end
-
-local function autoRecyclerLevelData(level)
-    local capacity = GodSystemConfig.TerminalCapacityLevels or {}
-    local reduction = GodSystemConfig.TerminalReductionLevels or {}
-    level = math.max(1, math.min(floor(level, 1), math.max(1, #capacity)))
-    local reductionLevel = math.max(1, math.min(level, math.max(1, #reduction)))
-    return {
-        level = level,
-        capacity = (capacity[level] and capacity[level].value) or GodSystemConfig.AutoRecyclerCapacity or 10,
-        weightReduction = (reduction[reductionLevel] and reduction[reductionLevel].value) or GodSystemConfig.AutoRecyclerWeightReduction or 50,
-        upgradeCost = (capacity[level] and capacity[level].upgradeCost) or 0,
-    }
-end
-
-local function autoRecyclerLevel(data)
-    return GodSystemTerminalUpgrades.getLevel(data, "capacity")
 end
 
 local function autoRecyclerDisplayName(level)
@@ -4573,51 +4522,6 @@ local function sendStateSoon(player, data)
     if nowHour - (data.lastServerPushHour or -999) < 0.02 then return end
     data.lastServerPushHour = nowHour
     sendState(player)
-end
-
-local function hasWaistRecycleItems(player, data)
-    local inv = autoRecyclerInventory(data, player)
-    if not inv or not inv.getItems then return false end
-    local items = inv:getItems()
-    if not items or not items.size then return false end
-    for i = 0, items:size() - 1 do
-        if canRecycleItem(items:get(i), true) then return true end
-    end
-    return false
-end
-
-local function updateKillRewards(player)
-    if player and player.getZombieKills then
-        Commands.syncKills(nil, nil, player, { clientKills = player:getZombieKills() })
-    end
-end
-
-local function updateTaskTimeouts(player)
-    local data = playerData(player)
-    local changed = false
-    for i = 1, #(data.tasks or {}) do
-        local task = data.tasks[i]
-        if task.status == "active" and task.deadline and nowHours() > task.deadline and taskProgress(data, player, task) < (task.target or 1) then
-            failTask(player, data, task, "TaskFailed")
-            changed = true
-        end
-    end
-    if changed then sendStateSoon(player, data) end
-end
-
-local function updateWaistAutoRecycle(player)
-    local data = playerData(player)
-    if data.waistAutoRecycleUnlocked ~= true or data.waistAutoRecycleEnabled ~= true then return end
-    local nowHour = math.floor(nowHours())
-    local interval = math.max(1, floor(GodSystemConfig.WaistAutoRecycleIntervalHours, 1))
-    if nowHour - (data.lastWaistAutoRecycleHour or nowHour) < interval then return end
-    data.lastWaistAutoRecycleHour = nowHour
-    if not hasWaistRecycleItems(player, data) then return end
-    if data.waistRecycleUnlockMode == true then
-        Commands.recycleWaistAndUnlock(nil, nil, player, { selected = nil })
-    else
-        Commands.recycleWaist(nil, nil, player, { selected = nil })
-    end
 end
 
 local function updateHomeSafeZone(player)
