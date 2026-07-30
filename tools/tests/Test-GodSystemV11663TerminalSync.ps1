@@ -55,8 +55,8 @@ Require-Text $network 'terminalSync\s*=\s*true' 'Terminal page sync must reuse s
 $modeButtonBody = [regex]::Match($ui, '(?s)function\s+GodSystemWindow:onModeButton\(.*?\)(?<body>.*?)\nend').Groups['body'].Value
 $openModeBody = [regex]::Match($ui, '(?s)function\s+GodSystemUI\.openMode\(.*?\)(?<body>.*?)\nend').Groups['body'].Value
 $populateBody = [regex]::Match($ui, '(?s)function\s+GodSystemWindow:populateList\(.*?\)(?<body>.*?)\nend').Groups['body'].Value
-Require-Text $modeButtonBody 'requestTerminalState' 'Clicking into the terminal page must request one authoritative sync'
-Require-Text $openModeBody 'requestTerminalState' 'Programmatically opening the terminal page must request one authoritative sync'
-Reject-Text $populateBody 'requestTerminalState' 'List redraws must not create terminal synchronization requests'
+Require-Text $modeButtonBody 'modularFacade:refresh\(\s*\{\s*"terminal\.status"\s*\}\s*\)' 'Clicking into the terminal page must request one authoritative modular status'
+Require-Text $openModeBody 'modularFacade:refresh\(\s*\{\s*"terminal\.status"\s*\}\s*\)' 'Programmatically opening the terminal page must request one authoritative modular status'
+Reject-Text $populateBody 'terminal\.status' 'List redraws must not create terminal synchronization requests'
 
 Write-Output 'Test-GodSystemV11663TerminalSync passed'

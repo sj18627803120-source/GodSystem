@@ -7,7 +7,10 @@ package.path = table.concat({
 
 local Mode = require "GodSystem_RuntimeMode"
 assert(Mode.targetVersion == "42.20.1.2", "runtime mode target")
-assert(Mode.legacyBusinessEnabled(), "legacy runtime should remain active during staged migration")
+assert(Mode.modularEnabled == true,
+    "modular runtime should be active for the release candidate")
+assert(not Mode.legacyBusinessEnabled(),
+    "legacy business event handlers must remain disabled")
 Mode.enableModular()
 assert(Mode.modularEnabled and not Mode.legacyBusinessEnabled(),
     "modular runtime activation")

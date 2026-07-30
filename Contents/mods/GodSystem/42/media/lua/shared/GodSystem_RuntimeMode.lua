@@ -1,6 +1,6 @@
 GodSystemRuntimeMode = GodSystemRuntimeMode or {
     targetVersion = "42.20.1.2",
-    modularEnabled = false,
+    modularEnabled = true,
 }
 
 function GodSystemRuntimeMode.enableModular()

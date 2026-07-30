@@ -92,6 +92,11 @@ local facade = Facade.new({
     readModel = model,
     onChanged = function() changes = changes + 1 end,
 })
+local mpQueries = Facade.defaultQueries({ includeCompanion = false })
+for index = 1, #mpQueries do
+    assert(mpQueries[index] ~= "companion.state",
+        "multiplayer default queries included the SP-only companion")
+end
 facade:refresh()
 local data = facade:data()
 assert(data.started and data.ui.windowX == 10 and #data.history == 1,
@@ -120,6 +125,14 @@ assert(calls[before + 2].action == "wallet.balance"
     and calls[before + 4].action == "system.history",
     "bank mutation refresh routes")
 assert(changes >= #calls, "change observer")
+model:apply("shop.lottery", {
+    ok = true,
+    code = "lotteryCompleted",
+    moduleId = "feature.shop",
+    data = { count = 2, items = { { fullType = "Base.Bandage" } } },
+})
+assert(model:get().modular.lotteryResult.count == 2,
+    "lottery result projection")
 
 data.ui.windowX = 99
 assert(model:snapshot().ui.windowX == 99,

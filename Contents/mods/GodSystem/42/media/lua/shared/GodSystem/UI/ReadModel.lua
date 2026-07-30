@@ -105,6 +105,9 @@ function ReadModel.new(options)
         instance.value.unlockedShopItems = unlocked
         instance.value.modular.shopCatalog = copy(data.products or {})
     end
+    handlers["shop.lottery"] = function(data)
+        instance.value.modular.lotteryResult = copy(data)
+    end
     handlers["recycle.snapshot"] = function(data)
         merge(instance.value, data)
     end

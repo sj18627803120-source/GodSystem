@@ -85,6 +85,18 @@ local REFRESH_AFTER = {
     ["admin.clearItemOverride"] = { "admin.snapshot" },
 }
 
+function Facade.defaultQueries(options)
+    options = type(options) == "table" and options or {}
+    local result = {}
+    for index = 1, #DEFAULT_QUERIES do
+        local action = DEFAULT_QUERIES[index]
+        if options.includeCompanion ~= false or action ~= "companion.state" then
+            result[#result + 1] = action
+        end
+    end
+    return result
+end
+
 function Facade.new(options)
     options = type(options) == "table" and options or {}
     local gateway = assert(options.gateway, "UI facade gateway required")

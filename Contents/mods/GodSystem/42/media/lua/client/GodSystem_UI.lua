@@ -381,17 +381,15 @@ local function gsFormatCompactNumber(value)
 end
 
 local function gsIsMultiplayer()
-    return GodSystemNetwork ~= nil and GodSystemNetwork.isMultiplayer == true
+    return type(isClient) == "function" and isClient() == true
 end
 
 local function gsHasServerState()
     if not gsIsMultiplayer() then
         return true
     end
-    if GodSystemNetwork and GodSystemNetwork.isStateReady then
-        return GodSystemNetwork.isStateReady() == true
-    end
-    return GodSystemNetwork and GodSystemNetwork.hasServerState == true
+    local data = GodSystem.getData and GodSystem.getData() or {}
+    return type(data.modular) == "table" and data.modular.ready == true
 end
 
 GodSystemFloatingButton = ISPanel:derive("GodSystemFloatingButton")
@@ -770,8 +768,8 @@ function GodSystemShortcutWindow:finishShortcutCommand(sent)
     if window and window.finishMultiplayerCommand then
         return window:finishMultiplayerCommand(sent)
     end
-    if gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestState then
-        GodSystemNetwork.requestState(sent == false)
+    if gsIsMultiplayer() and GodSystemUI and GodSystemUI.facade then
+        GodSystemUI.facade:refresh()
     end
     return sent ~= false
 end
@@ -1017,7 +1015,6 @@ function GodSystemShopHiddenWindow:new(x, y, width, height, owner)
     o.searchText = ""
     o.selectedVariantKey = nil
     o.waitingForServer = false
-    o.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or 0
     o.resizable = false
     return o
 end
@@ -1291,7 +1288,6 @@ end
 
 function GodSystemShopHiddenWindow:onServerStateChanged()
     self.waitingForServer = false
-    self.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or self.lastStateSerial
     self:populateItems()
 end
 
@@ -2159,8 +2155,8 @@ function GodSystemWindow:onModeButton(button)
     end
     self:captureSelection()
     self.mode = button.internal
-    if self.mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
-        GodSystemNetwork.requestTerminalState()
+    if self.mode == "waist" and self.modularFacade then
+        self.modularFacade:refresh({ "terminal.status" })
     end
     self:updateModeButtonStyles()
     self:populateList()
@@ -2623,7 +2619,6 @@ function GodSystemWindow:finishMultiplayerCommand(sent)
     end
     if sent == false then
         self.waitingForServerState = false
-        GodSystemNetwork.requestState(true)
         self:populateList()
         return false
     end
@@ -2633,16 +2628,13 @@ function GodSystemWindow:finishMultiplayerCommand(sent)
         local control = self:getActionControl(ids[i])
         if control then control.enable = false end
     end
-    if GodSystemNetwork and GodSystemNetwork.requestState then
-        GodSystemNetwork.requestState(false)
-    end
     return true
 end
 
 function GodSystemWindow:requestServerRefresh()
-    if gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestState then
+    if gsIsMultiplayer() and self.modularFacade then
         self.waitingForServerState = true
-        GodSystemNetwork.requestState(true)
+        self.modularFacade:refresh()
         return true
     end
     return false
@@ -3831,9 +3823,6 @@ function GodSystemWindow:populateTasks()
     local data = GodSystem.getData()
     gsSetButtonTitle(self.fourthButton, GodSystem.text(data.autoTaskClaimEnabled and "Btn_TaskAutoClaimOn" or "Btn_TaskAutoClaimOff", data.autoTaskClaimEnabled and "Auto claim: ON" or "Auto claim: OFF"))
     self.fourthButton:setVisible(true)
-    if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer) then
-        GodSystem.generateDailyTasks(false)
-    end
     local tasks = data.tasks or {}
     local openCount = 0
     local activeCount = 0
@@ -4123,7 +4112,7 @@ function GodSystemWindow:populateDiagnostics()
 
     local runtime = self.modularRuntime
     local simple, advanced, modules = server, server, server.modules or {}
-    if runtime then
+    if runtime and runtime.registry then
         local health = runtime:health()
         modules = health.modules or {}
         simple = runtime.diagnostics:simpleReport()
@@ -4282,6 +4271,7 @@ end
 
 function GodSystemWindow:populateList()
     self:resetActionButtonEnabledState()
+    self.waitingForServerState = false
     if self.mode == "recycle" then
         self.mode = "shop"
     end
@@ -4296,8 +4286,8 @@ function GodSystemWindow:populateList()
 
     if self:needsServerState() then
         self:addSyncPlaceholder()
-        if GodSystemNetwork and GodSystemNetwork.requestState then
-            GodSystemNetwork.requestState(false)
+        if self.modularFacade then
+            self.modularFacade:refresh()
         end
         self:setActionBar({})
         self:updateDetail()
@@ -4761,15 +4751,13 @@ function GodSystemWindow:showLotteryResult(result)
 end
 
 function GodSystemWindow:consumeLotteryResult()
-    if not gsIsMultiplayer() or not GodSystemNetwork then
-        return
-    end
-    local result = GodSystemNetwork.pendingLotteryResult or GodSystemNetwork.pendingShopLotteryResult
+    local data = GodSystem.getData and GodSystem.getData() or {}
+    local modular = type(data.modular) == "table" and data.modular or {}
+    local result = modular.lotteryResult
     if not result then
         return
     end
-    GodSystemNetwork.pendingLotteryResult = nil
-    GodSystemNetwork.pendingShopLotteryResult = nil
+    modular.lotteryResult = nil
     self:showLotteryResult(result)
 end
 
@@ -5451,8 +5439,9 @@ function GodSystemWindow:onSecondaryAction()
         return
     end
     if self.mode == "admin" then
-        if gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.send then
-            self:finishMultiplayerCommand(GodSystemNetwork.send("adminConfigGet", {}))
+        if self.modularFacade then
+            self.modularFacade:refresh({ "admin.snapshot" })
+            self:requestDeferredPopulate(1)
         else
             self:populateList()
         end
@@ -5764,8 +5753,8 @@ function GodSystemUI.toggleWindow()
         return
     end
     local data = GodSystem.getData()
-    if GodSystemNetwork and GodSystemNetwork.requestState then
-        GodSystemNetwork.requestState(true)
+    if GodSystemUI.facade then
+        GodSystemUI.facade:refresh()
     end
     local win = (gsTheme().window or {})
     local baseW = win.baseWidth or win.fixedWidth or win.defaultWidth or 1240
@@ -5785,6 +5774,8 @@ function GodSystemUI.toggleWindow()
     y = gsClamp(y, 0, math.max(0, screenH - h))
     local window = GodSystemWindow:new(x, y, w, h)
     window.modularRuntime = GodSystemUI.runtime
+    window.modularGateway = GodSystemUI.gateway
+    window.modularFacade = GodSystemUI.facade
     window.uiScale = scale
     window:initialise()
     window:setScaledSize(scale)
@@ -5806,8 +5797,8 @@ function GodSystemUI.openMode(mode)
     end
     window:captureSelection()
     window.mode = mode
-    if mode == "waist" and gsIsMultiplayer() and GodSystemNetwork and GodSystemNetwork.requestTerminalState then
-        GodSystemNetwork.requestTerminalState()
+    if mode == "waist" and window.modularFacade then
+        window.modularFacade:refresh({ "terminal.status" })
     end
     window:updateModeButtonStyles()
     window:populateList()

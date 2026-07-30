@@ -95,7 +95,9 @@ function GodSystemModularClient.start()
     GodSystemUI.bindRuntime(instance.runtime or instance)
     GodSystemUI.bindGateway(instance.gateway)
     GodSystemUI.bindFacade(facade)
-    facade:refresh()
+    facade:refresh(GodSystemUIFacade.defaultQueries({
+        includeCompanion = not multiplayer,
+    }))
     return true
 end
 
