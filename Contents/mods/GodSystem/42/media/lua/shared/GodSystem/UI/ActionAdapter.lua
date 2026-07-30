@@ -14,6 +14,28 @@ local function productId(product)
     return value ~= "" and value or nil
 end
 
+local function itemId(item)
+    if not item then return nil end
+    if type(item) == "string" or type(item) == "number" then
+        local value = tostring(item)
+        return value ~= "" and value or nil
+    end
+    if type(item.getID) == "function" then
+        local value = item:getID()
+        return value ~= nil and tostring(value) or nil
+    end
+    local value = item.id
+    return value ~= nil and tostring(value) or nil
+end
+
+local function appendItemIds(targetIds, items, limit)
+    limit = math.max(0, math.floor(tonumber(limit) or #(items or {})))
+    for index = 1, math.min(limit, #(items or {})) do
+        local value = itemId(items[index])
+        if value then targetIds[#targetIds + 1] = value end
+    end
+end
+
 function ActionAdapter.new(options)
     options = type(options) == "table" and options or {}
     local facade = assert(options.facade, "UI action facade required")
@@ -32,6 +54,31 @@ function ActionAdapter.new(options)
         local result = type(primary) == "table" and primary or secondary
         instance.lastResult = result
         return type(result) == "table" and result.ok == true
+    end
+
+    local function recycleSelection(mode, itemIds, allowDestroyContents,
+            containerContentSignatures, clientSkipped)
+        return request("recycle.execute", {
+            mode = mode,
+            itemIds = itemIds,
+            allowDestroyContents = allowDestroyContents == true,
+            containerContentSignatures = containerContentSignatures,
+            clientSkipped = clientSkipped,
+        })
+    end
+
+    local function waistSelection(selectedFullTypes, mode)
+        if type(target.getWaistSpaceRecycleGroups) ~= "function" then return false end
+        local groups, order, skipped = target.getWaistSpaceRecycleGroups()
+        local ids = {}
+        for index = 1, #(order or {}) do
+            local fullType = order[index]
+            if selectedFullTypes == nil or selectedFullTypes[fullType] == true then
+                local group = groups and groups[fullType]
+                appendItemIds(ids, group and group.items or {})
+            end
+        end
+        return recycleSelection(mode, ids, false, nil, skipped)
     end
 
     local replacements = {
@@ -158,6 +205,57 @@ function ActionAdapter.new(options)
         end,
         deleteShopItem = function(variantKey)
             return request("shop.delete", { variantKey = variantKey })
+        end,
+        recycleSelectedItems = function(mode, itemIds, allowDestroyContents,
+                containerContentSignatures, clientSkipped)
+            return recycleSelection(mode, itemIds, allowDestroyContents,
+                containerContentSignatures, clientSkipped)
+        end,
+        recycleInventoryItems = function(fullType, count)
+            if type(target.getInventoryRecycleGroups) ~= "function" then
+                return false
+            end
+            local groups = target.getInventoryRecycleGroups()
+            local group = groups and groups[fullType]
+            local ids = {}
+            appendItemIds(ids, group and group.itemIds or {}, count)
+            local data = facade:data()
+            local mode = data and data.recycleUnlockMode == false
+                and "recycle" or "recycleAndList"
+            return recycleSelection(mode, ids)
+        end,
+        recycleWaistSpaceItems = function(selectedFullTypes)
+            return waistSelection(selectedFullTypes, "recycle")
+        end,
+        recycleWaistSpaceItemsAndUnlock = function(selectedFullTypes)
+            return waistSelection(selectedFullTypes, "recycleAndList")
+        end,
+        recycleWaistSpaceItemsByMode = function(selectedFullTypes)
+            local data = facade:data()
+            local mode = data and data.waistRecycleUnlockMode == true
+                and "recycleAndList" or "recycle"
+            return waistSelection(selectedFullTypes, mode)
+        end,
+        toggleRecycleUnlockMode = function()
+            local data = facade:data()
+            return request("recycle.preference", {
+                key = "recycleUnlockMode",
+                value = not (data and data.recycleUnlockMode ~= false),
+            })
+        end,
+        toggleWaistRecycleUnlockMode = function()
+            local data = facade:data()
+            return request("recycle.preference", {
+                key = "waistRecycleUnlockMode",
+                value = not (data and data.waistRecycleUnlockMode == true),
+            })
+        end,
+        toggleWaistAutoRecycle = function()
+            local data = facade:data()
+            return request("recycle.preference", {
+                key = "waistAutoRecycleEnabled",
+                value = not (data and data.waistAutoRecycleEnabled == true),
+            })
         end,
         saveAdminSettings = function(settings)
             return request("admin.save", { settings = settings })

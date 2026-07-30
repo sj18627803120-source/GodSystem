@@ -71,6 +71,32 @@ function Support.childContainer(item)
     return Support.safeCall(item, "getInventory", nil)
 end
 
+function Support.containerSignature(item)
+    local tokens, visited = {}, {}
+    local function collect(container, depth)
+        if not container or depth > 32 or visited[container] then return end
+        visited[container] = true
+        local rows = Support.itemsArray(container)
+        for index = 1, #rows do
+            local child = rows[index]
+            tokens[#tokens + 1] = tostring(Support.itemId(child) or "")
+                .. ":" .. tostring(Support.fullType(child) or "")
+            collect(Support.childContainer(child), depth + 1)
+        end
+    end
+    collect(Support.childContainer(item), 1)
+    table.sort(tokens)
+    local hash = 7
+    for index = 1, #tokens do
+        local token = tokens[index]
+        for character = 1, #token do
+            hash = (hash * 131 + string.byte(token, character)) % 2147483647
+        end
+        hash = (hash * 131 + 10) % 2147483647
+    end
+    return tostring(#tokens) .. ":" .. tostring(hash)
+end
+
 function Support.contains(container, item)
     local wantedId = Support.itemId(item)
     if not wantedId then return false end

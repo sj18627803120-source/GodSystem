@@ -39,6 +39,9 @@ local REFRESH_AFTER = {
     ["recycle.execute"] = {
         "recycle.snapshot", "shop.catalog", "wallet.balance", "system.history",
     },
+    ["recycle.preference"] = {
+        "recycle.snapshot", "wallet.balance", "system.history",
+    },
     ["upgrades.purchase"] = {
         "upgrades.summary", "wallet.balance", "tasks.snapshot", "system.history",
     },

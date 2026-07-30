@@ -20,7 +20,23 @@ local facade = {
 }
 local originalBank = function() return "old-bank" end
 local originalVisible = function() return "old-visible" end
-local target = { performBankAction = originalBank }
+local target = {
+    performBankAction = originalBank,
+    getInventoryRecycleGroups = function()
+        return {
+            ["Base.Scrap"] = {
+                itemIds = { "i1", "i2", "i3" },
+            },
+        }
+    end,
+    getWaistSpaceRecycleGroups = function()
+        return {
+            ["Base.Plank"] = {
+                items = { { id = "w1" }, { id = "w2" } },
+            },
+        }, { "Base.Plank" }, 1
+    end,
+}
 local companion = { toggleVisible = originalVisible }
 local adapter = ActionAdapter.new({
     facade = facade,
@@ -50,6 +66,27 @@ assert(calls[#calls].action == "shop.purchase"
     and calls[#calls].args.quantity == 3, "shop product mapping")
 assert(companion.toggleVisible(), "companion visibility accepted")
 assert(calls[#calls].action == "companion.visible", "companion visibility mapping")
+assert(target.recycleInventoryItems("Base.Scrap", 2), "inventory recycle accepted")
+assert(calls[#calls].action == "recycle.execute"
+    and calls[#calls].args.mode == "recycleAndList"
+    and #calls[#calls].args.itemIds == 2
+    and calls[#calls].args.itemIds[2] == "i2",
+    "inventory recycle exact item mapping")
+assert(target.recycleWaistSpaceItems(nil), "terminal recycle accepted")
+assert(calls[#calls].args.mode == "recycle"
+    and #calls[#calls].args.itemIds == 2
+    and calls[#calls].args.clientSkipped == 1,
+    "terminal recycle exact item mapping")
+assert(target.recycleSelectedItems("recycle", { "c1" }, true,
+    { c1 = "1:7" }, 2), "context recycle accepted")
+assert(calls[#calls].args.allowDestroyContents == true
+    and calls[#calls].args.containerContentSignatures.c1 == "1:7",
+    "context recycle confirmation mapping")
+assert(target.toggleWaistAutoRecycle(), "auto recycle toggle accepted")
+assert(calls[#calls].action == "recycle.preference"
+    and calls[#calls].args.key == "waistAutoRecycleEnabled"
+    and calls[#calls].args.value == true,
+    "auto recycle preference mapping")
 
 assert(adapter:stop(), "action adapter stop")
 assert(target.performBankAction() == "old-bank", "bank action restored")

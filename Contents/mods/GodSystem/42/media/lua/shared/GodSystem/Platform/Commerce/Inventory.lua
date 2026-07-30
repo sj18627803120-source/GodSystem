@@ -77,6 +77,8 @@ local function itemView(item, container)
         broken = Support.safeCall(item, "isBroken", false) == true,
         usedDelta = tonumber(usedDelta),
         hasInventory = child ~= nil,
+        contentCount = child and #Support.itemsArray(child) or 0,
+        contentSignature = child and Support.containerSignature(item) or nil,
         key = isKey(item),
         protected = type(modData) == "table" and modData.GodSystemProtected == true,
         _item = item,

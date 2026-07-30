@@ -104,6 +104,15 @@ function ReadModel.new(options)
     handlers["recycle.snapshot"] = function(data)
         merge(instance.value, data)
     end
+    handlers["recycle.preference"] = function(data)
+        if tostring(data.key or "") ~= "" then
+            instance.value[data.key] = data.value
+        end
+        if data.autoRecycleUnlocked ~= nil then
+            instance.value.waistAutoRecycleUnlocked =
+                data.autoRecycleUnlocked == true
+        end
+    end
     handlers["upgrades.summary"] = function(data)
         instance.value.upgrades.carryCapacityLevel =
             math.max(0, math.floor(tonumber(data.carryCapacityLevel) or 0))

@@ -579,6 +579,11 @@ local function recycleFixture(environment)
             b = { id = "b", fullType = "Base.KeyRing", label = "Protected", value = 20, protected = true },
             c = { id = "c", fullType = "ThirdParty.Alloy", label = "Alloy", value = 8, sellPrice = 4, buyPrice = 10 },
             d = { id = "d", fullType = "Base.Scrap", label = "Scrap 2", value = 5, sellPrice = 2, buyPrice = 6 },
+            e = {
+                id = "e", fullType = "Base.Bag", label = "Bag", value = 4,
+                sellPrice = 2, buyPrice = 8, hasInventory = true,
+                contentCount = 1, contentSignature = "1:1234",
+            },
         },
     }
     local notifications = newNotifications()
@@ -594,6 +599,9 @@ local function recycleFixture(environment)
                 return total, { recycleLimitUsed = total }
             end,
             listingPrice = function(item) return 7, item.buyPrice end,
+            getAutoRecycleUnlockCost = function() return 30 end,
+            getAutoRecycleIntervalHours = function() return 1 end,
+            isAutoRecycleEnabled = function() return true end,
         },
         ["recycle.state"] = {
             load = function() return fixture.data end,
@@ -737,6 +745,61 @@ do
     assert(not result.ok and result.code == "listingFailed", "listing failure code was lost")
     assert(not f.removed.a and not f.removed.c and f.balance == 100 and
         next(f.listings) == nil, "recycle-and-list rollback was incomplete")
+end
+
+do
+    local f = recycleFixture("container-confirmation")
+    local rejected = f.instance.public.execute({
+        actor = f.actor,
+        mode = "recycle",
+        itemIds = { "e" },
+        operationId = "container-rejected",
+    })
+    assert(not rejected.ok and rejected.code == "containerContentsChanged",
+        "non-empty container requires an exact confirmation")
+    local accepted = f.instance.public.execute({
+        actor = f.actor,
+        mode = "recycle",
+        itemIds = { "e" },
+        allowDestroyContents = true,
+        containerContentSignatures = { e = "1:1234" },
+        operationId = "container-accepted",
+    })
+    assert(accepted.ok and f.removed.e and f.balance == 104,
+        "confirmed non-empty container recycle failed")
+end
+
+do
+    local f = recycleFixture("preferences")
+    local unlocked = f.instance.public.setPreference({
+        actor = f.actor,
+        key = "waistAutoRecycleEnabled",
+        value = true,
+        operationId = "auto-unlock",
+    })
+    assert(unlocked.ok and unlocked.data.cost == 30
+        and unlocked.data.autoRecycleUnlocked == true,
+        "auto recycle unlock preference failed")
+    assert(f.balance == 70 and f.data.waistAutoRecycleUnlocked == true
+        and f.data.waistAutoRecycleEnabled == true
+        and f.metrics.spentPoints == 30,
+        "auto recycle unlock settlement is wrong")
+    local replay = f.instance.public.setPreference({
+        actor = f.actor,
+        key = "waistAutoRecycleEnabled",
+        value = true,
+        operationId = "auto-unlock",
+    })
+    assert(replay == unlocked and f.balance == 70,
+        "auto recycle unlock was not idempotent")
+    local mode = f.instance.public.setPreference({
+        actor = f.actor,
+        key = "recycleUnlockMode",
+        value = false,
+        operationId = "recycle-mode",
+    })
+    assert(mode.ok and f.data.recycleUnlockMode == false,
+        "recycle mode preference failed")
 end
 
 print("Test-GodSystemV422012TaskShopRecycleModuleRuntime passed")

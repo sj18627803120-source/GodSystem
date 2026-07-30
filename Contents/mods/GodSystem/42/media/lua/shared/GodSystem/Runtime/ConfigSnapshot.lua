@@ -245,6 +245,9 @@ function ConfigSnapshot.build(options)
         listingCostRatio = configured(settings, source, "AutoShopListOnlyCostRatio"),
         buyMultiplier = source.AutoShopBuyMultiplier,
         sellPriceMultiplier = settings.RecycleSellPriceMultiplier,
+        autoRecycleEnabled = snapshot.features.EnableWaistAutoRecycle,
+        autoRecycleUnlockCost = source.WaistAutoRecycleUnlockCost,
+        autoRecycleIntervalHours = source.WaistAutoRecycleIntervalHours,
         itemOverrides = copy(admin.itemOverrides),
     }
 

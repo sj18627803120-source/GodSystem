@@ -83,7 +83,11 @@ function Descriptor.create(dependencies, context)
     dependencies = dependencies or {}
     context = context or {}
     local moduleId = tostring(context.moduleId or Descriptor.id)
-    local config = requiredPort(dependencies, "recycle.config", { "recycleValue", "payout", "listingPrice" })
+    local config = requiredPort(dependencies, "recycle.config", {
+        "recycleValue", "payout", "listingPrice",
+        "getAutoRecycleUnlockCost", "getAutoRecycleIntervalHours",
+        "isAutoRecycleEnabled",
+    })
     local state = requiredPort(dependencies, "recycle.state", { "load", "save" })
     local inventory = requiredPort(dependencies, "recycle.inventory", { "resolve", "remove", "restore" })
     local wallet = requiredPort(dependencies, "recycle.wallet",
@@ -129,6 +133,26 @@ function Descriptor.create(dependencies, context)
             return makeResult(false, "operationOutcomeUnknown", { original = result }, request)
         end
         return result
+    end
+
+    local function beginPreference(request, key, value)
+        local id = operationId(request)
+        if not id then
+            return nil, makeResult(false, "operationIdRequired", nil, request)
+        end
+        local called, status, cached = callPort(
+            operations.begin, moduleId, id,
+            "preference|" .. tostring(key) .. "|" .. tostring(value), request)
+        if not called then
+            return nil, makeResult(false, "portError",
+                { stage = "operationBegin" }, request)
+        end
+        if status == "replay" then return nil, cached end
+        if status ~= "new" then
+            return nil, makeResult(false,
+                cached or "operationPending", nil, request)
+        end
+        return id
     end
 
     local function load(actor, request)
@@ -199,6 +223,23 @@ function Descriptor.create(dependencies, context)
                 end
                 item.id = tostring(item.id or itemId)
                 item.fullType = tostring(item.fullType or "")
+                if mode ~= "listOnly"
+                    and (math.max(0, integer(item.contentCount, 0)) > 0
+                        or (type(request.containerContentSignatures) == "table"
+                            and request.containerContentSignatures[item.id] ~= nil))
+                then
+                    local signatures = type(request.containerContentSignatures) == "table"
+                        and request.containerContentSignatures or {}
+                    local expected = signatures[item.id]
+                    if request.allowDestroyContents ~= true
+                        or tostring(expected or "") == ""
+                        or tostring(item.contentSignature or "") ~= tostring(expected)
+                    then
+                        return finish(id, makeResult(false,
+                            "containerContentsChanged",
+                            { itemId = item.id }, request), request)
+                    end
+                end
                 local eligibleCall, eligible, eligibleCode = callPort(
                     eligibility.canRecycle, item, mode, request)
                 if not eligibleCall then
@@ -432,6 +473,88 @@ function Descriptor.create(dependencies, context)
         }, request), request)
     end
 
+    local function setPreference(request)
+        request = type(request) == "table" and request or {}
+        if not instance.started then
+            return makeResult(false, "moduleStopped", nil, request)
+        end
+        local key = tostring(request.key or "")
+        local allowed = key == "recycleUnlockMode"
+            or key == "waistRecycleUnlockMode"
+            or key == "waistAutoRecycleEnabled"
+        if not allowed then
+            return makeResult(false, "preferenceKeyInvalid", nil, request)
+        end
+        local value = request.value == true
+        local id, replay = beginPreference(request, key, value)
+        if replay then return replay end
+        local data, failure = load(request.actor, request)
+        if not data then return finish(id, failure, request) end
+        local before = copy(data)
+        local paymentReceipt
+        local cost = 0
+        if key == "waistAutoRecycleEnabled" then
+            local enabledCalled, enabled = callPort(config.isAutoRecycleEnabled, request)
+            if not enabledCalled or enabled ~= true then
+                return finish(id, makeResult(false,
+                    enabledCalled and "autoRecycleDisabled" or "portError",
+                    nil, request), request)
+            end
+            if value and data.waistAutoRecycleUnlocked ~= true then
+                local costCalled, quoted = callPort(
+                    config.getAutoRecycleUnlockCost, request)
+                cost = costCalled and math.max(0, integer(quoted, 0)) or -1
+                if cost < 0 then
+                    return finish(id, makeResult(false,
+                        "quoteInvalid", nil, request), request)
+                end
+                if cost > 0 then
+                    local chargeCalled, paid, receiptOrCode = callPort(
+                        wallet.charge, request.actor, cost, request)
+                    if not chargeCalled or paid ~= true or receiptOrCode == nil then
+                        return finish(id, makeResult(false,
+                            chargeCalled and (receiptOrCode or "balanceInsufficient")
+                                or "portError", nil, request), request)
+                    end
+                    paymentReceipt = receiptOrCode
+                end
+                data.waistAutoRecycleUnlocked = true
+            end
+        end
+        data[key] = value
+        local saved, saveCode = save(request.actor, data, request)
+        if not saved then
+            save(request.actor, before, request)
+            local refunded = true
+            if paymentReceipt then
+                local refundCalled, refundValue = callPort(
+                    wallet.refund, request.actor, paymentReceipt, request)
+                refunded = refundCalled and refundValue ~= false
+            end
+            return finish(id, makeResult(false,
+                refunded and saveCode or "rollbackIncomplete", nil, request), request)
+        end
+        if cost > 0 then
+            local counted, metricReceiptOrCode = incrementMetric(
+                request.actor, { spentPoints = cost }, request)
+            if not counted then
+                local stateRestored = save(request.actor, before, request)
+                local refundCalled, refunded = callPort(
+                    wallet.refund, request.actor, paymentReceipt, request)
+                return finish(id, makeResult(false,
+                    stateRestored and refundCalled and refunded ~= false
+                        and metricReceiptOrCode or "rollbackIncomplete",
+                    nil, request), request)
+            end
+        end
+        return finish(id, makeResult(true, "preferenceChanged", {
+            key = key,
+            value = value,
+            cost = cost,
+            autoRecycleUnlocked = data.waistAutoRecycleUnlocked == true,
+        }, request), request)
+    end
+
     local function snapshot(request)
         request = type(request) == "table" and request or {}
         if not instance.started then return makeResult(false, "moduleStopped", nil, request) end
@@ -447,7 +570,11 @@ function Descriptor.create(dependencies, context)
         }, request)
     end
 
-    instance.public = { execute = execute, snapshot = snapshot }
+    instance.public = {
+        execute = execute,
+        snapshot = snapshot,
+        setPreference = setPreference,
+    }
     function instance:start() self.started = true return true end
     function instance:stop() self.started = false return true end
     function instance:health()

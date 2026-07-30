@@ -157,6 +157,15 @@ function GodSystemRecycleConfigPlatform.create(_, context)
             if limit > 0 then total = math.min(total, math.max(0, limit - used)) end
             return total, { recycleLimitUsed = used + total }
         end,
+        getAutoRecycleUnlockCost = function()
+            return Support.integer(config.autoRecycleUnlockCost, 100, 0)
+        end,
+        getAutoRecycleIntervalHours = function()
+            return Support.integer(config.autoRecycleIntervalHours, 1, 1)
+        end,
+        isAutoRecycleEnabled = function()
+            return config.autoRecycleEnabled ~= false
+        end,
         listingPrice = function(item)
             local map = type(config.listingCostByFullType) == "table"
                 and config.listingCostByFullType or {}

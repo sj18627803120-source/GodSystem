@@ -40,6 +40,7 @@ Protocol.Routes = {
     ["shop.lottery"] = { moduleId = "feature.shop", method = "lottery" },
     ["recycle.execute"] = { moduleId = "feature.recycle", method = "execute" },
     ["recycle.snapshot"] = { moduleId = "feature.recycle", method = "snapshot" },
+    ["recycle.preference"] = { moduleId = "feature.recycle", method = "setPreference" },
     ["upgrades.summary"] = { moduleId = "feature.upgrades", method = "requestSummary" },
     ["upgrades.purchase"] = { moduleId = "feature.upgrades", method = "upgrade" },
     ["upgrades.refresh"] = { moduleId = "feature.upgrades", method = "refresh" },

@@ -86,9 +86,6 @@ function Descriptor.create(_, context)
         if item.protected == true or item.key == true or recycleBlacklist[item.fullType] then
             return reject(), "protected"
         end
-        if item.hasInventory == true and config.allowRecycleContainers ~= true then
-            return reject(), "container"
-        end
         if not scriptAllowed(item.fullType, "recycle") then return reject(), "invalid" end
         if tonumber(item.sellPrice or item.value or 0) <= 0 then return reject(), "invalid" end
         return true
