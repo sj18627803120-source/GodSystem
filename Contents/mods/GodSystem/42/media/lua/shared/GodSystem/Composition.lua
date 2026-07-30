@@ -41,6 +41,20 @@ require "GodSystem/Platform/Companion/Mutation"
 require "GodSystem/Platform/Companion/Events"
 require "GodSystem/Platform/Companion/Visuals"
 require "GodSystem/Platform/Bank/Descriptors"
+require "GodSystem/Platform/Terminal/Config"
+require "GodSystem/Platform/Terminal/State"
+require "GodSystem/Platform/Terminal/Instances"
+require "GodSystem/Platform/Terminal/Audit"
+require "GodSystem/Platform/Storage/Config"
+require "GodSystem/Platform/Storage/State"
+require "GodSystem/Platform/Storage/Objects"
+require "GodSystem/Platform/Storage/Containers"
+require "GodSystem/Platform/Storage/Items"
+require "GodSystem/Platform/Storage/Core"
+require "GodSystem/Platform/Storage/Permissions"
+require "GodSystem/Platform/Storage/Clock"
+require "GodSystem/Platform/Storage/Sync"
+require "GodSystem/Platform/Storage/Audit"
 require "GodSystem/Features/Wallet/Module"
 require "GodSystem/Features/Wallet/PublicPort"
 require "GodSystem/Features/Maintenance/Rules"
@@ -55,6 +69,8 @@ require "GodSystem/Features/Medical/Module"
 require "GodSystem/Features/Home/Module"
 require "GodSystem/Features/Companion/Module"
 require "GodSystem/Features/Bank/Module"
+require "GodSystem/Features/Terminal/Module"
+require "GodSystem/Features/Storage/Module"
 
 GodSystemComposition = GodSystemComposition or {}
 
@@ -118,6 +134,20 @@ local BASE_DESCRIPTORS = {
     GodSystemBankFeaturesPlatform,
     GodSystemBankAuditPlatform,
     GodSystemBankDebtPlatform,
+    GodSystemTerminalConfigPlatform,
+    GodSystemTerminalStatePlatform,
+    GodSystemTerminalInstancesPlatform,
+    GodSystemTerminalAuditPlatform,
+    GodSystemStorageConfigPlatform,
+    GodSystemStorageStatePlatform,
+    GodSystemStorageObjectsPlatform,
+    GodSystemStorageContainersPlatform,
+    GodSystemStorageItemsPlatform,
+    GodSystemStorageCorePlatform,
+    GodSystemStoragePermissionsPlatform,
+    GodSystemStorageClockPlatform,
+    GodSystemStorageSyncPlatform,
+    GodSystemStorageAuditPlatform,
     GodSystemWalletFeatureModule,
     GodSystemWalletPublicPort,
     GodSystemMaintenanceRulesFeature,
@@ -132,6 +162,8 @@ local BASE_DESCRIPTORS = {
     GodSystemHomeFeatureModule,
     GodSystemCompanionFeatureModule,
     GodSystemBankFeatureModule,
+    GodSystemTerminalFeatureModule,
+    GodSystemStorageFeatureModule,
 }
 
 function Composition.create(options)

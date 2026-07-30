@@ -79,6 +79,8 @@ assert(runtime.registry:status("feature.medical").state == "started", "medical w
 assert(runtime.registry:status("feature.home").state == "started", "home was not composed")
 assert(runtime.registry:status("feature.bank").state == "started", "bank was not composed")
 assert(runtime.registry:status("feature.companion").state == "started", "companion was not composed")
+assert(runtime.registry:status("feature.terminal").state == "started", "terminal was not composed")
+assert(runtime.registry:status("feature.storage").state == "started", "storage was not composed")
 assert(runtime.registry:status("test.broken").state == "failed", "broken module failure was not isolated")
 assert(runtime.registry:status("test.dependent").state == "blocked", "dependent module was not blocked")
 assert(runtime.registry:status("test.config").state == "started", "configuration consumer did not start")
