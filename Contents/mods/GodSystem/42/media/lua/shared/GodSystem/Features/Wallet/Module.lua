@@ -377,6 +377,20 @@ function Descriptor.create(dependencies, context)
 
     instance.public = {
         getBalance = balance,
+        requestBalance = function(request)
+            request = type(request) == "table" and request or {}
+            local value, code = balance(request.actor, request.scope)
+            if code then return result(false, code, nil, request) end
+            return result(true, "balance", {
+                value = value,
+                scope = scope(request.scope, "spendable"),
+            }, request)
+        end,
+        requestTransfer = function(request)
+            request = type(request) == "table" and request or {}
+            local _, _, _, value = transfer(request.actor, request.amount, request)
+            return value
+        end,
         grant = grant,
         charge = charge,
         refund = refund,

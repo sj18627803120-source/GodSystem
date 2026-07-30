@@ -53,8 +53,19 @@ assert(runtime.startResult and runtime.startResult.ok, "runtime did not start")
 assert(runtime.diagnostics.migration.code == "migrationComplete",
     "runtime diagnostics omitted migration")
 assert(runtime.registry:get("feature.bank"), "runtime omitted bank feature")
+assert(runtime.registry:get("feature.admin"), "runtime omitted admin feature")
+assert(runtime.registry:get("feature.attributes"), "runtime omitted attributes feature")
 assert(persisted.modules["wallet.accounts"].data.accounts["local"].current == 75,
     "runtime did not migrate before module state load")
+assert(runtime.configSnapshot.tasks and type(runtime.configSnapshot.tasks.templates) == "table",
+    "runtime did not build a configuration snapshot")
+local dispatched = runtime:dispatch({
+    protocol = "42.20.1.2",
+    requestId = "kernel-balance",
+    action = "wallet.balance",
+    args = {},
+}, { actorKey = "local" })
+assert(dispatched.ok and dispatched.code == "balance", "runtime dispatcher was not connected")
 assert(runtime:save() == true, "runtime save failed")
 runtime:stop("test")
 

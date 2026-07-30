@@ -15,8 +15,8 @@ Protocol.S2C = {
 }
 
 Protocol.Routes = {
-    ["wallet.balance"] = { moduleId = "feature.wallet", method = "getBalance" },
-    ["wallet.transfer"] = { moduleId = "feature.wallet", method = "transfer" },
+    ["wallet.balance"] = { moduleId = "feature.wallet", method = "requestBalance" },
+    ["wallet.transfer"] = { moduleId = "feature.wallet", method = "requestTransfer" },
     ["bank.summary"] = { moduleId = "feature.bank", method = "summary" },
     ["bank.execute"] = { moduleId = "feature.bank", method = "execute" },
     ["tasks.generate"] = { moduleId = "feature.tasks", method = "generate" },
@@ -73,8 +73,8 @@ Protocol.Routes = {
     ["attributes.traits"] = { moduleId = "feature.attributes", method = "listTraits" },
     ["attributes.traitQuote"] = { moduleId = "feature.attributes", method = "quoteTrait" },
     ["attributes.traitModify"] = { moduleId = "feature.attributes", method = "modifyTrait" },
-    ["admin.snapshot"] = { moduleId = "feature.admin", method = "snapshot" },
-    ["admin.save"] = { moduleId = "feature.admin", method = "save" },
+    ["admin.snapshot"] = { moduleId = "feature.admin", method = "getSnapshot" },
+    ["admin.save"] = { moduleId = "feature.admin", method = "setSettings" },
     ["admin.itemOverride"] = { moduleId = "feature.admin", method = "setItemOverride" },
     ["admin.clearItemOverride"] = { moduleId = "feature.admin", method = "clearItemOverride" },
 }
