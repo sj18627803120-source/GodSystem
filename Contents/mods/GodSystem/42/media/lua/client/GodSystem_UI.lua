@@ -3,6 +3,7 @@ require "GodSystem_Core"
 require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
+require "GodSystem/UI/DiagnosticsViewModel"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -22,6 +23,12 @@ GodSystemUI.window = nil
 GodSystemUI.taskTracker = nil
 GodSystemUI.shortcutWindow = nil
 GodSystemUI.shopHiddenWindow = nil
+GodSystemUI.runtime = nil
+
+function GodSystemUI.bindRuntime(runtime)
+    GodSystemUI.runtime = runtime
+    if GodSystemUI.window then GodSystemUI.window.modularRuntime = runtime end
+end
 
 local function gsSetLabel(label, text)
     if label then
@@ -4176,14 +4183,12 @@ function GodSystemWindow:populateInfo()
     self:addWrappedListText(text, { kind = "info", data = text })
 end
 
-local function gsBoolText(value)
-    return value == true and "true" or "false"
-end
-
 function GodSystemWindow:populateDiagnostics()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_Close", "Close"))
-    self.secondaryButton:setVisible(gsIsMultiplayer())
+    self.secondaryButton:setVisible(true)
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_DiagnosticsRefresh", "Refresh diagnostics"))
+    self.thirdButton:setVisible(true)
+    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_DiagnosticsCopy", "Copy advanced report"))
 
     local data = GodSystem.getData() or {}
     local server = data.serverDiagnostics or {}
@@ -4192,36 +4197,35 @@ function GodSystemWindow:populateDiagnostics()
         client = GodSystemNetwork.getDiagnostics() or {}
     end
 
-    local lines = {
-        GodSystem.text("Diag_Header", "Diagnostics"),
-        "mode=" .. (gsIsMultiplayer() and "MP" or "SP") .. " version=" .. tostring(GodSystemConfig.Version or "?"),
-        "balance=" .. tostring(GodSystem.getCurrencyTotal and GodSystem.getCurrencyTotal() or 0),
-        "client.hasServerState=" .. gsBoolText(client.hasServerState),
-        "client.pendingState=" .. gsBoolText(client.pendingState),
-        "client.pendingCommand=" .. tostring(client.pendingCommand or "-"),
-        "client.pendingElapsed=" .. tostring(math.floor((tonumber(client.pendingElapsedMs) or 0) / 1000)) .. "s/" .. tostring(math.floor((tonumber(client.pendingTimeoutMs) or 0) / 1000)) .. "s",
-        "client.pendingTimeouts=" .. tostring(client.pendingTimeouts or 0) .. " last=" .. tostring(client.lastPendingTimeoutCommand or "-"),
-        "client.pendingClearReason=" .. tostring(client.lastPendingClearReason or "-"),
-        "client.stateSerial=" .. tostring(client.stateSerial or 0),
-        "client.sentCommands=" .. tostring(client.sentCommands or 0) .. " failed=" .. tostring(client.failedCommands or 0),
-        "client.receivedStates=" .. tostring(client.receivedStates or 0),
-        "client.lastSentCommand=" .. tostring(client.lastSentCommand or "-"),
-        "client.lastResultOk=" .. tostring(client.lastResultOk),
-        "client.lastResultMessage=" .. tostring(client.lastResultMessage or "-"),
-        "client.lastError=" .. tostring(client.lastError or "-"),
-        "client.lastNotifyCode=" .. tostring(client.lastNotifyCode or "-"),
-        "server.handledCommands=" .. tostring(server.handledCommands or 0) .. " failed=" .. tostring(server.failedCommands or 0),
-        "server.lastCommand=" .. tostring(server.lastCommand or "-"),
-        "server.lastResultOk=" .. tostring(server.lastResultOk),
-        "server.lastResultMessage=" .. tostring(server.lastResultMessage or "-"),
-        "server.lastError=" .. tostring(server.lastError or "-"),
-        "server.lastTraitBenefitsOk=" .. tostring(server.lastTraitBenefitsOk),
-        "server.lastTraitBenefitsApplied=" .. tostring(server.lastTraitBenefitsApplied or 0),
-        "server.lastTraitBenefitsType=" .. tostring(server.lastTraitBenefitsType or "-"),
-    }
-
-    for i = 1, #lines do
-        self:addWrappedListText(lines[i], { kind = "diagnostics", data = lines[i] })
+    local runtime = self.modularRuntime
+    local simple, advanced, modules = {}, {}, {}
+    if runtime then
+        local health = runtime:health()
+        modules = health.modules or {}
+        simple = runtime.diagnostics:simpleReport()
+        advanced = runtime.diagnostics:advancedReport()
+    end
+    local view = GodSystemDiagnosticsViewModel.build({
+        version = tostring(GodSystemConfig.Version or "?"),
+        mode = gsIsMultiplayer() and "MP" or "SP",
+        migration = simple.migration,
+        modules = modules,
+        lastIssue = simple.lastIssue,
+        protocol = advanced.protocol,
+        issues = advanced.issues,
+        client = client,
+        server = server,
+    })
+    self.diagnosticsAdvancedText = view.advancedText
+    for i = 1, #view.rows do
+        local diagnostic = view.rows[i]
+        local label = GodSystem.text(diagnostic.labelKey, diagnostic.label)
+        local line = tostring(label) .. ": " .. tostring(diagnostic.value)
+        self:addWrappedListText(line, { kind = "diagnostics", data = diagnostic })
+        if diagnostic.detail and diagnostic.detail ~= "" then
+            self:addWrappedListText("  " .. tostring(diagnostic.detail),
+                { kind = "diagnostics", data = diagnostic })
+        end
     end
 end
 
@@ -5663,6 +5667,11 @@ end
 
 function GodSystemWindow:onThirdAction()
     local payload = self:getSelectedPayload()
+    if self.mode == "diagnostics" then
+        Clipboard.setClipboard(tostring(self.diagnosticsAdvancedText or ""))
+        GodSystem.notify(GodSystem.text("Notify_DiagnosticsCopied", "Advanced diagnostics copied"))
+        return
+    end
     if self.mode == "storage" then
         if GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode then
             GodSystemStorageContext.toggleConnectMode()
@@ -5903,6 +5912,7 @@ function GodSystemUI.toggleWindow()
     x = gsClamp(x, 0, math.max(0, screenW - w))
     y = gsClamp(y, 0, math.max(0, screenH - h))
     local window = GodSystemWindow:new(x, y, w, h)
+    window.modularRuntime = GodSystemUI.runtime
     window.uiScale = scale
     window:initialise()
     window:setScaledSize(scale)

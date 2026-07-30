@@ -49,6 +49,7 @@ function Get-Layer([string]$moduleName) {
         'State' { return 'State' }
         'Services' { return 'Services' }
         'Features' { return 'Features' }
+        'UI' { return 'UI' }
         default { return 'Unknown' }
     }
 }
@@ -159,6 +160,9 @@ foreach ($module in $modules) {
             'Features' {
                 $allowed = $target.Layer -in @('Core', 'Services') -or
                     ($target.Layer -eq 'Features' -and $module.Feature -ne '' -and $module.Feature -eq $target.Feature)
+            }
+            'UI' {
+                $allowed = $target.Layer -in @('Core', 'Services', 'UI')
             }
         }
         if (-not $allowed) {

@@ -1600,4 +1600,15 @@ IGUI_CH = {
     IGUI_GodSystem_Storage_Organizer_Progress = "整理中 {1}/{2}，已移动 {3}",
     IGUI_GodSystem_Storage_Organizer_Result = "整理完成：移动 {1} 件，保持 {2} 件，跳过 {3} 件，失败 {4} 件",
     IGUI_GodSystem_Storage_Error_OrganizerRunning = "仓库正在整理，请等待完成或先停止整理",
+
+    IGUI_GodSystem_Btn_DiagnosticsCopy = "复制高级报告",
+    IGUI_GodSystem_Notify_DiagnosticsCopied = "高级诊断报告已复制到剪贴板",
+    IGUI_GodSystem_Diag_OverallStatus = "总体状态",
+    IGUI_GodSystem_Diag_VersionMode = "版本与模式",
+    IGUI_GodSystem_Diag_Modules = "功能模块",
+    IGUI_GodSystem_Diag_Migration = "存档迁移",
+    IGUI_GodSystem_Diag_MPSync = "多人同步",
+    IGUI_GodSystem_Diag_ProblemModule = "异常功能",
+    IGUI_GodSystem_Diag_LastIssue = "最近问题",
+    IGUI_GodSystem_Diag_Advice = "建议",
 }
