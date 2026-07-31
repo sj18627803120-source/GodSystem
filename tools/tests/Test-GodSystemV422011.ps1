@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Root,
-    [string]$ExpectedVersion = "42.20.1.1",
+    [string]$ExpectedVersion = "42.20.1.3",
     [string]$ExpectedWorkshopId = "3773949382"
 )
 

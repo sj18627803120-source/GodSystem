@@ -1420,8 +1420,8 @@ function GodSystemWindow:new(x, y, width, height)
     o.latestLotteryResult = nil
     o.resizable = false
     o.resizeAspect = (win.baseWidth or win.fixedWidth or 1240) / math.max(1, (win.baseHeight or win.fixedHeight or 690))
-    o.minimumScale = win.scaleMin or 0.75
-    o.maximumScale = win.scaleMax or 1.15
+    o.minimumScale = win.scaleMin or 0.60
+    o.maximumScale = win.scaleMax or 1.50
     o.minimumWidth = win.minimumWidth or math.floor((win.baseWidth or win.fixedWidth or 1240) * o.minimumScale)
     o.minimumHeight = win.minimumHeight or math.floor((win.baseHeight or win.fixedHeight or 690) * o.minimumScale)
     o.resizeGripSize = win.resizeGripSize or 18
@@ -1448,8 +1448,8 @@ function GodSystemWindow:S(value)
 end
 
 function GodSystemWindow:clampScale(scale)
-    local minScale = self.minimumScale or ((gsTheme().window or {}).scaleMin) or 0.75
-    local maxScale = self.maximumScale or ((gsTheme().window or {}).scaleMax) or 1.15
+    local minScale = self.minimumScale or ((gsTheme().window or {}).scaleMin) or 0.60
+    local maxScale = self.maximumScale or ((gsTheme().window or {}).scaleMax) or 1.50
     local screenW = getCore and getCore():getScreenWidth() or nil
     local screenH = getCore and getCore():getScreenHeight() or nil
     if screenW and screenH then
@@ -5896,8 +5896,8 @@ function GodSystemUI.toggleWindow()
     local win = (gsTheme().window or {})
     local baseW = win.baseWidth or win.fixedWidth or win.defaultWidth or 1240
     local baseH = win.baseHeight or win.fixedHeight or win.defaultHeight or 690
-    local minScale = win.scaleMin or 0.75
-    local maxScale = win.scaleMax or 1.15
+    local minScale = win.scaleMin or 0.60
+    local maxScale = win.scaleMax or 1.50
     local screenW = getCore():getScreenWidth()
     local screenH = getCore():getScreenHeight()
     local fitScale = math.min(maxScale, math.max(minScale, (screenW - 32) / math.max(1, baseW)), math.max(minScale, (screenH - 32) / math.max(1, baseH)))
