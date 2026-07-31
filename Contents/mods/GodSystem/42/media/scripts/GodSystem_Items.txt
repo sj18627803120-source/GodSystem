@@ -2,7 +2,7 @@ module GodSystem
 {
     item SystemCoin1
     {
-        DisplayName = God System Coin 1,
+        DisplayName = 系统币（1）,
         DisplayCategory = Currency,
         ItemType = base:normal,
         Icon = Money,
@@ -12,7 +12,7 @@ module GodSystem
 
     item SystemCoin10
     {
-        DisplayName = God System Coin 10,
+        DisplayName = 系统币（10）,
         DisplayCategory = Currency,
         ItemType = base:normal,
         Icon = Money,
@@ -22,7 +22,7 @@ module GodSystem
 
     item SystemCoin100
     {
-        DisplayName = God System Coin 100,
+        DisplayName = 系统币（100）,
         DisplayCategory = Currency,
         ItemType = base:normal,
         Icon = Money,

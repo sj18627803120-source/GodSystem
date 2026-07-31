@@ -5,11 +5,11 @@ GodSystemConfig.DataKey = "GodSystem_CN_Data"
 GodSystemConfig.Version = "42.20.1.4"
 
 GodSystemConfig.StartingPoints = 60
-GodSystemConfig.CurrencyName = "神级系统币"
+GodSystemConfig.CurrencyName = "系统币"
 GodSystemConfig.CurrencyItems = {
-    { fullType = "GodSystem.SystemCoin100", value = 100, label = "百面额神级系统币" },
-    { fullType = "GodSystem.SystemCoin10", value = 10, label = "十面额神级系统币" },
-    { fullType = "GodSystem.SystemCoin1", value = 1, label = "一面额神级系统币" },
+    { fullType = "GodSystem.SystemCoin100", value = 100, label = "系统币（100）" },
+    { fullType = "GodSystem.SystemCoin10", value = 10, label = "系统币（10）" },
+    { fullType = "GodSystem.SystemCoin1", value = 1, label = "系统币（1）" },
 }
 GodSystemConfig.KillPointReward = 1
 GodSystemConfig.DailyTaskCount = 5

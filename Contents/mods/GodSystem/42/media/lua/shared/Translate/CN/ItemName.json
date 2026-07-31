@@ -1,4 +1,7 @@
 {
+    "GodSystem.SystemCoin1": "系统币（1）",
+    "GodSystem.SystemCoin10": "系统币（10）",
+    "GodSystem.SystemCoin100": "系统币（100）",
     "GodSystem.SystemRepairKit": "系统修复组件",
     "GodSystem.DurabilityCore": "耐久强化核心",
     "GodSystem.SystemSpaceTerminal": "系统空间终端",

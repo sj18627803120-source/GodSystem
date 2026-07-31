@@ -30,6 +30,9 @@ $transactionOps = Read-Utf8 (Join-Path $lua "server\GodSystem_TransactionOps.lua
 $rootInfo = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\mod.info")
 $b42Info = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\42\mod.info")
 $config = Read-Utf8 (Join-Path $lua "shared\GodSystem_Config.lua")
+$items = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\42\media\scripts\GodSystem_Items.txt")
+$cnItems = Read-Utf8 (Join-Path $lua "shared\Translate\CN\Items_CN.txt")
+$chItems = Read-Utf8 (Join-Path $lua "shared\Translate\CH\Items_CH.txt")
 $workshop = Read-Utf8 (Join-Path $Root "workshop.txt")
 $localization = Read-Utf8 (Join-Path $Root "tools\localization\godsystem_v11645_localization.yml")
 
@@ -72,6 +75,16 @@ Require-Text $rootInfo ("(?m)^modversion=" + $versionPattern + "\r?$") "Root mod
 Require-Text $b42Info ("(?m)^modversion=" + $versionPattern + "\r?$") "B42 mod.info version must be $ExpectedVersion"
 Require-Text $config ('GodSystemConfig\.Version\s*=\s*"' + $versionPattern + '"') "Config version must be $ExpectedVersion"
 Require-Text $workshop ("(?m)^description=v" + $versionPattern + "\r?$") "Workshop description must be $ExpectedVersion"
+$currencyName = -join @([char]0x7CFB, [char]0x7EDF, [char]0x5E01)
+Require-Text $config ('GodSystemConfig\.CurrencyName\s*=\s*"' + [regex]::Escape($currencyName) + '"') 'Currency display name must be Chinese'
+foreach ($denomination in @(1, 10, 100)) {
+    $name = $currencyName + [char]0xFF08 + $denomination + [char]0xFF09
+    $namePattern = [regex]::Escape($name)
+    Require-Text $items ('DisplayName\s*=\s*' + $namePattern + ',') "Currency script name must be $denomination"
+    Require-Text $localization ('(?m)^ItemName_GodSystem\.SystemCoin' + $denomination + ':\s*"' + $namePattern + '"\r?$') "Currency YAML name must be $denomination"
+    Require-Text $cnItems ('ItemName_GodSystem\.SystemCoin' + $denomination + '\s*=\s*"' + $namePattern + '"') "CN currency name must be $denomination"
+    Require-Text $chItems ('ItemName_GodSystem\.SystemCoin' + $denomination + '\s*=\s*"' + $namePattern + '"') "CH currency name must be $denomination"
+}
 
 $luaExe = Get-Command lua -ErrorAction SilentlyContinue
 if (-not $luaExe) {

@@ -1,7 +1,7 @@
 ItemName_CH = {
-    ItemName_GodSystem.SystemCoin1 = "一面额神级系统币",
-    ItemName_GodSystem.SystemCoin10 = "十面额神级系统币",
-    ItemName_GodSystem.SystemCoin100 = "百面额神级系统币",
+    ItemName_GodSystem.SystemCoin1 = "系统币（1）",
+    ItemName_GodSystem.SystemCoin10 = "系统币（10）",
+    ItemName_GodSystem.SystemCoin100 = "系统币（100）",
 
     ItemName_GodSystem.SystemRepairKit = "系统修复组件",
     ItemName_GodSystem.DurabilityCore = "耐久强化核心",
