@@ -11,12 +11,14 @@ require "TimedActions/ISWaitWhileGettingUp"
 require "TimedActions/ISWearClothing"
 require "TimedActions/ISEquipWeaponAction"
 require "TimedActions/ISAttachItemHotbar"
+require "GodSystem_ListState"
 
 GodSystemStorageUI = GodSystemStorageUI or {}
 
 local UI = GodSystemStorageUI
 local Storage = GodSystemStorage
 local Client = GodSystemStorageClient
+local ListState = GodSystemListState
 
 UI.window = UI.window or nil
 
@@ -497,7 +499,7 @@ function GodSystemStorageWindow:createChildren()
     self.searchBox:initialise()
     self.searchBox:instantiate()
     self.searchBox.target = self
-    self.searchBox.onTextChange = function() self:rebuildLists() end
+    self.searchBox.onTextChange = function() self:rebuildLists(false) end
     self:addChild(self.searchBox)
     self.categoryButton = self:createButton(272, 68, 118, 28, "", "category", self.onFilter)
     self.stateButton = self:createButton(396, 68, 118, 28, "", "state", self.onFilter)
@@ -615,7 +617,7 @@ function GodSystemStorageWindow:onPage(button)
     self.page = button.internal
     self:updatePageVisibility()
     self:layoutColumns()
-    self:rebuild()
+    self:rebuild(false)
 end
 
 function GodSystemStorageWindow:updatePageVisibility()
@@ -665,7 +667,7 @@ function GodSystemStorageWindow:onFilter(button)
     elseif button.internal == "sort" then
         self.sortMode = cycleValue({ "name", "count", "weight", "condition", "spoilage", "source" }, self.sortMode)
     end
-    self:rebuildLists()
+    self:rebuildLists(false)
 end
 
 function GodSystemStorageWindow:filterGroup(group, query)
@@ -707,7 +709,75 @@ function GodSystemStorageWindow:currentSource()
     return findSource(self.sources or {}, self.currentSourceKey)
 end
 
-function GodSystemStorageWindow:rebuildSources()
+function GodSystemStorageWindow:listStateContext(listName)
+    listName = tostring(listName or "")
+    local query = lower(self.searchBox and self.searchBox:getText() or "")
+    local parts = {
+        "page=" .. tostring(self.page or "storage"),
+        "list=" .. listName,
+        "query=" .. query,
+        "category=" .. tostring(self.category or "all"),
+        "state=" .. tostring(self.state or "all"),
+        "sourceFilter=" .. tostring(self.sourceFilter or "all"),
+        "mod=" .. tostring(self.modName or "all"),
+        "sort=" .. tostring(self.sortMode or "name"),
+        "containerStatus=" .. tostring(self.containerStatus or "all"),
+    }
+    if listName == "source" or listName == "inventory" then
+        parts[#parts + 1] = "source=" .. tostring(self.currentSourceKey or "main")
+    elseif listName == "detail" then
+        parts[#parts + 1] = "link=" .. tostring(self.selectedLinkId or "")
+        parts[#parts + 1] = "instance=" .. tostring(self.selectedInstanceId or "")
+        parts[#parts + 1] = "warehouse=" .. tostring(self.warehouseAnchorKey or "")
+    end
+    return table.concat(parts, "\30")
+end
+
+function GodSystemStorageWindow:listStateKey(listName, payload, row, index)
+    if listName == "detail" then
+        if payload and payload.itemId ~= nil then return "instance:" .. tostring(payload.itemId) end
+        return payload and payload.displayText and ("detail:" .. tostring(index)) or nil
+    end
+    return payload and payload.key and tostring(payload.key) or nil
+end
+
+function GodSystemStorageWindow:captureListState(listName, list)
+    if not ListState then return nil end
+    return ListState.capture(list, self:listStateContext(listName), function(payload, row, index)
+        return self:listStateKey(listName, payload, row, index)
+    end)
+end
+
+function GodSystemStorageWindow:restoreListState(listName, list, state)
+    if not ListState or not state then return false end
+    local context = self:listStateContext(listName)
+    local keyOf = function(payload, row, index)
+        return self:listStateKey(listName, payload, row, index)
+    end
+    local restored = ListState.restore(list, state, context, keyOf)
+    if restored then ListState.restoreNextTick(list, state, context, keyOf) end
+    return restored
+end
+
+function GodSystemStorageWindow:captureListStates()
+    return {
+        source = self:captureListState("source", self.sourceList),
+        inventory = self:captureListState("inventory", self.inventoryList),
+        warehouse = self:captureListState("warehouse", self.warehouseList),
+        detail = self:captureListState("detail", self.detailList),
+    }
+end
+
+function GodSystemStorageWindow:restoreListStates(states)
+    if type(states) ~= "table" then return end
+    self:restoreListState("source", self.sourceList, states.source)
+    self:restoreListState("inventory", self.inventoryList, states.inventory)
+    self:restoreListState("warehouse", self.warehouseList, states.warehouse)
+    self:restoreListState("detail", self.detailList, states.detail)
+end
+
+function GodSystemStorageWindow:rebuildSources(preserveState)
+    local listState = preserveState == true and self:captureListState("source", self.sourceList) or nil
     local player = getPlayer and getPlayer() or nil
     self.sources = inventorySources(player)
     local current, selectedIndex = findSource(self.sources, self.currentSourceKey)
@@ -719,9 +789,11 @@ function GodSystemStorageWindow:rebuildSources()
         if tostring(source.key) == tostring(self.currentSourceKey) then selectedIndex = i end
     end
     self.sourceList.selected = selectedIndex or 1
+    self:restoreListState("source", self.sourceList, listState)
 end
 
-function GodSystemStorageWindow:rebuildInventory()
+function GodSystemStorageWindow:rebuildInventory(preserveState)
+    local listState = preserveState == true and self:captureListState("inventory", self.inventoryList) or nil
     local player = getPlayer and getPlayer() or nil
     local source = self:currentSource()
     local groups, order = groupDirectItems(player, source)
@@ -754,14 +826,17 @@ function GodSystemStorageWindow:rebuildInventory()
         end
     end
     for key in pairs(self.selectedInventoryKeys) do if not valid[key] then self.selectedInventoryKeys[key] = nil end end
+    self:restoreListState("inventory", self.inventoryList, listState)
 end
 
-function GodSystemStorageWindow:rebuildWarehouse()
+function GodSystemStorageWindow:rebuildWarehouse(preserveState)
+    local listState = preserveState == true and self:captureListState("warehouse", self.warehouseList) or nil
     UI.clearList(self.warehouseList)
     self.warehouseRows = {}
     local snapshot = Client.snapshot
     if not snapshot then
         self.warehouseList:addItem(text("Storage_Loading", "Building storage index..."), { displayText = text("Storage_Loading", "Building storage index...") })
+        self:restoreListState("warehouse", self.warehouseList, listState)
         return
     end
     local query = lower(self.searchBox and self.searchBox:getText() or "")
@@ -827,18 +902,21 @@ function GodSystemStorageWindow:rebuildWarehouse()
     if self.page == "manage" and self.selectedLinkId and not valid[tostring(self.selectedLinkId)] then
         self.selectedLinkId = nil
     end
+    self:restoreListState("warehouse", self.warehouseList, listState)
 end
 
-function GodSystemStorageWindow:rebuildLists()
-    self:rebuildSources()
-    self:rebuildInventory()
-    self:rebuildWarehouse()
-    self:updateDetails()
+function GodSystemStorageWindow:rebuildLists(preserveState)
+    local states = preserveState == true and self:captureListStates() or nil
+    self:rebuildSources(false)
+    self:rebuildInventory(false)
+    self:rebuildWarehouse(false)
+    self:updateDetails(false)
     self:updateLabels()
+    self:restoreListStates(states)
 end
 
-function GodSystemStorageWindow:rebuild()
-    self:rebuildLists()
+function GodSystemStorageWindow:rebuild(preserveState)
+    self:rebuildLists(preserveState ~= false)
 end
 
 function GodSystemStorageWindow:updateMultiSelection(rows, selected, anchorField, key)
@@ -870,7 +948,7 @@ function GodSystemStorageWindow:onSourceSelection()
     self.currentSourceKey = source.key
     clearSet(self.selectedInventoryKeys)
     self.inventoryAnchorKey = nil
-    self:rebuildInventory()
+    self:rebuildInventory(false)
     self:updateLabels()
 end
 
@@ -892,7 +970,7 @@ function GodSystemStorageWindow:onWarehouseSelection()
         self.selectedInstanceId = nil
         Client.requestDetails(payload.key)
     end
-    self:updateDetails()
+    self:updateDetails(false)
     self:updateLabels()
 end
 
@@ -1004,7 +1082,7 @@ function GodSystemStorageWindow.finishQueuedDeposit(window, itemIds, sourceItemI
     for _, state in pairs(stateById) do queueRestoreState(player, state) end
     if #eligibleIds == 0 then
         Client.notifyReason("nothingMoved")
-        window:rebuildInventory()
+        window:rebuildInventory(true)
         return
     end
     window:submitQueuedDeposit(eligibleIds, sourceItemId, eligibleStates)
@@ -1089,7 +1167,8 @@ function GodSystemStorageWindow:restoreFailedEquipment(ok, payload)
     end
 end
 
-function GodSystemStorageWindow:updateDetails()
+function GodSystemStorageWindow:updateDetails(preserveState)
+    local listState = preserveState == true and self:captureListState("detail", self.detailList) or nil
     UI.clearList(self.detailList)
     if self.page == "manage" then
         local selected
@@ -1099,6 +1178,7 @@ function GodSystemStorageWindow:updateDetails()
         end
         if not selected then
             self.detailList:addItem(text("Storage_SelectContainer", "Select a connected container"), { displayText = text("Storage_SelectContainer", "Select a connected container") })
+            self:restoreListState("detail", self.detailList, listState)
             return
         end
         local details = {
@@ -1113,12 +1193,14 @@ function GodSystemStorageWindow:updateDetails()
         }
         for i = 1, #details do self.detailList:addItem(details[i], { displayText = details[i] }) end
         self.unlinkButton.enable = selected.isCoreHost ~= true
+        self:restoreListState("detail", self.detailList, listState)
         return
     end
     local selectedGroups = selectedGroupsInOrder(self.warehouseRows, self.selectedWarehouseKeys)
     local selected = selectedGroups[1]
     if not selected then
         self.detailList:addItem(text("Storage_SelectType", "Select an item type"), { displayText = text("Storage_SelectType", "Select an item type") })
+        self:restoreListState("detail", self.detailList, listState)
         return
     end
     local rows = {
@@ -1135,12 +1217,16 @@ function GodSystemStorageWindow:updateDetails()
     }
     for i = 1, #rows do self.detailList:addItem(rows[i], { displayText = rows[i] }) end
     local instances = Client.details[tostring(selected.key or "")] or {}
+    local selectedInstanceFound = self.selectedInstanceId == nil
     for i = 1, math.min(#instances, 250) do
         local row = instances[i]
+        if tostring(row.id) == tostring(self.selectedInstanceId) then selectedInstanceFound = true end
         local label = string.format("#%s | %s | %.0f%% | %.2fkg", tostring(row.id or "?"),
             compactSourceNames({ row.sourceName }), (tonumber(row.conditionRatio) or 0) * 100, tonumber(row.weight) or 0)
         self.detailList:addItem(label, { kind = "instance", itemId = row.id, displayText = label })
     end
+    if #instances > 0 and not selectedInstanceFound then self.selectedInstanceId = nil end
+    self:restoreListState("detail", self.detailList, listState)
 end
 
 function GodSystemStorageWindow:updateLabels()
@@ -1225,7 +1311,7 @@ function GodSystemStorageWindow:showContainerRules(container)
 end
 
 function GodSystemStorageWindow:onAction(button)
-    if button.internal == "refresh" then Client.refresh(); self:rebuildInventory()
+    if button.internal == "refresh" then Client.refresh(); self:rebuildInventory(true)
     elseif button.internal == "depositSelected" then self:depositSelection("all")
     elseif button.internal == "depositSourceAll" then
         local source = self:currentSource()
@@ -1289,7 +1375,7 @@ function UI.depositExternalSelection(items, sourceItemId)
     local ids = {}
     for i = 1, #(items or {}) do local id = Storage.itemId(items[i]); if id then ids[#ids + 1] = id end end
     UI.window.currentSourceKey = sourceItemId and ("item:" .. tostring(sourceItemId)) or "main"
-    UI.window:rebuildSources()
+    UI.window:rebuildSources(false)
     UI.window:queueManualDeposit(ids)
     return #ids > 0
 end
@@ -1299,14 +1385,11 @@ function UI.close()
 end
 
 function UI.onSnapshot()
-    if UI.window then
-        UI.window.selectedInstanceId = nil
-        UI.window:rebuild()
-    end
+    if UI.window then UI.window:rebuild(true) end
 end
 
 function UI.onDetails(groupKey)
-    if UI.window and UI.window.selectedWarehouseKeys[tostring(groupKey or "")] then UI.window:updateDetails() end
+    if UI.window and UI.window.selectedWarehouseKeys[tostring(groupKey or "")] then UI.window:updateDetails(true) end
 end
 
 function UI.onNetworkState()
@@ -1326,7 +1409,7 @@ function UI.onOperationResult(command, ok, reason, payload)
     end
     if UI.window then
         if ok then UI.window.statusLabel.name = text("Storage_Refreshing", "Refreshing...") end
-        UI.window:rebuildInventory()
+        UI.window:rebuildInventory(true)
     end
 end
 
@@ -1344,7 +1427,7 @@ function UI.onError(args)
 end
 
 function UI.onContainerUpdate()
-    if UI.window and UI.window:isVisible() then UI.window:rebuildSources(); UI.window:rebuildInventory() end
+    if UI.window and UI.window:isVisible() then UI.window:rebuild(true) end
 end
 
 if Events.OnContainerUpdate then

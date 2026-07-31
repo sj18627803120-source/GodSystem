@@ -527,6 +527,18 @@ local function transactionFingerprint(command, args)
         end
         return table.concat(parts, "|")
     end
+    local hiddenCommand = (Protocol.C2S and Protocol.C2S.SetShopItemsHidden) or "setShopItemsHidden"
+    if command == hiddenCommand and type(args.variantKeys) == "table" then
+        local keys, seen = {}, {}
+        for i = 1, #args.variantKeys do
+            local key = tostring(args.variantKeys[i] or "")
+            if key ~= "" and not seen[key] then seen[key] = true; keys[#keys + 1] = key end
+        end
+        table.sort(keys)
+        local parts = { "shopHidden", args.hidden == true and "1" or "0" }
+        for i = 1, #keys do parts[#parts + 1] = "k:" .. keys[i] end
+        return table.concat(parts, "|")
+    end
     return nil
 end
 
@@ -1508,6 +1520,20 @@ end)
 
 wrap("setShopItemHidden", function(variantKey, hidden)
     return send((Protocol.C2S and Protocol.C2S.SetShopItemHidden) or "setShopItemHidden", { variantKey = variantKey, hidden = hidden == true })
+end)
+
+wrap("setShopItemsHidden", function(variantKeys, hidden)
+    local keys, seen = {}, {}
+    for i = 1, #(variantKeys or {}) do
+        local key = tostring(variantKeys[i] or "")
+        if key ~= "" and not seen[key] then seen[key] = true; keys[#keys + 1] = key end
+    end
+    table.sort(keys)
+    if #keys == 0 or #keys > 500 then return false end
+    return send((Protocol.C2S and Protocol.C2S.SetShopItemsHidden) or "setShopItemsHidden", {
+        variantKeys = keys,
+        hidden = hidden == true,
+    })
 end)
 
 wrap("deleteShopItem", function(variantKey)

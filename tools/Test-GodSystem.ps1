@@ -5,32 +5,33 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422013UIScale.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422013UIRecovery.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422011.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11673.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11672.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageRoutingV11673
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11671.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageRoutingV11673
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11670.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowCoreHostStorage -AllowRetiredMigrationCleanup
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11669.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageCore
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11668.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageCore
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11667.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageCore
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11666.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11665.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageCore
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11664.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageCore
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422014.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422013UIScale.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422013UIRecovery.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422011.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11673.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11672.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageRoutingV11673
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11671.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageRoutingV11673
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11670.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowCoreHostStorage -AllowRetiredMigrationCleanup
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11669.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageCore
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11668.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageCore
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11667.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageCore
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11666.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11665.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageCore
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11664.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowStorageCore
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11663TerminalSync.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11663VehicleRepair.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11663TerminalWear.ps1') -Root $RepoRoot -AllowRetiredWearMigration
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11663.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -ExpectedAdminSettings 73
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11662.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowRetiredCapacity -AllowRetiredCompatibility
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11661.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowRetiredRemoveUnlocked
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11660.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowRetiredCompression
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11659.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowRetiredCompression
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11658.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowRetiredCompression
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11657.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowRetiredCompression
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11656.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11655.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowCustomTerminalSlot
-& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11653.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -ExpectedAdminSettings 73 -SkipLegacyTerminalChecks
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11663.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -ExpectedAdminSettings 73
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11662.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowRetiredCapacity -AllowRetiredCompatibility
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11661.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowRetiredRemoveUnlocked
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11660.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowRetiredCompression
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11659.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowRetiredCompression
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11658.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowRetiredCompression
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11657.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowRetiredCompression
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11656.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11655.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -AllowCustomTerminalSlot
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11653.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.4' -ExpectedAdminSettings 73 -SkipLegacyTerminalChecks
 & (Join-Path $PSScriptRoot 'tests\Test-ReferenceModResearch.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-RepositoryGuidance.ps1') -Root $RepoRoot
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemEncoding.ps1') -Root $RepoRoot -IncludeDocs

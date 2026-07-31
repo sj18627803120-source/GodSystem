@@ -1600,4 +1600,13 @@ IGUI_CN = {
     IGUI_GodSystem_Storage_Organizer_Progress = "整理中 {1}/{2}，已移动 {3}",
     IGUI_GodSystem_Storage_Organizer_Result = "整理完成：移动 {1} 件，保持 {2} 件，跳过 {3} 件，失败 {4} 件",
     IGUI_GodSystem_Storage_Error_OrganizerRunning = "仓库正在整理，请等待完成或先停止整理",
+
+    IGUI_GodSystem_ShopHidden_SelectedCount = "已选择：{1}",
+    IGUI_GodSystem_Notify_ShopItemsHidden = "已隐藏商品：{1}，跳过：{2}",
+    IGUI_GodSystem_Notify_ShopItemsVisible = "已恢复商品：{1}，跳过：{2}",
+    IGUI_GodSystem_Notify_ShopItemsTooMany = "一次最多选择 500 个商城商品。",
+    IGUI_GodSystem_NotifyMP_ShopItemsHidden = "批量隐藏商品：{1}，跳过：{2}",
+    IGUI_GodSystem_NotifyMP_ShopItemsVisible = "批量恢复商品：{1}，跳过：{2}",
+    IGUI_GodSystem_History_ShopItemsHidden = "批量隐藏商城商品：{1}",
+    IGUI_GodSystem_History_ShopItemsVisible = "批量恢复商城商品：{1}",
 }

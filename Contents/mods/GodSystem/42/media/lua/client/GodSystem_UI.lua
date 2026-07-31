@@ -4,6 +4,7 @@ require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
 require "GodSystem_FloatingButtonLifecycle"
+require "GodSystem_ListState"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -25,6 +26,8 @@ GodSystemUI.shortcutWindow = nil
 GodSystemUI.shopHiddenWindow = nil
 GodSystemUI.FloatingButtonRefreshIntervalMs = 5000
 GodSystemUI.lastFloatingButtonCheckMs = 0
+
+local ListState = GodSystemListState
 
 local function gsSetLabel(label, text)
     if label then
@@ -1070,6 +1073,8 @@ function GodSystemShopHiddenWindow:new(x, y, width, height, owner)
     o.statusFilter = "all"
     o.searchText = ""
     o.selectedVariantKey = nil
+    o.selectedVariantKeys = {}
+    o.selectionAnchorVariantKey = nil
     o.waitingForServer = false
     o.lastStateSerial = GodSystemNetwork and GodSystemNetwork.stateSerial or 0
     o.resizable = false
@@ -1107,6 +1112,11 @@ function GodSystemShopHiddenWindow:createChildren()
     self.list.itemheight = 32
     self.list.doDrawItem = function(list, y, row, alt) return self:drawItem(list, y, row, alt) end
     self.list:setOnMouseDownFunction(self, self.onListMouseDown)
+    local originalListMouseDown = self.list.onMouseDown
+    self.list.onMouseDown = function(list, x, y)
+        list.gsCheckboxClick = x >= 6 and x <= 24
+        return originalListMouseDown(list, x, y)
+    end
     gsInstallSafeScrollingListPrerender(self.list)
     self:addChild(self.list)
 
@@ -1125,6 +1135,10 @@ function GodSystemShopHiddenWindow:createChildren()
     self.deleteButton:initialise()
     gsStyleActionButton(self.deleteButton, false)
     self:addChild(self.deleteButton)
+
+    self.selectionLabel = ISLabel:new(490, actionY + 9, 18, "", 0.62, 0.76, 0.82, 1, UIFont.Small, true)
+    self.selectionLabel:initialise()
+    self:addChild(self.selectionLabel)
 
     self.closeButton = ISButton:new(self.width - 132, actionY, 120, buttonH, GodSystem.text("ShopHidden_Close", "Close"), self, self.close)
     self.closeButton:initialise()
@@ -1149,7 +1163,12 @@ function GodSystemShopHiddenWindow:drawItem(list, y, row, alt)
     if list.selected == row.index then
         gsDrawRect(list, 0, y, list.width, list.itemheight - 1, gsThemeColor("rowSelect"))
     end
-    gsDrawText(list, tostring(row and row.text or ""), 8, y + 8, color, UIFont.Small)
+    if data and data.variantKey then
+        local selected = self.selectedVariantKeys and self.selectedVariantKeys[tostring(data.variantKey)] == true
+        gsDrawRectBorder(list, 8, y + 10, 12, 12, gsThemeColor("borderStrong"))
+        if selected then gsDrawRect(list, 10, y + 12, 8, 8, gsThemeColor("gold")) end
+    end
+    gsDrawText(list, tostring(row and row.text or ""), 28, y + 8, color, UIFont.Small)
     return y + list.itemheight
 end
 
@@ -1159,18 +1178,118 @@ function GodSystemShopHiddenWindow:getSelected()
     return row and row.item or nil
 end
 
+function GodSystemShopHiddenWindow:listStateContext()
+    return table.concat({
+        "shopHidden",
+        tostring(self.categoryKey or "all"),
+        tostring(self.statusFilter or "all"),
+        tostring(self.searchText or ""),
+    }, "\30")
+end
+
+function GodSystemShopHiddenWindow:captureListState()
+    if not ListState then return nil end
+    return ListState.capture(self.list, self:listStateContext(), function(payload)
+        return payload and payload.variantKey or nil
+    end)
+end
+
+function GodSystemShopHiddenWindow:visibleVariantKeys()
+    local result = {}
+    for i = 1, #(self.list and self.list.items or {}) do
+        local payload = self.list.items[i] and self.list.items[i].item or nil
+        if payload and payload.variantKey then result[#result + 1] = tostring(payload.variantKey) end
+    end
+    return result
+end
+
+function GodSystemShopHiddenWindow:clearSelectedVariants()
+    for key in pairs(self.selectedVariantKeys or {}) do self.selectedVariantKeys[key] = nil end
+    self.selectedVariantKey = nil
+    self.selectionAnchorVariantKey = nil
+end
+
+function GodSystemShopHiddenWindow:applyVariantSelection(key, checkboxClick)
+    key = key and tostring(key) or nil
+    if not key then return end
+    self.selectedVariantKeys = self.selectedVariantKeys or {}
+    local keys = self:visibleVariantKeys()
+    local function clear()
+        for selected in pairs(self.selectedVariantKeys) do self.selectedVariantKeys[selected] = nil end
+    end
+    local ctrl = Keyboard and isKeyDown
+        and (isKeyDown(Keyboard.KEY_LCONTROL) or isKeyDown(Keyboard.KEY_RCONTROL))
+    local shift = Keyboard and isKeyDown
+        and (isKeyDown(Keyboard.KEY_LSHIFT) or isKeyDown(Keyboard.KEY_RSHIFT))
+    if shift and self.selectionAnchorVariantKey then
+        local first, last
+        for i = 1, #keys do
+            if keys[i] == tostring(self.selectionAnchorVariantKey) then first = i end
+            if keys[i] == key then last = i end
+        end
+        if first and last then
+            if not ctrl then clear() end
+            for i = math.min(first, last), math.max(first, last) do self.selectedVariantKeys[keys[i]] = true end
+        else
+            self.selectedVariantKeys[key] = true
+        end
+    elseif ctrl or checkboxClick then
+        self.selectedVariantKeys[key] = self.selectedVariantKeys[key] ~= true and true or nil
+        self.selectionAnchorVariantKey = key
+    else
+        clear()
+        self.selectedVariantKeys[key] = true
+        self.selectionAnchorVariantKey = key
+    end
+    self.selectedVariantKey = key
+end
+
+function GodSystemShopHiddenWindow:selectedVariantRows(targetHidden)
+    local result = {}
+    local seen = {}
+    for i = 1, #(self.list and self.list.items or {}) do
+        local payload = self.list.items[i] and self.list.items[i].item or nil
+        local key = payload and payload.variantKey and tostring(payload.variantKey) or nil
+        if key and self.selectedVariantKeys and self.selectedVariantKeys[key] == true and not seen[key]
+            and (targetHidden == nil or payload.hidden == targetHidden) then
+            seen[key] = true
+            result[#result + 1] = payload
+        end
+    end
+    return result
+end
+
+function GodSystemShopHiddenWindow:pruneSelectedVariants()
+    local valid = {}
+    for i = 1, #(self.list and self.list.items or {}) do
+        local payload = self.list.items[i] and self.list.items[i].item or nil
+        if payload and payload.variantKey then valid[tostring(payload.variantKey)] = true end
+    end
+    for key in pairs(self.selectedVariantKeys or {}) do
+        if not valid[key] then self.selectedVariantKeys[key] = nil end
+    end
+    if self.selectedVariantKey and not valid[tostring(self.selectedVariantKey)] then self.selectedVariantKey = nil end
+    if self.selectionAnchorVariantKey and not valid[tostring(self.selectionAnchorVariantKey)] then self.selectionAnchorVariantKey = nil end
+end
+
 function GodSystemShopHiddenWindow:onListMouseDown(row)
     local data = row and (row.item or row) or self:getSelected()
-    if data and data.variantKey then self.selectedVariantKey = data.variantKey end
+    local checkboxClick = self.list and self.list.gsCheckboxClick == true
+    if self.list then self.list.gsCheckboxClick = nil end
+    if data and data.variantKey then self:applyVariantSelection(data.variantKey, checkboxClick) end
     self:updateButtons()
 end
 
 function GodSystemShopHiddenWindow:updateButtons()
     local row = self:getSelected()
     local blocked = self.waitingForServer == true
-    self.hideButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden ~= true
-    self.showButton.enable = not blocked and row ~= nil and row.empty ~= true and row.hidden == true
+    local visibleRows = self:selectedVariantRows(false)
+    local hiddenRows = self:selectedVariantRows(true)
+    local selectedCount = #visibleRows + #hiddenRows
+    self.hideButton.enable = not blocked and #visibleRows > 0
+    self.showButton.enable = not blocked and #hiddenRows > 0
     self.deleteButton.enable = not blocked and row ~= nil and row.empty ~= true
+    gsSetLabel(self.selectionLabel, GodSystem.text("ShopHidden_SelectedCount", "Selected: {1}"):gsub("{1}", tostring(selectedCount)))
 end
 
 function GodSystemShopHiddenWindow:statusLabel()
@@ -1203,12 +1322,14 @@ function GodSystemShopHiddenWindow:matches(row, category)
     return string.find(string.lower(haystack), query, 1, true) ~= nil
 end
 
-function GodSystemShopHiddenWindow:populateItems()
+function GodSystemShopHiddenWindow:populateItems(preserveState)
     if not self.list then return end
-    local oldScroll = self.list.getYScroll and self.list:getYScroll() or 0
-    local selectedKey = self.selectedVariantKey
+    local listState = preserveState ~= false and self:captureListState() or nil
     self.list:clear()
     self.list.selected = 0
+    self.list:setScrollHeight(0)
+    self.list.smoothScrollTargetY = nil
+    self.list.smoothScrollY = nil
     local rows = GodSystem.getUnlockedShopItemsList(true)
     local categories, categoryMap = {}, {}
     for i = 1, #rows do
@@ -1229,7 +1350,7 @@ function GodSystemShopHiddenWindow:populateItems()
         if self:matches(row, category) then
             local status = row.hidden == true and GodSystem.text("ShopHidden_StatusHidden", "Hidden") or GodSystem.text("ShopHidden_StatusVisible", "Visible")
             local sprite = row.worldSprite and (" | " .. tostring(row.worldSprite)) or ""
-            local added = self.list:addItem("[" .. status .. "] " .. tostring(row.label or row.fullType) .. " | " .. tostring(row.fullType or "") .. sprite, {
+            self.list:addItem("[" .. status .. "] " .. tostring(row.label or row.fullType) .. " | " .. tostring(row.fullType or "") .. sprite, {
                 variantKey = row.variantKey,
                 fullType = row.fullType,
                 worldSprite = row.worldSprite,
@@ -1238,15 +1359,24 @@ function GodSystemShopHiddenWindow:populateItems()
                 categoryKey = category.key,
             })
             visibleCount = visibleCount + 1
-            if selectedKey and row.variantKey == selectedKey then self.list.selected = visibleCount end
         end
     end
     if visibleCount == 0 then
         self.list:addItem(GodSystem.text("ShopHidden_Empty", "No player-listed items match the filters"), { empty = true })
         self.list.selected = 0
-        self.selectedVariantKey = nil
+        self:clearSelectedVariants()
     end
-    if self.list.setYScroll then self.list:setYScroll(oldScroll) end
+    self:pruneSelectedVariants()
+    if ListState and listState then
+        local context = self:listStateContext()
+        if ListState.restore(self.list, listState, context, function(payload)
+            return payload and payload.variantKey or nil
+        end) then
+            ListState.restoreNextTick(self.list, listState, context, function(payload)
+                return payload and payload.variantKey or nil
+            end)
+        end
+    end
     gsSetButtonTitle(self.categoryButton, GodSystem.text("ShopHidden_Category", "Category") .. ": " .. self:categoryLabel())
     gsSetButtonTitle(self.statusButton, GodSystem.text("ShopHidden_Status", "Status") .. ": " .. self:statusLabel())
     self:updateButtons()
@@ -1254,8 +1384,8 @@ end
 
 function GodSystemShopHiddenWindow:setCategory(key)
     self.categoryKey = tostring(key or "all")
-    self.selectedVariantKey = nil
-    self:populateItems()
+    self:clearSelectedVariants()
+    self:populateItems(false)
 end
 
 function GodSystemShopHiddenWindow:onCategoryButton()
@@ -1269,8 +1399,8 @@ end
 
 function GodSystemShopHiddenWindow:setStatus(status)
     self.statusFilter = tostring(status or "all")
-    self.selectedVariantKey = nil
-    self:populateItems()
+    self:clearSelectedVariants()
+    self:populateItems(false)
 end
 
 function GodSystemShopHiddenWindow:onStatusButton()
@@ -1283,19 +1413,19 @@ end
 
 function GodSystemShopHiddenWindow:onSearchChange(entry)
     self.searchText = entry and entry.getInternalText and entry:getInternalText() or ""
-    self.selectedVariantKey = nil
-    self:populateItems()
+    self:clearSelectedVariants()
+    self:populateItems(false)
 end
 
 function GodSystemShopHiddenWindow:setSelectedHidden(hidden)
-    local row = self:getSelected()
-    if not row or not row.variantKey or row.empty then return end
-    self.selectedVariantKey = row.variantKey
-    local sent = GodSystem.setShopItemHidden(row.variantKey, hidden == true)
+    local rows = self:selectedVariantRows(nil)
+    if #rows == 0 then return end
+    local keys = {}
+    for i = 1, #rows do keys[#keys + 1] = rows[i].variantKey end
+    local sent = GodSystem.setShopItemsHidden(keys, hidden == true)
     self.waitingForServer = gsIsMultiplayer() and sent ~= false
     if self.owner and self.owner.finishMultiplayerCommand then self.owner:finishMultiplayerCommand(sent) end
     if not self.waitingForServer then
-        if self.owner and self.owner.populateList then self.owner:populateList() end
         self:populateItems()
     end
 end
@@ -1333,12 +1463,11 @@ function GodSystemShopHiddenWindow:onDeleteConfirm(button, payload)
     if not button or button.internal ~= "YES" then return end
     local variantKey = payload and payload.variantKey or nil
     if not variantKey then return end
-    self.selectedVariantKey = nil
+    self:clearSelectedVariants()
     local sent = GodSystem.deleteShopItem(variantKey)
     self.waitingForServer = gsIsMultiplayer() and sent ~= false
     if self.owner and self.owner.finishMultiplayerCommand then self.owner:finishMultiplayerCommand(sent) end
     if not self.waitingForServer then
-        if self.owner and self.owner.populateList then self.owner:populateList() end
         self:populateItems()
     end
 end
@@ -2391,6 +2520,37 @@ end
 
 GodSystemWindow.ShopPageSize = 20
 
+function GodSystemWindow:listStateContext(listName)
+    listName = tostring(listName or "main")
+    local parts = { "mode=" .. tostring(self.mode or ""), "list=" .. listName }
+    if self.mode == "shop" then
+        parts[#parts + 1] = "category=" .. tostring(self.shopCategoryKey or "all")
+        parts[#parts + 1] = "search=" .. tostring(self.shopSearchText or "")
+        parts[#parts + 1] = "page=" .. tostring(self.shopPage or 1)
+    elseif self.mode == "recycle" then
+        parts[#parts + 1] = "search=" .. tostring(self.recycleSearchText or "")
+    elseif self.mode == "admin" then
+        parts[#parts + 1] = "search=" .. tostring(self.adminSearchText or "")
+    elseif self.mode == "attribute" then
+        parts[#parts + 1] = "search=" .. tostring(self.attributeSearchText or "")
+    elseif self.mode == "lottery" then
+        parts[#parts + 1] = "category=" .. tostring(self.lotteryCategoryKey or "all")
+    elseif self.mode == "tasks" then
+        parts[#parts + 1] = "taskList=" .. tostring(listName)
+    end
+    if listName == "detail" then
+        parts[#parts + 1] = "selected=" .. tostring(self:getPayloadId(self:getSelectedPayload()) or "")
+    end
+    return table.concat(parts, "\30")
+end
+
+function GodSystemWindow:captureListState(list, listName)
+    if not ListState then return nil end
+    return ListState.capture(list, self:listStateContext(listName), function(payload)
+        return self:getPayloadId(payload)
+    end)
+end
+
 function GodSystemWindow:captureScrollState()
     self.restoreScrollMode = self.mode
     self.restoreScrollCategory = self.shopCategoryKey
@@ -2401,25 +2561,76 @@ function GodSystemWindow:captureScrollState()
         local ok, value = pcall(function() return self.list:getYScroll() end)
         if ok then self.restoreScrollY = value or 0 end
     end
+    self.restoreListState = self:captureListState(self.list, "main")
+    self.restoreActiveListSnapshot = self:captureListState(self.activeList, "active")
+    self.restoreDetailListSnapshot = self:captureListState(self.detailList, "detail")
 end
 
 function GodSystemWindow:restoreScrollState()
     local pending = self.pendingRestoreMode == self.mode and self.pendingRestoreScroll or nil
+    local listState = pending and pending.listState or self.restoreListState
     local restoreMode = pending and pending.mode or self.restoreScrollMode
     local restoreCategory = pending and pending.category or self.restoreScrollCategory
     local restoreShopSearch = pending and pending.shopSearch or self.restoreScrollShopSearch
     local restoreRecycleSearch = pending and pending.recycleSearch or self.restoreScrollRecycleSearch
     local restoreY = pending and pending.y or self.restoreScrollY
-    if restoreMode ~= self.mode then return end
+    if restoreMode ~= self.mode then return false end
     if self.mode == "shop" then
-        if restoreCategory ~= self.shopCategoryKey then return end
-        if restoreShopSearch ~= self.shopSearchText then return end
+        if restoreCategory ~= self.shopCategoryKey then return false end
+        if restoreShopSearch ~= self.shopSearchText then return false end
     elseif self.mode == "recycle" then
-        if restoreRecycleSearch ~= self.recycleSearchText then return end
+        if restoreRecycleSearch ~= self.recycleSearchText then return false end
+    end
+    if ListState and listState then
+        local context = self:listStateContext("main")
+        local restored = ListState.restore(self.list, listState, context, function(payload)
+            return self:getPayloadId(payload)
+        end)
+        if restored then
+            ListState.restoreNextTick(self.list, listState, context, function(payload)
+                return self:getPayloadId(payload)
+            end)
+            self.lastSelectableListRow = math.floor(tonumber(self.list.selected) or 0)
+        end
+        return restored
     end
     if self.list and self.list.setYScroll and restoreY then
         self.list:setYScroll(restoreY)
     end
+    return true
+end
+
+function GodSystemWindow:restoreActiveListState()
+    local pending = self.pendingRestoreMode == self.mode and self.pendingRestoreScroll or nil
+    local state = pending and pending.activeListState or self.restoreActiveListSnapshot
+    if not ListState or not state then return false end
+    local context = self:listStateContext("active")
+    local restored = ListState.restore(self.activeList, state, context, function(payload)
+        return self:getPayloadId(payload)
+    end)
+    if restored then
+        ListState.restoreNextTick(self.activeList, state, context, function(payload)
+            return self:getPayloadId(payload)
+        end)
+        self.lastSelectableActiveRow = math.floor(tonumber(self.activeList.selected) or 0)
+    end
+    return restored
+end
+
+function GodSystemWindow:restoreDetailListState()
+    local pending = self.pendingRestoreMode == self.mode and self.pendingRestoreScroll or nil
+    local state = pending and pending.detailListState or self.restoreDetailListSnapshot
+    if not ListState or not state then return false end
+    local context = self:listStateContext("detail")
+    local restored = ListState.restore(self.detailList, state, context, function(payload, row, index)
+        return payload and payload.detailKey or (row and row.text and ("detail:" .. tostring(index)))
+    end)
+    if restored then
+        ListState.restoreNextTick(self.detailList, state, context, function(payload, row, index)
+            return payload and payload.detailKey or (row and row.text and ("detail:" .. tostring(index)))
+        end)
+    end
+    return restored
 end
 
 function GodSystemWindow:clearPendingActionSelection()
@@ -2646,6 +2857,9 @@ function GodSystemWindow:prepareActionSelection(payload)
         shopSearch = self.restoreScrollShopSearch,
         recycleSearch = self.restoreScrollRecycleSearch,
         y = self.restoreScrollY,
+        listState = self.restoreListState,
+        activeListState = self.restoreActiveListSnapshot,
+        detailListState = self.restoreDetailListSnapshot,
     }
 end
 
@@ -4438,11 +4652,13 @@ function GodSystemWindow:populateList()
         self:setStandardActionBar()
     end
     local selectionRestored = self:restoreSelection()
-    self:restoreScrollState()
-    if selectionRestored and self.pendingRestoreMode == self.mode then
+    local listStateRestored = self:restoreScrollState()
+    self:restoreActiveListState()
+    self:updateDetail()
+    self:restoreDetailListState()
+    if (selectionRestored or listStateRestored) and self.pendingRestoreMode == self.mode then
         self:clearPendingActionSelection()
     end
-    self:updateDetail()
     self:consumeLotteryResult()
 end
 
@@ -5512,9 +5728,9 @@ function GodSystemWindow:hideShopPayload(payload)
     end
     local variantKey = payload.data.variantKey or payload.data.fullType
     if not variantKey then return false end
+    self:prepareActionSelection(payload)
     local sent = GodSystem.setShopItemHidden(variantKey, true)
     self:finishMultiplayerCommand(sent)
-    if not gsIsMultiplayer() then self:populateList() end
     return true
 end
 
@@ -5751,9 +5967,9 @@ function GodSystemWindow:onThirdAction()
         if not variantKey and payload.data.items and payload.data.items[1] then
             variantKey = GodSystemShopVariants.getKey(payload.data.items[1].fullType, payload.data.items[1].worldSprite)
         end
+        self:prepareActionSelection(payload)
         local sent = GodSystem.setShopItemHidden(variantKey, true)
         self:finishMultiplayerCommand(sent)
-        if not gsIsMultiplayer() then self:populateList() end
         return
     end
     if self.mode == "tasks" then

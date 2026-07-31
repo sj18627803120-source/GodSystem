@@ -4481,6 +4481,81 @@ function Commands.setShopItemHidden(_, _, player, args)
     if not ok then errorMessage(player, tostring(err)) end
 end
 
+function Commands.setShopItemsHidden(_, _, player, args)
+    local txKind = "setShopItemsHidden"
+    local txRoot = store()
+    local txOwner = userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+        end
+    end
+    if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted, persistError = transmitStore()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return errorMessage(player, tostring(persistError))
+    end
+    local ok, err = pcall(function()
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
+        end
+        if type(args) ~= "table" or type(args.variantKeys) ~= "table" then
+            return complete(false, "ShopItemBatchInvalid")
+        end
+        if #args.variantKeys > 500 then return complete(false, "ShopItemBatchTooLarge") end
+        local keys, seen = {}, {}
+        for i = 1, #args.variantKeys do
+            local key = tostring(args.variantKeys[i] or "")
+            if key ~= "" and not seen[key] then
+                seen[key] = true
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys)
+        if #keys == 0 then return complete(false, "ShopItemBatchInvalid") end
+        local targetHidden = args.hidden == true
+        local data = playerData(player)
+        local changedKeys, skippedKeys = {}, {}
+        for i = 1, #keys do
+            local found, changed = GodSystemShopVariants.setHidden(data, keys[i], targetHidden)
+            if found and changed then changedKeys[#changedKeys + 1] = keys[i]
+            else skippedKeys[#skippedKeys + 1] = keys[i] end
+        end
+        local code = targetHidden and "ShopItemsHidden" or "ShopItemsVisible"
+        if #changedKeys > 0 then appendHistory(data, historyEntry("shop", code, { #changedKeys, #skippedKeys })) end
+        return complete(true, code, { #changedKeys, #skippedKeys }, {
+            requested = #keys,
+            changed = #changedKeys,
+            skipped = #skippedKeys,
+            changedKeys = changedKeys,
+            skippedKeys = skippedKeys,
+        })
+    end)
+    unguard(player)
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        local errorPersisted, errorPersistError = transmitStore()
+        if not errorPersisted then return errorMessage(player, tostring(errorPersistError)) end
+        return errorMessage(player, tostring(err))
+    end
+end
+
 function Commands.deleteShopItem(_, _, player, args)
     if not guard(player) then return end
     local ok, err = pcall(function()

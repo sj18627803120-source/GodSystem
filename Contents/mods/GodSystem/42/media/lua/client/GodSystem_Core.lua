@@ -4751,6 +4751,53 @@ function GodSystem.setShopItemHidden(variantKey, hidden)
     return true
 end
 
+function GodSystem.normalizeShopHiddenVariantKeys(values)
+    local keys, seen = {}, {}
+    for i = 1, #(values or {}) do
+        local key = tostring(values[i] or "")
+        if key ~= "" and not seen[key] then
+            seen[key] = true
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys)
+    return keys
+end
+
+function GodSystem.setShopItemsHidden(variantKeys, hidden)
+    local keys = GodSystem.normalizeShopHiddenVariantKeys(variantKeys)
+    if #keys == 0 then
+        GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
+        return false
+    end
+    if #keys > 500 then
+        GodSystem.notify(GodSystem.text("Notify_ShopItemsTooMany", "Select at most 500 shop items at once."))
+        return false
+    end
+    local data = GodSystem.getData()
+    local changedKeys, skippedKeys = {}, {}
+    for i = 1, #keys do
+        local found, changed = GodSystemShopVariants.setHidden(data, keys[i], hidden == true)
+        if found and changed then changedKeys[#changedKeys + 1] = keys[i]
+        else skippedKeys[#skippedKeys + 1] = keys[i] end
+    end
+    local targetHidden = hidden == true
+    if #changedKeys > 0 then
+        local historyKey = targetHidden and "History_ShopItemsHidden" or "History_ShopItemsVisible"
+        local historyFallback = targetHidden and "Hidden {1} shop items" or "Restored {1} shop items"
+        gsAppendHistory(data, {
+            kind = "shop",
+            text = GodSystem.text(historyKey, historyFallback):gsub("{1}", tostring(#changedKeys)),
+        })
+        GodSystem.save()
+    end
+    local notifyKey = targetHidden and "Notify_ShopItemsHidden" or "Notify_ShopItemsVisible"
+    local notifyFallback = targetHidden and "Shop items changed: {1}; skipped: {2}" or "Shop items restored: {1}; skipped: {2}"
+    GodSystem.notify(GodSystem.text(notifyKey, notifyFallback)
+        :gsub("{1}", tostring(#changedKeys)):gsub("{2}", tostring(#skippedKeys)))
+    return true
+end
+
 function GodSystem.deleteShopItem(variantKey)
     if not variantKey then
         GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
