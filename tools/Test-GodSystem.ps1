@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422013UIScale.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
+& (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422013UIRecovery.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV422011.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11673.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3'
 & (Join-Path $PSScriptRoot 'tests\Test-GodSystemV11672.ps1') -Root $RepoRoot -ExpectedVersion '42.20.1.3' -AllowStorageRoutingV11673

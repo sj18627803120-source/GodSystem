@@ -3,6 +3,7 @@ require "GodSystem_Core"
 require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
+require "GodSystem_FloatingButtonLifecycle"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -22,6 +23,8 @@ GodSystemUI.window = nil
 GodSystemUI.taskTracker = nil
 GodSystemUI.shortcutWindow = nil
 GodSystemUI.shopHiddenWindow = nil
+GodSystemUI.FloatingButtonRefreshIntervalMs = 5000
+GodSystemUI.lastFloatingButtonCheckMs = 0
 
 local function gsSetLabel(label, text)
     if label then
@@ -6004,19 +6007,58 @@ function GodSystemUI.toggleTaskTracker()
 end
 
 function GodSystemUI.createFloatingButton()
-    if GodSystemUI.floating then
-        return
-    end
+    return GodSystemUI.ensureFloatingButton()
+end
+
+function GodSystemUI.ensureFloatingButton()
     local data = GodSystem.getData()
     local cfg = GodSystemConfig.FloatingButton
-    local button = GodSystemFloatingButton:new(data.ui.x or cfg.x, data.ui.y or cfg.y, cfg.width, cfg.height)
-    button:initialise()
-    button:addToUIManager()
-    button:setVisible(true)
+    local screenWidth = getCore():getScreenWidth()
+    local screenHeight = getCore():getScreenHeight()
+    local button, _, moved = GodSystemFloatingButtonLifecycle.ensure(
+        GodSystemUI.floating,
+        function(x, y, width, height)
+            local created = GodSystemFloatingButton:new(data.ui.x or x or cfg.x, data.ui.y or y or cfg.y, width, height)
+            created:initialise()
+            return created
+        end,
+        data.ui.x or cfg.x,
+        data.ui.y or cfg.y,
+        cfg.width,
+        cfg.height,
+        screenWidth,
+        screenHeight
+    )
+    if not button then return nil end
     GodSystemUI.floating = button
+    if moved then
+        data.ui.x = button.x
+        data.ui.y = button.y
+        GodSystem.save()
+    end
+    return button
+end
+
+function GodSystemUI.closeFloatingButton()
+    local button = GodSystemUI.floating
+    if button then
+        if button.setVisible then button:setVisible(false) end
+        if button.removeFromUIManager then button:removeFromUIManager() end
+    end
+    GodSystemUI.floating = nil
+    GodSystemUI.lastFloatingButtonCheckMs = 0
+end
+
+function GodSystemUI.onFloatingButtonTick()
+    if not (isIngameState and isIngameState()) then return end
+    local now = gsNowMs()
+    if now - (GodSystemUI.lastFloatingButtonCheckMs or 0) < GodSystemUI.FloatingButtonRefreshIntervalMs then return end
+    GodSystemUI.lastFloatingButtonCheckMs = now
+    GodSystemUI.ensureFloatingButton()
 end
 
 function GodSystemUI.onGameStart()
+    GodSystemUI.lastFloatingButtonCheckMs = 0
     GodSystemUI.createFloatingButton()
     local data = GodSystem.getData()
     if data.ui.taskTrackerVisible == true then
@@ -6024,12 +6066,24 @@ function GodSystemUI.onGameStart()
     end
 end
 
+function GodSystemUI.onSessionEnd()
+    GodSystemUI.closeShopHiddenWindow()
+    GodSystemUI.closeFloatingButton()
+end
+
 if Events.OnGameStart then
+    Events.OnGameStart.Remove(GodSystemUI.onGameStart)
     Events.OnGameStart.Add(GodSystemUI.onGameStart)
 end
+if Events.OnTick then
+    Events.OnTick.Remove(GodSystemUI.onFloatingButtonTick)
+    Events.OnTick.Add(GodSystemUI.onFloatingButtonTick)
+end
 if Events.OnDisconnect then
-    Events.OnDisconnect.Add(GodSystemUI.closeShopHiddenWindow)
+    Events.OnDisconnect.Remove(GodSystemUI.onSessionEnd)
+    Events.OnDisconnect.Add(GodSystemUI.onSessionEnd)
 end
 if Events.OnMainMenuEnter then
-    Events.OnMainMenuEnter.Add(GodSystemUI.closeShopHiddenWindow)
+    Events.OnMainMenuEnter.Remove(GodSystemUI.onSessionEnd)
+    Events.OnMainMenuEnter.Add(GodSystemUI.onSessionEnd)
 end

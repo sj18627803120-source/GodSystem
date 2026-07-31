@@ -29,6 +29,7 @@ $manager = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_StorageManager.lua')
 $server = Read-Utf8 (Join-Path $Lua 'server\GodSystem_StorageServer.lua')
 $client = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageClient.lua')
 $context = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageContext.lua')
+$markerLayout = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageMarkerLayout.lua')
 $storageUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_StorageUI.lua')
 $mainUi = Read-Utf8 (Join-Path $Lua 'client\GodSystem_UI.lua')
 $config = Read-Utf8 (Join-Path $Lua 'shared\GodSystem_Config.lua')
@@ -57,8 +58,10 @@ Require-Text $storage 'isCoreHost\s*=' 'Container summaries must identify core-h
 Require-Text $context 'setHighlightColor' 'Context-menu furniture highlighting is missing'
 Require-Text $context 'onHighlightParams' 'Context-menu hover highlighting is missing'
 Require-Text $context 'connectedObjectIds' 'Marker colors must use current connectivity state'
-Require-Text $context 'markerHorizontalSlot' 'Compact same-square marker positioning is missing'
-Require-Text $context 'markerChevronCount' 'Low/middle/high chevron markers are missing'
+Require-Text $context 'require\s+"GodSystem_StorageMarkerLayout"' 'Context must load the isolated same-square marker layout helper'
+Require-Text $context 'GodSystemStorageMarkerLayout\.position' 'Same-square markers must use vertical layout positioning'
+Require-Text $markerLayout 'function\s+Layout\.position' 'Vertical marker layout helper is missing'
+Reject-Text $context 'markerHorizontalSlot|markerChevronCount|for\s+level\s*=\s*1,\s*count' 'Markers must not fan out or repeat chevrons'
 Require-Text $context 'candidateLevelLabel' 'Context-menu level labels are missing'
 Reject-Text $context 'DrawStringCentre' 'Compact connection markers must not draw overlapping numeric labels'
 Reject-Text $client 'if\s+payload\s+and\s+GodSystemStorageUI\s+and\s+GodSystemStorageUI\.onOperationResult' 'SP failures without payload must still reach equipment restoration'

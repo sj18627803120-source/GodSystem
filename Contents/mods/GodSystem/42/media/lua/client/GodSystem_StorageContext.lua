@@ -1,4 +1,5 @@
 require "GodSystem_StorageUI"
+require "GodSystem_StorageMarkerLayout"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISWorldObjectContextMenu"
 
@@ -121,17 +122,6 @@ local function candidateNumber(object)
     return 1
 end
 
-local function markerHorizontalSlot(number)
-    number = math.max(1, Storage.integer(number, 1))
-    if number == 1 then return 0 end
-    local distance = math.floor(number / 2)
-    return number % 2 == 0 and -distance or distance
-end
-
-local function markerChevronCount(number)
-    return math.min(3, math.max(1, Storage.integer(number, 1)))
-end
-
 local function candidateLevelLabel(number, total)
     number = math.max(1, Storage.integer(number, 1))
     total = math.max(1, Storage.integer(total, 1))
@@ -148,8 +138,6 @@ end
 
 Context.candidateRows = candidateRows
 Context.candidateNumber = candidateNumber
-Context.markerHorizontalSlot = markerHorizontalSlot
-Context.markerChevronCount = markerChevronCount
 Context.candidateLevelLabel = candidateLevelLabel
 
 local function cacheMarker(object, marker, number, total)
@@ -196,21 +184,14 @@ function Context.renderMarkers()
         local sx, sy, zoom = screenPoint(marker.x + 0.5, marker.y + 0.5, marker.z)
         if sx and sy and zoom then
             local size = math.max(4, 7 / zoom)
-            local step = math.max(5, 8 / zoom)
-            local spacing = math.max(12, 18 / zoom)
-            local stem = math.max(3, 5 / zoom)
-            sx = sx + (markerHorizontalSlot(marker.number) * spacing)
+            local step = math.max(10, 14 / zoom)
             local baseY = sy - math.max(30, 46 / zoom)
             local red, green, blue = 0.86, 0.26, 0.28
             if marker.connected then red, green, blue = 0.12, 0.48, 0.92 end
             if marker.coreHost then red, green, blue = 0.12, 0.82, 0.42 end
-            local count = markerChevronCount(marker.number)
-            for level = 1, count do
-                local cy = baseY - ((level - 1) * step)
-                drawLine(renderer, Context.lineTexture, sx - size, cy + size, sx, cy, red, green, blue)
-                drawLine(renderer, Context.lineTexture, sx, cy, sx + size, cy + size, red, green, blue)
-            end
-            drawLine(renderer, Context.lineTexture, sx, baseY + size, sx, baseY + size + stem, red, green, blue)
+            local markerX, markerY = GodSystemStorageMarkerLayout.position(sx, baseY, marker.number, step)
+            drawLine(renderer, Context.lineTexture, markerX - size, markerY + size, markerX, markerY, red, green, blue)
+            drawLine(renderer, Context.lineTexture, markerX, markerY, markerX + size, markerY + size, red, green, blue)
         end
     end
 end
