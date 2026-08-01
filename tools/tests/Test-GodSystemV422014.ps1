@@ -67,7 +67,7 @@ Require-Text $server 'changedKeys' 'Server batch result must report changed keys
 Require-Text $server 'skippedKeys' 'Server batch result must report skipped keys'
 
 foreach ($key in @("ShopHidden_SelectedCount", "Notify_ShopItemsHidden", "Notify_ShopItemsVisible", "NotifyMP_ShopItemsHidden", "NotifyMP_ShopItemsVisible")) {
-    Require-Text $localization ("(?m)^" + [regex]::Escape($key) + ":") "Localization source missing: $key"
+    Require-Text $localization ("(?m)^" + [regex]::Escape($key) + ":") "Localization source contains: $key"
 }
 
 $versionPattern = [regex]::Escape($ExpectedVersion)

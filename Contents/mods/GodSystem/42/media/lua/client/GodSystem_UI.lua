@@ -5,6 +5,7 @@ require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
 require "GodSystem_FloatingButtonLifecycle"
 require "GodSystem_ListState"
+require "GodSystem_PageSections"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -28,6 +29,7 @@ GodSystemUI.FloatingButtonRefreshIntervalMs = 5000
 GodSystemUI.lastFloatingButtonCheckMs = 0
 
 local ListState = GodSystemListState
+local PageSections = GodSystemPageSections
 
 local function gsSetLabel(label, text)
     if label then
@@ -1534,6 +1536,10 @@ function GodSystemWindow:new(x, y, width, height)
     o.mode = "tasks"
     o.selectedTaskList = "open"
     o.waistSelected = {}
+    o.pageSections = {
+        waist = PageSections.new("items"),
+        tasks = PageSections.new("tasks"),
+    }
     o.shopSearchText = ""
     o.recycleSearchText = ""
     o.adminSearchText = ""
@@ -1708,6 +1714,15 @@ end
 
 function GodSystemWindow:updateNavPageButtons()
     local page = self:clampNavPage()
+    if self.sectionButtons then
+        local x = self.contentX + self:S(220)
+        local y = self.contentY + self:S(8)
+        local width = self:S(96)
+        local gap = self:S(8)
+        for i = 1, #self.sectionButtons do
+            gsSetBounds(self.sectionButtons[i], x + ((i - 1) * (width + gap)), y, width, self:S(28))
+        end
+    end
     local pageCount = self:getNavPageCount()
     local canPage = pageCount > 1
     if self.navPageUpButton then
@@ -2211,6 +2226,16 @@ function GodSystemWindow:createChildren()
     self.categoryButton:setVisible(false)
     self:addChild(self.categoryButton)
 
+    self.sectionButtons = {}
+    for i = 1, 3 do
+        local button = ISButton:new(self.contentX + self:S(220), self.contentY + self:S(8), self:S(96), self:S(28), "", self, self.onPageSectionButton)
+        button:initialise()
+        gsStyleButton(button, false)
+        button:setVisible(false)
+        self:addChild(button)
+        self.sectionButtons[i] = button
+    end
+
     self:updateModeButtonStyles()
     self:applyStaticLayout()
     self:populateList()
@@ -2520,6 +2545,93 @@ end
 
 GodSystemWindow.ShopPageSize = 20
 
+function GodSystemWindow:getPageSections(mode)
+    mode = tostring(mode or self.mode or "")
+    self.pageSections = self.pageSections or {}
+    if (mode == "waist" or mode == "tasks") and not self.pageSections[mode] then
+        self.pageSections[mode] = PageSections.new(mode == "waist" and "items" or "tasks")
+    end
+    return self.pageSections[mode]
+end
+
+function GodSystemWindow:getActivePageSection(mode)
+    return PageSections.active(self:getPageSections(mode))
+end
+
+function GodSystemWindow:capturePageSectionState(mode)
+    local sections = self:getPageSections(mode)
+    if not sections or not ListState then return end
+    local sectionId = PageSections.active(sections)
+    PageSections.capture(sections, sectionId, {
+        main = self:captureListState(self.list, "main"),
+        active = self:captureListState(self.activeList, "active"),
+        detail = self:captureListState(self.detailList, "detail"),
+        selectedTaskList = self.selectedTaskList,
+    })
+end
+
+function GodSystemWindow:restorePageSectionState(mode)
+    local sections = self:getPageSections(mode)
+    local state = PageSections.restore(sections)
+    if not state or not ListState then return false end
+    if mode == "tasks" and state.selectedTaskList then
+        self.selectedTaskList = state.selectedTaskList
+    end
+    local function restore(list, snapshot, listName, idFn)
+        if not list or not snapshot then return false end
+        local context = self:listStateContext(listName)
+        local restored = ListState.restore(list, snapshot, context, idFn)
+        if restored then ListState.restoreNextTick(list, snapshot, context, idFn) end
+        return restored
+    end
+    local restored = restore(self.list, state.main, "main", function(payload) return self:getPayloadId(payload) end)
+    restored = restore(self.activeList, state.active, "active", function(payload) return self:getPayloadId(payload) end) or restored
+    restored = restore(self.detailList, state.detail, "detail", function(payload, row, index)
+        return payload and payload.detailKey or (row and row.text and ("detail:" .. tostring(index)))
+    end) or restored
+    return restored
+end
+
+function GodSystemWindow:showPageSections(mode, definitions)
+    local sections = self:getPageSections(mode)
+    if not self.sectionButtons then return end
+    local activeId = PageSections.active(sections)
+    for i = 1, #self.sectionButtons do
+        local button = self.sectionButtons[i]
+        local definition = definitions and definitions[i] or nil
+        button.sectionMode = mode
+        button.sectionId = definition and definition.id or nil
+        button.sectionLabel = definition and definition.label or ""
+        button:setVisible(definition ~= nil)
+        if definition then
+            gsSetButtonTitle(button, definition.label)
+            gsStyleButton(button, activeId == definition.id)
+        end
+    end
+end
+
+function GodSystemWindow:hidePageSections()
+    for i = 1, #(self.sectionButtons or {}) do
+        self.sectionButtons[i]:setVisible(false)
+    end
+end
+
+function GodSystemWindow:onPageSectionButton(button)
+    if not button or button.sectionMode ~= self.mode or not button.sectionId then return end
+    self:selectPageSection(button.sectionId)
+end
+
+function GodSystemWindow:selectPageSection(id)
+    local mode = self.mode
+    local sections = self:getPageSections(mode)
+    if not sections or tostring(id or "") == PageSections.active(sections) then return false end
+    self:capturePageSectionState(mode)
+    if not PageSections.select(sections, id) then return false end
+    self:populateList()
+    self:requestDeferredPopulate(1)
+    return true
+end
+
 function GodSystemWindow:listStateContext(listName)
     listName = tostring(listName or "main")
     local parts = { "mode=" .. tostring(self.mode or ""), "list=" .. listName }
@@ -2537,6 +2649,9 @@ function GodSystemWindow:listStateContext(listName)
         parts[#parts + 1] = "category=" .. tostring(self.lotteryCategoryKey or "all")
     elseif self.mode == "tasks" then
         parts[#parts + 1] = "taskList=" .. tostring(listName)
+    end
+    if self.mode == "waist" or self.mode == "tasks" then
+        parts[#parts + 1] = "section=" .. self:getActivePageSection(self.mode)
     end
     if listName == "detail" then
         parts[#parts + 1] = "selected=" .. tostring(self:getPayloadId(self:getSelectedPayload()) or "")
@@ -3067,6 +3182,7 @@ end
 function GodSystemWindow:applyBaseLayout()
     self:setupLayoutMetrics()
     self:applyStaticLayout()
+    self:hidePageSections()
     if self.openTaskLabel then
         self.openTaskLabel:setVisible(false)
     end
@@ -3640,7 +3756,7 @@ function GodSystemWindow:populateRecycle()
     end
 end
 
-function GodSystemWindow:populateWaistSpace()
+function GodSystemWindow:populateLegacyWaistSpace()
     local info = GodSystem.getAutoRecyclerInfo()
     self.thirdButton:setVisible(true)
     if not info.found then
@@ -3770,6 +3886,137 @@ function GodSystemWindow:populateWaistSpace()
     end
     if skipped and skipped > 0 then
         self:setDetailText(GodSystem.text("Waist_Skipped", "Skipped protected items: ") .. tostring(skipped))
+    end
+end
+
+function GodSystemWindow:populateTerminalItemsSection()
+    local unlockMode = GodSystem.isWaistRecycleUnlockMode()
+    gsSetButtonTitle(self.primaryButton, unlockMode
+        and GodSystem.text("Btn_WaistSellAndListSelected", "Sell+list selected")
+        or GodSystem.text("Btn_SellSelected", "Sell selected"))
+    gsSetButtonTitle(self.secondaryButton, unlockMode
+        and GodSystem.text("Btn_WaistSellAndListAll", "Sell+list all")
+        or GodSystem.text("Btn_SellAllWaist", "Sell all"))
+    self.primaryButton:setVisible(true)
+    self.secondaryButton:setVisible(true)
+    self.thirdButton:setVisible(false)
+    self.fourthButton:setVisible(false)
+    self.fifthButton:setVisible(false)
+    self.sixthButton:setVisible(false)
+    self.seventhButton:setVisible(false)
+
+    local groups, order, skipped = GodSystem.getWaistSpaceRecycleGroups()
+    local seen = {}
+    for i = 1, #order do
+        local group = groups[order[i]]
+        seen[group.fullType] = true
+        local checked = self.waistSelected and self.waistSelected[group.fullType] == true
+        local text = string.format("%s%s x%d", checked and "[x] " or "[ ] ", group.label, group.count)
+        local detail = (group.unitDivisor or 1) > 1
+            and string.format("%d%s / %d%s", group.totalValue or 0, GodSystem.text("Unit_CoinShort", "c"), group.count or 0, GodSystem.text("Unit_ItemShort", "items"))
+            or string.format("%d%s/%s", group.valueEach or 0, GodSystem.text("Unit_CoinShort", "c"), GodSystem.text("Unit_ItemShort", "item"))
+        self:addListItem(text, { kind = "waist", data = group, detail = detail })
+    end
+    for fullType in pairs(self.waistSelected or {}) do
+        if not seen[fullType] then self.waistSelected[fullType] = nil end
+    end
+    if #order == 0 then
+        self:addListItem(GodSystem.text("Waist_Empty", "No recyclable item in terminal"), { kind = "empty", detail = "" })
+    end
+    if skipped and skipped > 0 then
+        self:setDetailText(GodSystem.text("Waist_Skipped", "Skipped protected items: ") .. tostring(skipped))
+    end
+    self:setStandardActionBar()
+end
+
+function GodSystemWindow:populateTerminalUpgradesSection()
+    gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_UpgradeSystem", "Upgrade"))
+    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
+    self.primaryButton:setVisible(true)
+    self.secondaryButton:setVisible(not gsIsMultiplayer())
+    self.thirdButton:setVisible(false)
+    self.fourthButton:setVisible(false)
+    self.fifthButton:setVisible(false)
+    self.sixthButton:setVisible(false)
+    self.seventhButton:setVisible(false)
+    for _, upgradeType in ipairs({ "terminalCapacity", "terminalReduction", "terminalRelief", "terminalCooling" }) do
+        local info = GodSystem.getSystemUpgradeInfo(upgradeType)
+        if info then
+            local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c"))
+                or GodSystem.text("Upgrade_Maxed", "Maxed")
+            local detail = "Lv." .. tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
+            if info.terminalType == "cooling" and info.terminalInfo then
+                detail = detail .. " | x" .. tostring(info.terminalInfo.value or 1)
+            end
+            self:addListItem(info.label, { kind = "upgrade", data = info, detail = detail })
+        end
+    end
+    self:setStandardActionBar()
+end
+
+function GodSystemWindow:populateTerminalServicesSection(info)
+    local autoState = info.autoRecycleUnlocked
+        and (info.autoRecycleEnabled and GodSystem.text("Waist_AutoRecycleEnabled", "Enabled") or GodSystem.text("Waist_AutoRecycleDisabled", "Disabled"))
+        or GodSystem.text("Waist_AutoRecycleLocked", "Locked")
+    self:addListItem(GodSystem.text("Terminal_ServiceAutoRecycle", "Auto recycle"), {
+        kind = "terminalAutoRecycle",
+        detail = autoState .. " | " .. GodSystem.text("Waist_AutoRecycleInterval", "Interval") .. " "
+            .. tostring(info.autoRecycleIntervalHours or 1) .. GodSystem.text("Unit_Hour", "h"),
+    })
+    local freshnessState = info.freshnessActive
+        and (string.format("%.1f", tonumber(info.freshnessRemainingDays) or 0) .. GodSystem.text("Unit_Day", "d"))
+        or (info.freshnessExpired and GodSystem.text("Terminal_FreshnessExpired", "Expired") or GodSystem.text("Terminal_FreshnessInactive", "Inactive"))
+    local coolingRequirement = (tonumber(info.coolingLevel) or 0) >= 1
+        and ("Lv." .. tostring(info.coolingLevel) .. " | x" .. tostring(info.coolingMultiplier or 1))
+        or GodSystem.text("Terminal_FreshnessCoolingRequired", "Cooling Lv.1 required")
+    self:addListItem(GodSystem.text("Terminal_ServiceFreshness", "Freshness service"), {
+        kind = "terminalFreshnessService",
+        detail = freshnessState .. " | " .. coolingRequirement,
+    })
+    gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_TerminalFreshnessOneDay", "Buy 1 day") .. " -100" .. GodSystem.text("Unit_CoinShort", "c"))
+    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_TerminalAutoRecycle", "Auto recycle"))
+    self.primaryButton:setVisible(true)
+    self.secondaryButton:setVisible(true)
+    self.thirdButton:setVisible(false)
+    self.fourthButton:setVisible(false)
+    self.fifthButton:setVisible(false)
+    self.sixthButton:setVisible(false)
+    self.seventhButton:setVisible(false)
+    self:setStandardActionBar()
+end
+
+function GodSystemWindow:populateWaistSpace()
+    local info = GodSystem.getAutoRecyclerInfo()
+    if not info.found then
+        if info.claimed then
+            gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_RecoverWaistBag", "Recover terminal") .. " -" .. tostring(info.recoverCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
+        else
+            gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_ClaimWaistBag", "Claim terminal"))
+        end
+        gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
+        self.primaryButton:setVisible(true)
+        self.secondaryButton:setVisible(not gsIsMultiplayer())
+        self.thirdButton:setVisible(false)
+        self.fourthButton:setVisible(false)
+        self.fifthButton:setVisible(false)
+        self.sixthButton:setVisible(false)
+        self.seventhButton:setVisible(false)
+        self:addListItem(GodSystem.text("Waist_NotFound", "System space terminal not found"), { kind = "empty", detail = GodSystem.text("Hint_WaistSpaceMissing", "Claim or recover the system space terminal first.") })
+        self:setStandardActionBar()
+        return
+    end
+    self:showPageSections("waist", {
+        { id = "items", label = GodSystem.text("Section_TerminalItems", "Items") },
+        { id = "upgrades", label = GodSystem.text("Section_TerminalUpgrades", "Upgrades") },
+        { id = "services", label = GodSystem.text("Section_TerminalServices", "Services") },
+    })
+    local section = self:getActivePageSection("waist")
+    if section == "upgrades" then
+        self:populateTerminalUpgradesSection()
+    elseif section == "services" then
+        self:populateTerminalServicesSection(info)
+    else
+        self:populateTerminalItemsSection()
     end
 end
 
@@ -4117,7 +4364,7 @@ function GodSystemWindow:populateAttributes()
     self:applyAttributeActionBar(self:getSelectedPayload())
 end
 
-function GodSystemWindow:populateTasks()
+function GodSystemWindow:populateTaskMain()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_TaskAccept", "Accept"))
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshOpenTasksShort", "Refresh tasks -") .. tostring(GodSystemConfig.RefreshTaskCost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
     self.thirdButton:setVisible(true)
@@ -4161,13 +4408,49 @@ function GodSystemWindow:populateTasks()
     self:setStandardActionBar()
 end
 
+function GodSystemWindow:populateTaskExtensions()
+    gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_UpgradeSystem", "Upgrade"))
+    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
+    self.primaryButton:setVisible(true)
+    self.secondaryButton:setVisible(not gsIsMultiplayer())
+    self.thirdButton:setVisible(false)
+    self.fourthButton:setVisible(false)
+    self.fifthButton:setVisible(false)
+    local upgrades = { "activeTasks", "dailyTasks" }
+    for i = 1, #upgrades do
+        local info = GodSystem.getSystemUpgradeInfo(upgrades[i])
+        if info then
+            local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c"))
+                or GodSystem.text("Upgrade_Maxed", "Maxed")
+            self:addListItem(info.label, {
+                kind = "upgrade",
+                data = info,
+                detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText,
+            })
+        end
+    end
+    self:setStandardActionBar()
+end
+
+function GodSystemWindow:populateTasks()
+    self:showPageSections("tasks", {
+        { id = "tasks", label = GodSystem.text("Section_Tasks", "Tasks") },
+        { id = "taskExtensions", label = GodSystem.text("Section_TaskExtensions", "Task extensions") },
+    })
+    if self:getActivePageSection("tasks") == "taskExtensions" then
+        self:populateTaskExtensions()
+    else
+        self:populateTaskMain()
+    end
+end
+
 function GodSystemWindow:populateUpgrades()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_UpgradeSystem", "Upgrade"))
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_RefreshDisplay", "Refresh"))
     self.secondaryButton:setVisible(not gsIsMultiplayer())
     self.thirdButton:setVisible(false)
 
-    local upgrades = { "activeTasks", "dailyTasks", "carryCapacity" }
+    local upgrades = { "carryCapacity" }
     for i = 1, #upgrades do
         local info = GodSystem.getSystemUpgradeInfo(upgrades[i])
         if info then
@@ -4582,7 +4865,7 @@ function GodSystemWindow:populateList()
     self.secondaryButton:setVisible(true)
     self.primaryButton:setVisible(true)
     self:applyBaseLayout()
-    self:setTaskLayout(self.mode == "tasks")
+    self:setTaskLayout(self.mode == "tasks" and self:getActivePageSection("tasks") == "tasks")
     self:setShopLayout(self.mode == "shop" or self.mode == "recycle" or self.mode == "admin" or self.mode == "lottery" or self.mode == "attribute")
     self:setTextPageLayout(self.mode == "history" or self.mode == "info" or self.mode == "diagnostics")
     self:updateModeButtonStyles()
@@ -4654,6 +4937,7 @@ function GodSystemWindow:populateList()
     local selectionRestored = self:restoreSelection()
     local listStateRestored = self:restoreScrollState()
     self:restoreActiveListState()
+    self:restorePageSectionState(self.mode)
     self:updateDetail()
     self:restoreDetailListState()
     if (selectionRestored or listStateRestored) and self.pendingRestoreMode == self.mode then
@@ -5546,6 +5830,28 @@ function GodSystemWindow:onPrimaryAction()
             self:finishMultiplayerCommand(sent)
             return
         end
+        local section = self:getActivePageSection("waist")
+        if section == "upgrades" then
+            if not payload or payload.kind ~= "upgrade" or not payload.data or not payload.data.terminalType then
+                GodSystem.notify(GodSystem.text("Notify_SelectOne", "Select an item first"))
+                return
+            end
+            self:prepareActionSelection(payload)
+            self:finishMultiplayerCommand(GodSystem.upgradeTerminal(payload.data.terminalType))
+            return
+        end
+        if section == "services" then
+            if not payload or payload.kind == "terminalFreshnessService" then
+                self:prepareActionSelection(payload)
+                self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(1))
+                return
+            end
+            if payload.kind == "terminalAutoRecycle" then
+                self:prepareActionSelection(payload)
+                self:finishMultiplayerCommand(GodSystem.toggleWaistAutoRecycle())
+                return
+            end
+        end
         local selected = self.waistSelected or {}
         local hasSelected = false
         for _, value in pairs(selected) do
@@ -5734,7 +6040,24 @@ function GodSystemWindow:hideShopPayload(payload)
     return true
 end
 
+function GodSystemWindow:buyTerminalFreshnessService(days)
+    self:prepareActionSelection(self:getSelectedPayload())
+    return self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(days))
+end
+
 function GodSystemWindow:onListRightMouseUp(x, y)
+    if self.mode == "waist" and self:getActivePageSection("waist") == "services" then
+        local payload = self:selectListRowAt(x, y, self.list)
+        if not payload or payload.kind ~= "terminalFreshnessService" then return false end
+        local player = getPlayer()
+        local playerNum = player and player:getPlayerNum() or 0
+        local context = ISContextMenu.get(playerNum, getMouseX(), getMouseY())
+        context:addOption(GodSystem.text("Menu_TerminalFreshnessOneDay", "Buy 1 day") .. " (100" .. GodSystem.text("Unit_CoinShort", "c)"), self, self.buyTerminalFreshnessService, 1)
+        context:addOption(GodSystem.text("Menu_TerminalFreshnessTenDays", "Buy 10 days") .. " (900" .. GodSystem.text("Unit_CoinShort", "c)"), self, self.buyTerminalFreshnessService, 10)
+        context:addOption(GodSystem.text("Menu_TerminalFreshnessTwentyDays", "Buy 20 days") .. " (1600" .. GodSystem.text("Unit_CoinShort", "c)"), self, self.buyTerminalFreshnessService, 20)
+        context:addOption(GodSystem.text("Menu_TerminalFreshnessThirtyDays", "Buy 30 days") .. " (2100" .. GodSystem.text("Unit_CoinShort", "c)"), self, self.buyTerminalFreshnessService, 30)
+        return true
+    end
     if self.mode ~= "recycle" and self.mode ~= "shop" then
         return false
     end
@@ -5849,6 +6172,23 @@ function GodSystemWindow:onSecondaryAction()
         self:populateList()
     elseif self.mode == "waist" then
         local info = GodSystem.getAutoRecyclerInfo()
+        local section = self:getActivePageSection("waist")
+        if info.found and section == "upgrades" then
+            if self:requestServerRefresh() then return end
+            self:populateList()
+            return
+        end
+        if info.found and section == "services" then
+            local payload = self:getSelectedPayload()
+            if payload and payload.kind == "terminalAutoRecycle" then
+                self:prepareActionSelection(payload)
+                self:finishMultiplayerCommand(GodSystem.toggleWaistAutoRecycle())
+                return
+            end
+            if self:requestServerRefresh() then return end
+            self:populateList()
+            return
+        end
         local sent = true
         if info.found then
             sent = GodSystem.recycleWaistSpaceItemsByMode(nil)
@@ -5872,6 +6212,11 @@ function GodSystemWindow:onSecondaryAction()
         end
         self:populateList()
     elseif self.mode == "tasks" then
+        if self:getActivePageSection("tasks") == "taskExtensions" then
+            if self:requestServerRefresh() then return end
+            self:populateList()
+            return
+        end
         local sent = GodSystem.refreshOpenTasks()
         self:finishMultiplayerCommand(sent)
     elseif self.mode == "diagnostics" then
@@ -5973,6 +6318,9 @@ function GodSystemWindow:onThirdAction()
         return
     end
     if self.mode == "tasks" then
+        if self:getActivePageSection("tasks") == "taskExtensions" then
+            return
+        end
         GodSystemUI.toggleTaskTracker()
         self:populateList()
         return

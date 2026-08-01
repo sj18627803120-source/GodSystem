@@ -324,6 +324,7 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
         and writeNumber(inventory, "setCapacity", "getCapacity", payload.innerCapacity)
         and writeNumber(item, "setWeightReduction", "getWeightReduction", payload.outerReduction)
         and writeNumber(inventory, "setWeightReduction", "getWeightReduction", payload.innerReduction)
+        and writeNumber(inventory, "setAgeFactor", "getAgeFactor", payload.ageFactor)
     if not applied then
         if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
         return false
@@ -362,6 +363,7 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
     local terminalData = item.getModData and item:getModData() or nil
     if terminalData then
         terminalData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
+        terminalData[GodSystemConfig.TerminalCoolingLevelKey or "GodSystemTerminalCoolingLevel"] = math.max(0, math.floor(tonumber(payload.coolingLevel) or 0))
     end
 
     GodSystem.autoRecyclerCache = { item = item }
@@ -495,6 +497,7 @@ local function transactionFingerprint(command, args)
     args = type(args) == "table" and args or {}
     local attributeCommand = (Protocol.C2S and Protocol.C2S.Attribute) or "attribute"
     local upgradeCommand = (Protocol.C2S and Protocol.C2S.UpgradeSystem) or "upgradeSystem"
+    local freshnessCommand = (Protocol.C2S and Protocol.C2S.TerminalFreshnessService) or "terminalFreshnessService"
     local recycleCommand = (Protocol.C2S and Protocol.C2S.Recycle) or "recycle"
     if command == attributeCommand then
         return table.concat({
@@ -506,6 +509,9 @@ local function transactionFingerprint(command, args)
     end
     if command == upgradeCommand then
         return "upgrade|" .. tostring(args.upgradeType or "")
+    end
+    if command == freshnessCommand then
+        return "freshnessService|d:" .. tostring(math.max(0, math.floor(tonumber(args.days) or 0)))
     end
     if command == recycleCommand and type(args.itemIds) == "table" then
         local parts = {
@@ -1410,8 +1416,13 @@ end)
 
 wrap("upgradeTerminal", function(upgradeType)
     upgradeType = tostring(upgradeType or "")
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "cooling" then return false end
     return send("upgradeSystem", { upgradeType = "terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2) })
+end)
+
+wrap("buyTerminalFreshnessService", function(days)
+    days = math.max(0, math.floor(tonumber(days) or 0))
+    return send((Protocol.C2S and Protocol.C2S.TerminalFreshnessService) or "terminalFreshnessService", { days = days })
 end)
 
 wrap("toggleWaistAutoRecycle", function()

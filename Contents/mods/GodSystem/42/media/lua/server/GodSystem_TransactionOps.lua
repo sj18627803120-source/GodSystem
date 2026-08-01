@@ -36,6 +36,9 @@ function GodSystemTransactionOps.fingerprint(kind, args)
     if kind == "upgradeSystem" then
         return "upgrade|" .. tostring(args.upgradeType or "")
     end
+    if kind == "terminalFreshnessService" then
+        return "freshnessService|d:" .. tostring(math.max(0, math.floor(tonumber(args.days) or 0)))
+    end
     if kind == "recycleSelectedItems" then
         local parts = {
             "recycle",

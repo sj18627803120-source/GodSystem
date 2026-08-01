@@ -10,6 +10,7 @@ require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
 require "GodSystem_TransactionOps"
 require "GodSystem_TerminalUpgrades"
+require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
 
@@ -2073,6 +2074,10 @@ function GodSystemServer.syncTerminalApplyReport(item, report, forceSync)
         local changedItem = report.items[i]
         if changedItem then seen[changedItem] = true end
     end
+    for i = 1, #((report.changedItems) or {}) do
+        local changedItem = report.changedItems[i]
+        if changedItem then seen[changedItem] = true end
+    end
     if forceSync == true and inventory and inventory.getItems then
         local okItems, items = pcall(function() return inventory:getItems() end)
         if okItems and items and items.size and items.get then
@@ -2114,7 +2119,8 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
     local innerCapacity = readNumber(inventory, "getCapacity")
     local outerReduction = readNumber(item, "getWeightReduction")
     local innerReduction = readNumber(inventory, "getWeightReduction")
-    if outerCapacity == nil or innerCapacity == nil or outerReduction == nil or innerReduction == nil then return nil end
+    local ageFactor = readNumber(inventory, "getAgeFactor")
+    if outerCapacity == nil or innerCapacity == nil or outerReduction == nil or innerReduction == nil or ageFactor == nil then return nil end
 
     local terminalData = item.getModData and item:getModData() or nil
     local reliefLevelKey = GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"
@@ -2136,6 +2142,8 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
         innerCapacity = innerCapacity,
         outerReduction = outerReduction,
         innerReduction = innerReduction,
+        ageFactor = ageFactor,
+        coolingLevel = GodSystemTerminalFood.getCoolingLevel(playerData(player)),
         reliefLevel = reliefLevel,
         reliefOffset = reliefOffset,
     }
@@ -3845,6 +3853,7 @@ function Commands.upgradeSystem(_, _, player, args)
             terminalCapacity = "capacity",
             terminalReduction = "reduction",
             terminalRelief = "relief",
+            terminalCooling = "cooling",
         }
         local terminalType = terminalTypes[t]
         if terminalType then
@@ -3916,6 +3925,85 @@ function Commands.upgradeSystem(_, _, player, args)
             kind = "systemUpgrade",
             upgradeType = t,
             level = nextValue,
+        })
+    end)
+    unguard(player)
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        local errorPersisted, errorPersistError = transmitStore()
+        if not errorPersisted then return errorMessage(player, tostring(errorPersistError)) end
+        return errorMessage(player, tostring(err))
+    end
+end
+
+function Commands.terminalFreshnessService(_, _, player, args)
+    local data = playerData(player)
+    local txKind = "terminalFreshnessService"
+    local txRoot = store()
+    local txOwner = userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+        end
+    end
+    if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted, persistError = transmitStore()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return errorMessage(player, tostring(persistError))
+    end
+    local ok, err = pcall(function()
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
+        end
+        local terminal = findAutoRecycler(data, player)
+        if not terminal then return complete(false, "RecycleWaistMissing") end
+        local days = math.max(0, floor(args and args.days, 0))
+        local allowed, reason = GodSystemTerminalFood.canPurchaseService(data, days)
+        if not allowed then
+            local code = reason == "coolingRequired" and "TerminalFreshnessCoolingRequired"
+                or reason == "serviceCap" and "TerminalFreshnessServiceCap"
+                or "TerminalFreshnessInvalidPackage"
+            return complete(false, code)
+        end
+        local cost = GodSystemTerminalFood.getServiceCost(days)
+        if not canAfford(player, cost, data) then return complete(false, "CurrencyNotEnough") end
+        GodSystemTerminalFood.normalizeData(data)
+        local state = data.terminalFood
+        local beforeRemaining = state.remainingHours
+        local beforeSettledHour = state.lastSettledHour
+        local beforeExpiryNotified = state.expiryNotified
+        local purchased = GodSystemTerminalFood.purchaseService(data, days, nowHours())
+        if not purchased then return complete(false, "TerminalFreshnessInvalidPackage") end
+        if not addPoints(player, -cost, data) then
+            state.remainingHours = beforeRemaining
+            state.lastSettledHour = beforeSettledHour
+            state.expiryNotified = beforeExpiryNotified
+            return complete(false, "CurrencyNotEnough")
+        end
+        data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+        appendHistory(data, historyEntry("terminal", "TerminalFreshnessService", { days, cost }))
+        return complete(true, "TerminalFreshnessPurchased", { days, cost, state.remainingHours }, {
+            kind = "terminalFreshnessService",
+            days = days,
+            cost = cost,
+            remainingHours = state.remainingHours,
+            terminalSync = GodSystemServer.buildTerminalSyncPayload(terminal, player),
         })
     end)
     unguard(player)
@@ -4708,6 +4796,31 @@ local function updateHomeSafeZone(player)
     if removed and removed > 0 then sendStateSoon(player, data) end
 end
 
+local function settleTerminalFreshnessService(player, data)
+    local terminal = findAutoRecycler(data, player)
+    local report = GodSystemTerminalFood.settleOnline(data, terminal, nowHours())
+    if report.restored and report.restored > 0 and terminal then
+        GodSystemServer.syncTerminalApplyReport(terminal, report)
+    end
+    if report.expired == true then
+        notifyCode(player, "TerminalFreshnessExpired")
+    end
+    if (report.hoursConsumed or 0) > 0 or report.expired == true then
+        sendStateSoon(player, data)
+    end
+    return report
+end
+
+local FRESHNESS_SESSION_GAP_HOURS = 1
+
+local function observeTerminalFreshnessSession(state, nowHour)
+    local previousHour = tonumber(state.terminalFreshnessLastObservedHour)
+    state.terminalFreshnessLastObservedHour = nowHour
+    if previousHour == nil or nowHour < previousHour or nowHour - previousHour > FRESHNESS_SESSION_GAP_HOURS then
+        state.terminalFreshnessNeedsSessionReset = true
+    end
+end
+
 local playerUpdateTicks = {}
 local function onPlayerUpdate(player)
     if not player then return end
@@ -4718,10 +4831,18 @@ local function onPlayerUpdate(player)
         playerUpdateTicks[key] = state
     end
     state.ticks = state.ticks + 1
+    observeTerminalFreshnessSession(state, nowHours())
     if state.ticks % 60 ~= 0 then return end
     local data = playerData(player)
     generateDailyTasks(data, false)
     updateHomeSafeZone(player)
+    if state.terminalFreshnessNeedsSessionReset then
+        -- Never charge persisted elapsed time before this active player session is observed.
+        GodSystemTerminalFood.beginOnlineSession(data, nowHours())
+        state.terminalFreshnessNeedsSessionReset = false
+    else
+        settleTerminalFreshnessService(player, data)
+    end
 end
 
 Events.OnPlayerUpdate.Add(onPlayerUpdate)

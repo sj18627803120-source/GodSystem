@@ -502,6 +502,9 @@ function GodSystemStorageWindow:createChildren()
     self.searchBox.onTextChange = function() self:rebuildLists(false) end
     self:addChild(self.searchBox)
     self.categoryButton = self:createButton(272, 68, 118, 28, "", "category", self.onFilter)
+    self.categoryButton.onRightMouseUp = function(_, x, y)
+        return self:onCategoryRightMouseUp(x, y)
+    end
     self.stateButton = self:createButton(396, 68, 118, 28, "", "state", self.onFilter)
     self.sourceFilterButton = self:createButton(520, 68, 136, 28, "", "source", self.onFilter)
     self.modButton = self:createButton(662, 68, 116, 28, "", "mod", self.onFilter)
@@ -668,6 +671,37 @@ function GodSystemStorageWindow:onFilter(button)
         self.sortMode = cycleValue({ "name", "count", "weight", "condition", "spoilage", "source" }, self.sortMode)
     end
     self:rebuildLists(false)
+end
+
+function GodSystemStorageWindow:selectCategory(category)
+    category = tostring(category or "all")
+    if category ~= "all" then
+        local valid = false
+        for i = 1, #Storage.Categories do
+            if category == tostring(Storage.Categories[i]) then
+                valid = true
+                break
+            end
+        end
+        if not valid then return false end
+    end
+    if self.category == category then return false end
+    self.category = category
+    self:rebuildLists(false)
+    return true
+end
+
+function GodSystemStorageWindow:onCategoryRightMouseUp(_, _)
+    if self.page ~= "storage" then return false end
+    local player = getPlayer and getPlayer() or nil
+    local playerNum = Storage.integer(Storage.safeCall(player, "getPlayerNum", 0), 0)
+    local context = ISContextMenu.get(playerNum, getMouseX(), getMouseY())
+    context:addOption(text("Storage_Category_all", "All"), self, self.selectCategory, "all")
+    for i = 1, #Storage.Categories do
+        local category = tostring(Storage.Categories[i])
+        context:addOption(text("Storage_Category_" .. category, category), self, self.selectCategory, category)
+    end
+    return true
 end
 
 function GodSystemStorageWindow:filterGroup(group, query)

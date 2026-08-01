@@ -1,5 +1,6 @@
 require "GodSystem_Config"
 require "GodSystem_TerminalRelief"
+require "GodSystem_TerminalFood"
 
 GodSystemTerminalUpgrades = GodSystemTerminalUpgrades or {}
 
@@ -50,6 +51,7 @@ local function upgradeTypeKey(upgradeType)
     if upgradeType == "capacity" or upgradeType == "terminalCapacity" then return "capacity" end
     if upgradeType == "reduction" or upgradeType == "terminalReduction" then return "reduction" end
     if upgradeType == "relief" or upgradeType == "terminalRelief" then return "relief" end
+    if upgradeType == "cooling" or upgradeType == "terminalCooling" then return "cooling" end
     return nil
 end
 
@@ -57,6 +59,7 @@ function GodSystemTerminalUpgrades.getLevels(upgradeType)
     upgradeType = upgradeTypeKey(upgradeType)
     if upgradeType == "capacity" then return GodSystemConfig.TerminalCapacityLevels or {} end
     if upgradeType == "reduction" then return GodSystemConfig.TerminalReductionLevels or {} end
+    if upgradeType == "cooling" then return GodSystemConfig.TerminalCoolingLevels or {} end
     return {}
 end
 
@@ -77,6 +80,7 @@ function GodSystemTerminalUpgrades.normalizeData(data)
     data.autoRecyclerCapacityLevel = normalizeLevel(data.autoRecyclerCapacityLevel, #capacityLevels)
     data.autoRecyclerReductionLevel = normalizeLevel(data.autoRecyclerReductionLevel, #reductionLevels)
     GodSystemTerminalRelief.getLevel(data)
+    GodSystemTerminalFood.normalizeData(data)
     return data
 end
 
@@ -84,6 +88,7 @@ function GodSystemTerminalUpgrades.getLevel(data, upgradeType)
     GodSystemTerminalUpgrades.normalizeData(data)
     local key = upgradeTypeKey(upgradeType)
     if key == "relief" then return GodSystemTerminalRelief.getLevel(data) end
+    if key == "cooling" then return GodSystemTerminalFood.getCoolingLevel(data) end
     local field = GodSystemTerminalUpgrades.getField(key)
     local levels = GodSystemTerminalUpgrades.getLevels(key)
     return field and normalizeLevel(data and data[field], #levels) or 1
@@ -93,6 +98,7 @@ function GodSystemTerminalUpgrades.setLevel(data, upgradeType, level)
     GodSystemTerminalUpgrades.normalizeData(data)
     local key = upgradeTypeKey(upgradeType)
     if key == "relief" then return GodSystemTerminalRelief.setLevel(data, level) end
+    if key == "cooling" then return GodSystemTerminalFood.setCoolingLevel(data, level) end
     local field = GodSystemTerminalUpgrades.getField(key)
     local levels = GodSystemTerminalUpgrades.getLevels(key)
     if not field or #levels <= 0 then return false end
@@ -105,6 +111,10 @@ function GodSystemTerminalUpgrades.getLevelData(data, upgradeType, level)
     if key == "relief" then
         local info = GodSystemTerminalRelief.getUpgradeInfo(data)
         return { level = info.level, value = info.offset, upgradeCost = info.nextCost or 0 }
+    end
+    if key == "cooling" then
+        local info = GodSystemTerminalFood.getCoolingInfo(data)
+        return { level = info.level, value = info.multiplier, ageFactor = info.ageFactor, upgradeCost = info.nextCost or 0 }
     end
     local levels = GodSystemTerminalUpgrades.getLevels(key)
     level = normalizeLevel(level or GodSystemTerminalUpgrades.getLevel(data, key), #levels)
@@ -148,6 +158,7 @@ function GodSystemTerminalUpgrades.snapshotTerminal(terminal, player)
         outerReduction = readNumberMethod(terminal, "getWeightReduction"),
         innerReduction = readNumberMethod(inventory, "getWeightReduction"),
         relief = GodSystemTerminalRelief.snapshot(terminal, player),
+        cooling = GodSystemTerminalFood.snapshotCooling(terminal),
     }
 end
 
@@ -165,10 +176,12 @@ function GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
     restoreNumber(snapshot.inventory, "setCapacity", "getCapacity", snapshot.innerCapacity)
     restoreNumber(snapshot.terminal, "setWeightReduction", "getWeightReduction", snapshot.outerReduction)
     restoreNumber(snapshot.inventory, "setWeightReduction", "getWeightReduction", snapshot.innerReduction)
+    local coolingOk, coolingChanged = GodSystemTerminalFood.restoreCooling(snapshot.cooling)
+    ok = coolingOk and ok
     local reliefOk, reliefReport = GodSystemTerminalRelief.restore(snapshot.relief)
     reliefReport = type(reliefReport) == "table" and reliefReport or {}
     reliefReport.inventory = reliefReport.inventory or snapshot.inventory
-    reliefReport.terminalChanged = terminalChanged
+    reliefReport.terminalChanged = terminalChanged or coolingChanged == true
     return reliefOk and ok, reliefReport
 end
 
@@ -196,6 +209,9 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel", GodSystemTerminalRelief.getLevel(data)) or terminalDataChanged
     end
 
+    local coolingOk, coolingReport = GodSystemTerminalFood.applyCooling(terminal, data)
+    if not coolingOk then return false, { reason = "coolingApplyFailed", cooling = coolingReport } end
+
     local reliefOk, reliefReport = GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
     if not reliefOk then return false, { reason = "reliefApplyFailed", relief = reliefReport } end
 
@@ -204,12 +220,14 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
         reduction = reduction,
         reliefLevel = GodSystemTerminalRelief.getLevel(data),
         reliefOffset = GodSystemTerminalRelief.getOffset(data),
+        coolingLevel = GodSystemTerminalFood.getCoolingLevel(data),
+        coolingAgeFactor = coolingReport.ageFactor,
         items = reliefReport.items or {},
         addedItems = reliefReport.addedItems or {},
         removedItems = reliefReport.removedItems or {},
         inventory = reliefReport.inventory or inventory,
         terminalChanged = outerCapacityChanged or innerCapacityChanged
-            or outerReductionChanged or innerReductionChanged or terminalDataChanged,
+            or outerReductionChanged or innerReductionChanged or terminalDataChanged or coolingReport.changed == true,
         skipped = 0,
     }
     return true, report
@@ -225,6 +243,7 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
     local expectedCapacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity").value or 10
     local expectedReduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction").value or 50
     local expectedRelief = GodSystemTerminalRelief.getOffset(data)
+    local coolingInfo = GodSystemTerminalFood.getCoolingInfo(data)
     local reliefSnapshot = GodSystemTerminalRelief.snapshot(terminal, player)
     local reliefStates = reliefSnapshot.items or {}
     local actualRelief = #reliefStates == 1 and -(tonumber(reliefStates[1].actualWeight) or 0) or 0
@@ -232,6 +251,7 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
     local innerCapacity = readNumberMethod(inventory, "getCapacity")
     local outerReduction = readNumberMethod(terminal, "getWeightReduction")
     local innerReduction = readNumberMethod(inventory, "getWeightReduction")
+    local coolingAgeFactor = readNumberMethod(inventory, "getAgeFactor")
     return {
         expectedCapacity = expectedCapacity,
         expectedReduction = expectedReduction,
@@ -243,6 +263,9 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
         outerReduction = outerReduction,
         innerReduction = innerReduction,
         actualRelief = actualRelief,
+        coolingLevel = coolingInfo.level,
+        expectedCoolingAgeFactor = coolingInfo.ageFactor,
+        actualCoolingAgeFactor = coolingAgeFactor,
         reliefItemCount = #reliefStates,
         capacityApplied = outerCapacity ~= nil and innerCapacity ~= nil
             and math.abs(outerCapacity - expectedCapacity) <= EPSILON
@@ -252,6 +275,8 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
             and math.abs(innerReduction - expectedReduction) <= EPSILON,
         reliefApplied = expectedRelief <= 0 and #reliefStates == 0
             or (#reliefStates == 1 and math.abs(actualRelief - expectedRelief) <= math.max(0.05, expectedRelief * 0.0001)),
+        coolingApplied = coolingInfo.level <= 0
+            or (coolingAgeFactor ~= nil and math.abs(coolingAgeFactor - coolingInfo.ageFactor) <= EPSILON),
     }
 end
 

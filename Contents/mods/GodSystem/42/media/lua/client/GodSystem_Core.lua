@@ -8,6 +8,7 @@ require "GodSystem_CompanionConfig"
 require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
 require "GodSystem_TerminalUpgrades"
+require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
 
@@ -999,7 +1000,7 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             carryStatus = status,
         }
     end
-    if upgradeType == "terminalCapacity" or upgradeType == "terminalReduction" or upgradeType == "terminalRelief" then
+    if upgradeType == "terminalCapacity" or upgradeType == "terminalReduction" or upgradeType == "terminalRelief" or upgradeType == "terminalCooling" then
         local terminalType = string.gsub(upgradeType, "^terminal", "")
         terminalType = string.lower(string.sub(terminalType, 1, 1)) .. string.sub(terminalType, 2)
         local terminalInfo = GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), terminalType)
@@ -1008,6 +1009,7 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             capacity = GodSystem.text("Upgrade_TerminalCapacity", "Terminal capacity"),
             reduction = GodSystem.text("Upgrade_TerminalReduction", "Terminal reduction"),
             relief = GodSystem.text("Upgrade_TerminalRelief", "Space relief"),
+            cooling = GodSystem.text("Upgrade_TerminalCooling", "Terminal cooling"),
         }
         return {
             upgradeType = upgradeType,
@@ -1019,7 +1021,9 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             label = labels[terminalType] or upgradeType,
             desc = terminalType == "relief"
                 and GodSystem.text("Upgrade_TerminalReliefDesc", "Adds protected hidden relief inside the terminal without changing its native capacity.")
-                or GodSystem.text("Upgrade_TerminalIndependentDesc", "This upgrade only changes the selected terminal property."),
+                or terminalType == "cooling"
+                    and GodSystem.text("Upgrade_TerminalCoolingDesc", "Uses the terminal container's native food age factor. Verify the real effect in game before release.")
+                    or GodSystem.text("Upgrade_TerminalIndependentDesc", "This upgrade only changes the selected terminal property."),
             terminalInfo = terminalInfo,
         }
     end
@@ -6196,7 +6200,7 @@ function GodSystem.claimOrRecoverAutoRecycler()
 end
 
 function GodSystem.upgradeTerminal(upgradeType)
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "cooling" then return false end
     return GodSystem.upgradeSystem("terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2))
 end
 
@@ -6221,6 +6225,8 @@ function GodSystem.getAutoRecyclerInfo()
     local capacityInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "capacity")
     local reductionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "reduction")
     local reliefInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "relief")
+    local coolingInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "cooling")
+    local freshnessInfo = GodSystemTerminalFood.getServiceInfo(data)
     local inventory, entry = GodSystem.getAutoRecyclerInventory()
     local appliedStatus = entry and entry.item and GodSystemTerminalUpgrades.getAppliedStatus(entry.item, data, gsPlayer()) or nil
     local count = 0
@@ -6249,6 +6255,8 @@ function GodSystem.getAutoRecyclerInfo()
         reductionMaxLevel = reductionInfo.maxLevel,
         reliefLevel = reliefInfo.level,
         reliefMaxLevel = reliefInfo.maxLevel,
+        coolingLevel = coolingInfo.level,
+        coolingMaxLevel = coolingInfo.maxLevel,
         capacity = capacityInfo.value or 0,
         weightReduction = reductionInfo.value or 0,
         reliefOffset = reliefInfo.offset or 0,
@@ -6266,6 +6274,15 @@ function GodSystem.getAutoRecyclerInfo()
         capacityNextCost = capacityInfo.nextCost,
         reductionNextCost = reductionInfo.nextCost,
         reliefNextCost = reliefInfo.nextCost,
+        coolingMultiplier = coolingInfo.value or 1,
+        coolingAgeFactor = coolingInfo.ageFactor or 1,
+        coolingNextCost = coolingInfo.nextCost,
+        coolingApplied = appliedStatus and appliedStatus.coolingApplied == true,
+        freshnessRemainingHours = freshnessInfo.remainingHours,
+        freshnessRemainingDays = freshnessInfo.remainingDays,
+        freshnessMaxHours = freshnessInfo.maxHours,
+        freshnessActive = freshnessInfo.active,
+        freshnessExpired = freshnessInfo.expired,
         nextCost = capacityInfo.nextCost,
         recoverCost = GodSystem.getAutoRecyclerRecoverCost(),
         itemCount = count,
@@ -6276,6 +6293,50 @@ function GodSystem.getAutoRecyclerInfo()
         autoRecycleUnlockCost = GodSystem.getWaistAutoRecycleUnlockCost(),
         autoRecycleIntervalHours = GodSystem.getWaistAutoRecycleIntervalHours(),
     }
+end
+
+function GodSystem.buyTerminalFreshnessService(days)
+    local data = GodSystem.getData()
+    local allowed, reason = GodSystemTerminalFood.canPurchaseService(data, days)
+    if not allowed then
+        local key = reason == "coolingRequired" and "Notify_TerminalCoolingRequired"
+            or reason == "serviceCap" and "Notify_TerminalFreshnessCap"
+            or "Notify_TerminalFreshnessInvalidPackage"
+        GodSystem.notify(GodSystem.text(key, "Terminal freshness service is unavailable"))
+        return false
+    end
+    local cost = GodSystemTerminalFood.getServiceCost(days)
+    if not GodSystem.canAfford(cost) then
+        GodSystem.notify(GodSystem.text("Notify_CurrencyNotEnough", "Not enough currency"))
+        return false
+    end
+    local purchased = GodSystemTerminalFood.purchaseService(data, days, gsNowHours())
+    if not purchased then return false end
+    if not GodSystem.addPoints(-cost) then
+        data.terminalFood.remainingHours = math.max(0, GodSystemTerminalFood.getRemainingHours(data) - math.floor(tonumber(days) or 0) * 24)
+        return false
+    end
+    data.stats = data.stats or {}
+    data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
+    gsAppendHistory(data, {
+        kind = "terminal",
+        text = GodSystem.text("History_TerminalFreshnessService", "Terminal freshness service") .. " " .. tostring(days) .. GodSystem.text("Unit_Day", "d") .. " -" .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins"),
+    })
+    GodSystem.save()
+    GodSystem.notify(GodSystem.text("Notify_TerminalFreshnessPurchased", "Terminal freshness service renewed"))
+    return true
+end
+
+function GodSystem.updateTerminalFreshnessService(player)
+    local data = GodSystem.getData()
+    local entry = GodSystem.getAutoRecyclerContainer(false)
+    local report = GodSystemTerminalFood.settleOnline(data, entry and entry.item or nil, gsNowHours())
+    if report.hoursConsumed <= 0 and report.restored <= 0 and report.expired ~= true then return report end
+    if report.expired then
+        GodSystem.notify(GodSystem.text("Notify_TerminalFreshnessExpired", "Terminal freshness service expired"))
+    end
+    GodSystem.save()
+    return report
 end
 
 function GodSystem.unlockWaistAutoRecycle()
@@ -7399,6 +7460,7 @@ function GodSystem.onPlayerUpdate(player)
         GodSystem.refreshAutoRecyclerContainers(false)
     end
     GodSystem.updateAutoRecycler()
+    GodSystem.updateTerminalFreshnessService(player)
     GodSystem.processAutoTaskClaim()
     GodSystem.processBankAutoDeposit()
     GodSystem.updateBankInvestments()
@@ -7420,6 +7482,7 @@ end
 
 function GodSystem.onGameStart()
     local data = GodSystem.getData()
+    GodSystemTerminalFood.beginOnlineSession(data, gsNowHours())
     GodSystem.applyCarryCapacity(gsPlayer(), data)
     GodSystem.ensureCurrencyInitialized()
     GodSystem.generateDailyTasks(false)

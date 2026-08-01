@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20.1.4"
+GodSystemConfig.Version = "42.20.1.5"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "系统币"
@@ -158,6 +158,20 @@ GodSystemConfig.TerminalReductionLevels = {
     { level = 6, value = 80, upgradeCost = 1100 },
     { level = 7, value = 90, upgradeCost = 1700 },
     { level = 8, value = 99, upgradeCost = 2500 },
+}
+GodSystemConfig.TerminalCoolingLevelKey = "GodSystemTerminalCoolingLevel"
+GodSystemConfig.TerminalCoolingLevels = {
+    { level = 1, multiplier = 2, ageFactor = 0.5, upgradeCost = 1250 },
+    { level = 2, multiplier = 4, ageFactor = 0.25, upgradeCost = 3250 },
+    { level = 3, multiplier = 8, ageFactor = 0.125, upgradeCost = 7000 },
+}
+GodSystemConfig.TerminalFreshnessRestorePerDay = { [1] = 0.25, [2] = 0.5, [3] = 1.0 }
+GodSystemConfig.TerminalFreshnessMaxDays = 365
+GodSystemConfig.TerminalFreshnessPackages = {
+    [1] = 100,
+    [10] = 900,
+    [20] = 1600,
+    [30] = 2100,
 }
 GodSystemConfig.AutoRecyclerRecoverCosts = {
     { maxLevel = 3, cost = 10 },
