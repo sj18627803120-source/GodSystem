@@ -1410,6 +1410,150 @@ function Manager.withdraw(player, coreArgs, args)
     return stats.success > 0, stats.success > 0 and nil or "nothingMoved", stats
 end
 
+local function selectedSnapshotInstances(job, requests)
+    local selected, expectedIds, selectedIds = {}, {}, {}
+    local function append(instance, groupKey)
+        local id = tostring(instance and instance.id or "")
+        if id == "" or selectedIds[id] or #selected >= Storage.MaxIndexedItems then return end
+        selectedIds[id] = true
+        expectedIds[id] = true
+        selected[#selected + 1] = { id = id, groupKey = tostring(groupKey or "") }
+    end
+    for i = 1, #(type(requests) == "table" and requests or {}) do
+        if #selected >= Storage.MaxIndexedItems then break end
+        local request = type(requests[i]) == "table" and requests[i] or {}
+        local groupKey = tostring(request.groupKey or "")
+        local instances = job.instances[groupKey] or {}
+        if type(request.itemIds) == "table" and #request.itemIds > 0 then
+            local byId = {}
+            for j = 1, #instances do byId[tostring(instances[j].id or "")] = instances[j] end
+            for j = 1, #request.itemIds do
+                local id = tostring(request.itemIds[j] or "")
+                if byId[id] then append(byId[id], groupKey) end
+            end
+        else
+            local wanted = Storage.clamp(Storage.integer(request.count, 1), 1, Storage.MaxIndexedItems)
+            for j = 1, math.min(wanted, #instances) do append(instances[j], groupKey) end
+        end
+    end
+    return selected, expectedIds
+end
+
+function Manager.inspectNetworkItems(player, coreArgs, args, inspector)
+    args = type(args) == "table" and args or {}
+    if type(inspector) ~= "function" then return false, "inspectorMissing" end
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
+    if not network then return false, reason end
+    local connected = Manager.connectedNetwork(network, coreObject)
+    local job = Manager.latestJob(network.networkId, args.snapshotId)
+    if not job then return false, "snapshotExpired" end
+    local selected, expectedIds = selectedSnapshotInstances(job, args.requests)
+    local liveItems = Storage.findNetworkItems(connected, expectedIds)
+    local rows = {}
+    for i = 1, #selected do
+        local expected = selected[i]
+        local live = liveItems[expected.id]
+        if live and live.item and Storage.itemGroupKey(live.item) == expected.groupKey then
+            rows[#rows + 1] = inspector(live.item, expected, live) or {
+                itemId = expected.id, ok = false, reason = "inspectFailed",
+            }
+        else
+            rows[#rows + 1] = { itemId = expected.id, ok = false, reason = "sourceChanged" }
+        end
+    end
+    return true, nil, { requested = #selected, rows = rows }
+end
+
+function Manager.consumeNetworkItems(player, coreArgs, args, consumer)
+    args = type(args) == "table" and args or {}
+    if type(consumer) ~= "function" then return false, "consumerMissing" end
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
+    if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
+    local connected = Manager.connectedNetwork(network, coreObject)
+    local job = Manager.latestJob(network.networkId, args.snapshotId)
+    if not job then return false, "snapshotExpired" end
+    local selected, expectedIds = selectedSnapshotInstances(job, args.requests)
+    local stats = { requested = #selected, success = 0, skipped = 0, failed = 0, simplified = 0, rows = {} }
+    if #selected == 0 then return false, "nothingMoved", stats end
+    local liveItems = Storage.findNetworkItems(connected, expectedIds)
+    for i = 1, #selected do
+        local expected = selected[i]
+        local live = liveItems[expected.id]
+        local item, source = live and live.item or nil, live and live.source or nil
+        if not item or not source or Storage.itemGroupKey(item) ~= expected.groupKey then
+            stats.skipped = stats.skipped + 1
+            stats.rows[#stats.rows + 1] = { itemId = expected.id, reason = "sourceChanged" }
+        else
+            local object, current = Storage.resolveLink(live.link)
+            local valid = object ~= nil and current == source and Storage.containerContains(source, item)
+                and Storage.isWithinNetworkRange(connected, { x = live.link.x, y = live.link.y, z = live.link.z })
+            if not valid then
+                stats.skipped = stats.skipped + 1
+                stats.rows[#stats.rows + 1] = { itemId = expected.id, reason = "sourceChanged" }
+            else
+                local ok, itemReason, itemData = consumer(item, source, live.link, i)
+                if ok then
+                    stats.success = stats.success + 1
+                    if itemData and itemData.simplified then stats.simplified = stats.simplified + 1 end
+                elseif itemReason == "capacityFull" or itemReason == "protectedItem" or itemReason == "confirmSimplified" then
+                    stats.skipped = stats.skipped + 1
+                else
+                    stats.failed = stats.failed + 1
+                end
+                stats.rows[#stats.rows + 1] = { itemId = expected.id, ok = ok == true, reason = itemReason, data = itemData }
+            end
+        end
+    end
+    if stats.success > 0 then
+        network.revision = Storage.integer(network.revision, 0) + 1
+        network.updatedAtMs = Storage.nowMs()
+        transmitStore()
+    end
+    return stats.success > 0, stats.success > 0 and nil or "nothingMoved", stats
+end
+
+function Manager.routeExternalItem(player, coreArgs, item)
+    local network, coreObject, _, reason = Manager.resolveCoreHost(player, coreArgs)
+    if not network then return false, reason end
+    if Manager.isOrganizing(network.networkId) then return false, "organizerRunning" end
+    local connected = Manager.connectedNetwork(network, coreObject)
+    local routes = Storage.routeCandidates(connected, player, item)
+    if #routes == 0 then return false, "noRoute" end
+    local lastReason = "targetAddFailed"
+    for i = 1, #routes do
+        local route = routes[i]
+        local object, current = Storage.resolveLink(route.link)
+        local valid = object ~= nil and current == route.container
+            and Storage.isWithinNetworkRange(connected, { x = route.link.x, y = route.link.y, z = route.link.z })
+        if valid then
+            local accepted, acceptReason = Storage.containerAccepts(route.container, player, item)
+            if accepted then
+                local added = pcall(function() route.container:AddItem(item) end)
+                local stillObject, stillContainer = Storage.resolveLink(route.link)
+                if added and Storage.containerContains(route.container, item)
+                    and stillObject ~= nil and stillContainer == route.container then
+                    Storage.syncAdd(route.container, item)
+                    network.revision = Storage.integer(network.revision, 0) + 1
+                    network.updatedAtMs = Storage.nowMs()
+                    transmitStore()
+                    return true, nil, { linkId = route.link.linkId, category = Storage.categoryOf(item) }
+                end
+                if Storage.containerContains(route.container, item) then
+                    pcall(function() route.container:Remove(item) end)
+                    Storage.syncRemove(route.container, item)
+                end
+                lastReason = "targetChanged"
+            else
+                lastReason = acceptReason or lastReason
+            end
+        else
+            lastReason = "targetChanged"
+        end
+    end
+    return false, lastReason
+end
+
 function Manager.getOperation(player, opId, fingerprint)
     opId = tostring(opId or "")
     if opId == "" then return nil, "missingOperation" end

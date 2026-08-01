@@ -703,3 +703,11 @@ option GodSystem.EnableAutoLoaderShop
     page = GodSystem_Features,
     translation = GodSystem_EnableAutoLoaderShop,
 }
+
+option GodSystem.EnablePersonalStorage
+{
+    type = boolean,
+    default = true,
+    page = GodSystem_Features,
+    translation = GodSystem_EnablePersonalStorage,
+}

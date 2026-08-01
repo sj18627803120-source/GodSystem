@@ -13,6 +13,8 @@ require "GodSystem_TerminalUpgrades"
 require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
+require "GodSystem_TaskService"
+require "GodSystem_PersonalStorage"
 
 if not (isServer and isServer()) then return end
 
@@ -25,6 +27,7 @@ local MODULE = Protocol.Module or "GodSystem"
 local STORE_KEY = (GodSystemConfig.DataKey or "GodSystem_CN_Data") .. "_MP"
 local BAL_STORE_KEY = STORE_KEY .. "_Balance"
 local ADMIN_CONFIG_KEY = STORE_KEY .. "_AdminConfig"
+GodSystemServer.PersonalStorageStoreKey = STORE_KEY .. "_PersonalStorage"
 
 local pending = {}
 local diagnostics = {
@@ -106,6 +109,20 @@ local function store()
     end
     _G.__GodSystemServerStore = _G.__GodSystemServerStore or { players = {} }
     return _G.__GodSystemServerStore
+end
+
+function GodSystemServer.personalStorageAccount(player)
+    local root
+    if ModData and ModData.getOrCreate then
+        root = ModData.getOrCreate(GodSystemServer.PersonalStorageStoreKey)
+    else
+        _G.__GodSystemPersonalStorageStore = _G.__GodSystemPersonalStorageStore or {}
+        root = _G.__GodSystemPersonalStorageStore
+    end
+    root.players = type(root.players) == "table" and root.players or {}
+    local key = userKey(player)
+    root.players[key] = type(root.players[key]) == "table" and root.players[key] or {}
+    return root.players[key]
 end
 
 local function transmitStore()
@@ -313,6 +330,9 @@ local function playerData(player)
     data.lastWaistAutoRecycleHour = data.lastWaistAutoRecycleHour or math.floor(nowHours())
     data.autoTaskClaimEnabled = data.autoTaskClaimEnabled == true
     data.lastAutoTaskClaimHour = tonumber(data.lastAutoTaskClaimHour) or nowHours()
+    GodSystemTaskService.ensurePermitTask(data, nowHours(), randomIndex,
+        GodSystemAdminConfig.isFeatureEnabled("EnableTasks") ~= false
+        and GodSystemAdminConfig.isFeatureEnabled("EnablePersonalStorage") ~= false)
     data.ui = data.ui or {}
     return data
 end
@@ -1353,27 +1373,8 @@ local function payTaskFailurePenalty(player, data, amount)
     return fromBank + fromCash, fromBank, fromCash
 end
 
-local function failTask(player, data, task, historyCode)
-    if not task or task.status ~= "active" then return false end
-    task.status = "failed"
-    task.failedAt = nowHours()
-    data.stats.failedTasks = (data.stats.failedTasks or 0) + 1
-    local paid, fromBank, fromCash = payTaskFailurePenalty(player, data, task.penaltyPoints or 0)
-    appendHistory(data, taskHistoryEntry(historyCode or "TaskFailed", task, { paid, task.penaltyPoints or 0, fromBank, fromCash }))
-    return true
-end
-
-local function failActiveTasksOnDeath(player, data)
-    local failed = 0
-    for i = 1, #(data.tasks or {}) do
-        local task = data.tasks[i]
-        if task and task.status == "active" then
-            failTask(player, data, task, "TaskDeathFailed")
-            failed = failed + 1
-        end
-    end
-    return failed
-end
+local failTask
+local failActiveTasksOnDeath
 
 local function normalizeTraitType(traitType)
     return tostring(traitType or ""):gsub("[%s_%-]", ""):lower()
@@ -2293,119 +2294,12 @@ local function isTaskTemplateAvailable(template)
     return true
 end
 
-local function availableTaskTemplates()
-    local result = {}
-    for i = 1, #(GodSystemConfig.TaskTemplates or {}) do
-        local t = GodSystemConfig.TaskTemplates[i]
-        if isTaskTemplateAvailable(t) then result[#result + 1] = t end
-    end
-    if #result == 0 then return GodSystemConfig.TaskTemplates or {} end
-    return result
-end
-
-local function generateTask(template)
-    local now = nowHours()
-    return {
-        taskId = tostring(template.id) .. "_" .. tostring(math.floor(now * 100)) .. "_" .. tostring(randomIndex(9999)),
-        sourceId = template.id,
-        title = template.title,
-        kind = template.kind,
-        target = template.target,
-        item = template.item,
-        items = copyStringArray(template.items),
-        limitHours = template.limitHours or GodSystemConfig.DefaultTaskLimitHours,
-        rewardPoints = GodSystemAdminConfig.applyTaskReward(template.rewardPoints or 0),
-        rewardItems = copyItems(template.rewardItems),
-        penaltyPoints = GodSystemAdminConfig.applyTaskPenalty(template.penaltyPoints or 0),
-        description = template.description,
-        status = "open",
-        createdAt = now,
-        createdDay = currentDay(),
-    }
-end
-
-local function generateDailyTasks(data, force)
-    local day = currentDay()
-    if not force and data.lastGeneratedDay == day then return end
-    local kept = {}
-    for i = 1, #(data.tasks or {}) do
-        local task = data.tasks[i]
-        if task.status == "active" then
-            kept[#kept + 1] = task
-        elseif task.status == "claimed" then
-            appendHistory(data, taskHistoryEntry("TaskStatusClaimed", task))
-        elseif task.status == "failed" then
-            appendHistory(data, taskHistoryEntry("TaskStatusFailed", task))
-        end
-    end
-    local templates = availableTaskTemplates()
-    local count = math.min(dailyTaskCount(data), #templates)
-    for _ = 1, count do
-        kept[#kept + 1] = generateTask(templates[randomIndex(#templates)])
-    end
-    data.lastGeneratedDay = day
-    data.tasks = kept
-    appendHistory(data, historyEntry("system", "DailyTasks", { count }))
-end
-
-local function findTask(data, taskId)
-    for i = 1, #(data.tasks or {}) do
-        if tostring(data.tasks[i].taskId or "") == tostring(taskId or "") then return data.tasks[i] end
-    end
-    return nil
-end
-
-local function ensureKillTaskProgress(task, baselineKills)
-    if not task or task.kind ~= "kill" then return 0 end
-    if task.killProgress == nil then
-        baselineKills = math.max(0, floor(baselineKills, 0))
-        task.killProgress = math.max(0, baselineKills - math.max(0, floor(task.startKills, baselineKills)))
-    end
-    task.killProgress = math.max(0, floor(task.killProgress, 0))
-    return task.killProgress
-end
-
-local function applyKillTaskDelta(data, delta, baselineKills)
-    delta = math.max(0, floor(delta, 0))
-    if delta <= 0 or not data or not data.tasks then return false end
-    local changed = false
-    for i = 1, #(data.tasks or {}) do
-        local task = data.tasks[i]
-        if task and task.status == "active" and task.kind == "kill" then
-            local current = ensureKillTaskProgress(task, baselineKills)
-            task.killProgress = current + delta
-            changed = true
-        end
-    end
-    return changed
-end
-
-local function taskProgress(data, player, task)
-    if not task then return 0 end
-    if task.kind == "kill" then
-        local kills = player and player.getZombieKills and player:getZombieKills() or 0
-        return ensureKillTaskProgress(task, kills)
-    elseif task.kind == "recycleItems" then
-        return math.max(0, (data.stats.recycledItems or 0) - (task.startRecycledItems or 0))
-    elseif task.kind == "recyclePoints" then
-        return math.max(0, (data.stats.recycledPoints or 0) - (task.startRecycledPoints or 0))
-    elseif task.kind == "surviveHours" then
-        return math.max(0, math.floor(nowHours() - (task.acceptedAt or nowHours())))
-    elseif task.kind == "turnInItem" then
-        return #inventoryItems(player, task.item, false, false)
-    elseif task.kind == "turnInAnyItem" then
-        local total = 0
-        for i = 1, #(task.items or {}) do total = total + #inventoryItems(player, task.items[i], false, false) end
-        return total
-    elseif task.kind == "spendPoints" then
-        return math.max(0, (data.stats.spentPoints or 0) - (task.startSpentPoints or 0))
-    elseif task.kind == "buyItems" then
-        return math.max(0, (data.stats.boughtItems or 0) - (task.startBoughtItems or 0))
-    elseif task.kind == "moveDistance" then
-        return math.max(0, math.floor((data.stats.moveDistance or 0) - (task.startMoveDistance or 0)))
-    end
-    return 0
-end
+local generateTask
+local generateDailyTasks
+local findTask
+local ensureKillTaskProgress
+local applyKillTaskDelta
+local taskProgress
 
 local function removeInventoryItems(player, fullType, count)
     local found = inventoryItems(player, fullType, false, false)
@@ -2428,36 +2322,102 @@ local function removeAnyInventoryItems(player, fullTypes, count)
     return removed
 end
 
-local function claimTaskForPlayer(player, data, task, claimArgs)
+local claimTaskForPlayer
+
+local function taskServiceFor(player, data)
+    return GodSystemTaskService.create({
+        nowHours = nowHours,
+        currentDay = currentDay,
+        randomIndex = randomIndex,
+        featureEnabled = GodSystemAdminConfig.isFeatureEnabled,
+        maxActiveTasks = maxActiveTasks,
+        dailyTaskCount = dailyTaskCount,
+        templateAvailable = isTaskTemplateAvailable,
+        itemCount = function(fullType) return #inventoryItems(player, fullType, false, false) end,
+        anyItemCount = function(fullTypes)
+            local total = 0
+            for i = 1, #(fullTypes or {}) do total = total + #inventoryItems(player, fullTypes[i], false, false) end
+            return total
+        end,
+        removeItems = function(fullType, count) return removeInventoryItems(player, fullType, count) end,
+        removeAnyItems = function(fullTypes, count) return removeAnyInventoryItems(player, fullTypes, count) end,
+        addPoints = function(amount) return addPoints(player, amount) end,
+        giveItems = function(items)
+            for i = 1, #(items or {}) do giveItem(player, items[i].fullType, items[i].count or 1) end
+        end,
+        save = function() transmitStore() end,
+        appendHistory = function(targetData, code, task, extra)
+            extra = extra or {}
+            local values = {}
+            if extra.count ~= nil then values = { extra.count }
+            elseif extra[1] ~= nil then values = extra
+            elseif extra.penalty ~= nil then values = { extra.penalty, task and task.penaltyPoints or 0 } end
+            if task then appendHistory(targetData, taskHistoryEntry(code, task, values))
+            else appendHistory(targetData, historyEntry("task", code, values)) end
+        end,
+        payTaskPenalty = function(targetData, task, isPermit)
+            local amount = task.penaltyPoints or 0
+            if isPermit then
+                amount = math.floor(((targetData.bank and targetData.bank.current or 0) + getBalance(player)) * 0.5)
+            end
+            return select(1, payTaskFailurePenalty(player, targetData, amount))
+        end,
+        applyDefaultDeathPenalty = applyBankDeathPenalty,
+    })
+end
+
+-- Replace the former client/server task rule copies with the shared service.
+generateTask = function(template)
+    return taskServiceFor(nil, {}):generateTask(template)
+end
+
+generateDailyTasks = function(data, force)
+    return taskServiceFor(nil, data):generateDaily(data, force).ok
+end
+
+findTask = function(data, taskId)
+    return taskServiceFor(nil, data):find(data, taskId)
+end
+
+taskProgress = function(data, player, task)
+    return taskServiceFor(player, data):progress(data, task, {
+        kills = player and player.getZombieKills and player:getZombieKills() or 0,
+    })
+end
+
+ensureKillTaskProgress = function(task, baselineKills)
+    return taskServiceFor(nil, {}):ensureKillProgress(task, baselineKills)
+end
+
+applyKillTaskDelta = function(data, delta, baselineKills)
+    return taskServiceFor(nil, data):applyKillDelta(data, delta, baselineKills)
+end
+
+claimTaskForPlayer = function(player, data, task, claimArgs)
     claimArgs = claimArgs or {}
-    if not task or task.status ~= "active" then return false, "TaskStateInvalid" end
-    local progress = taskProgress(data, player, task)
-    if task.kind ~= "turnInItem" and task.kind ~= "turnInAnyItem" then
-        progress = math.max(0, floor(claimArgs.clientProgress, progress))
-    end
-    if task.kind == "kill" then
-        task.killProgress = math.max(ensureKillTaskProgress(task, player and player.getZombieKills and player:getZombieKills() or 0), progress)
-        progress = task.killProgress
-    elseif task.kind == "moveDistance" then
-        data.stats.moveDistance = math.max(data.stats.moveDistance or 0, (task.startMoveDistance or 0) + progress)
-    end
-    if claimArgs.clientExpired == true and progress < (task.target or 1) then
-        failTask(player, data, task, "TaskFailed")
-        return false, "TaskFailed"
-    end
-    if progress < (task.target or 1) then return false, "TaskIncomplete" end
-    if task.kind == "turnInItem" then
-        if removeInventoryItems(player, task.item, task.target or 1) < (task.target or 1) then return false, "TaskTurnInNotEnough" end
-    elseif task.kind == "turnInAnyItem" then
-        if removeAnyInventoryItems(player, task.items, task.target or 1) < (task.target or 1) then return false, "TaskTurnInNotEnough" end
-    end
-    if (task.rewardPoints or 0) > 0 then addPoints(player, task.rewardPoints) end
-    for i = 1, #(task.rewardItems or {}) do giveItem(player, task.rewardItems[i].fullType, task.rewardItems[i].count or 1) end
-    task.status = "claimed"
-    task.claimedAt = nowHours()
-    data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
-    appendHistory(data, taskHistoryEntry("ClaimTask", task))
-    return true, "TaskClaimed"
+    local outcome = taskServiceFor(player, data):claim(data, task, {
+        clientProgress = claimArgs.clientProgress,
+        kills = player and player.getZombieKills and player:getZombieKills() or 0,
+        silent = true,
+    })
+    local codes = {
+        claimed = "TaskClaimed",
+        incomplete = "TaskIncomplete",
+        turnInNotEnough = "TaskTurnInNotEnough",
+        stateInvalid = "TaskStateInvalid",
+        failed = "TaskFailed",
+    }
+    return outcome.ok, codes[outcome.code] or outcome.code
+end
+
+failTask = function(player, data, task, historyCode)
+    return taskServiceFor(player, data):fail(data, task, historyCode or "TaskFailed", true).ok
+end
+
+failActiveTasksOnDeath = function(player, data)
+    local outcome = taskServiceFor(player, data):settleDeath(data,
+        "mp:" .. tostring(userKey(player)) .. ":" .. tostring(math.floor(nowHours() * 10)))
+    return outcome.ok and outcome.data and outcome.data.failed or 0
 end
 
 local function sendState(player, terminalSync)
@@ -2477,8 +2437,16 @@ local function sendState(player, terminalSync)
         lastTraitBenefitsApplied = diagnostics.lastTraitBenefitsApplied,
         lastTraitBenefitsType = diagnostics.lastTraitBenefitsType,
     }
+    local clientData = {}
+    for key, value in pairs(data) do clientData[key] = value end
+    local personalAccount = GodSystemServer.personalStorageAccount(player)
+    clientData.personalStorage = {
+        schemaVersion = GodSystemPersonalStorage.SchemaVersion,
+        summaryOnly = true,
+        summary = GodSystemPersonalStorage.summary(GodSystemPersonalStorage.normalizeData(personalAccount)),
+    }
     sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.State) or "state", {
-        data = data,
+        data = clientData,
         balance = data.balance,
         version = GodSystemConfig.Version,
         admin = isAdminPlayer(player),
@@ -2907,7 +2875,7 @@ function Commands.consolidateCurrency(_, _, player)
     if not ok then errorMessage(player, tostring(err)) end
 end
 
-function Commands.death(_, _, player)
+function Commands.death(_, _, player, args)
     local data = playerData(player)
     local terminalState = GodSystemServer.terminalCache[userKey(player)]
     GodSystemServer.terminalCache[userKey(player)] = nil
@@ -2917,9 +2885,10 @@ function Commands.death(_, _, player)
             ensureKillTaskProgress(task, data.lastKnownKills or 0)
         end
     end
-    local penalty = applyBankDeathPenalty(data)
-    local failed = failActiveTasksOnDeath(player, data)
-    if penalty > 0 then notifyCode(player, "BankDeathPenalty", { penalty }) end
+    local outcome = taskServiceFor(player, data):settleDeath(data, tostring(args and args.deathToken or ""))
+    local penalty = outcome.data and outcome.data.penalty or 0
+    local failed = outcome.data and outcome.data.failed or 0
+    if penalty > 0 then notifyCode(player, outcome.data.permitPenalty and "StoragePermitDeathPenalty" or "BankDeathPenalty", { penalty }) end
     if failed > 0 then notifyCode(player, "DeathTasksFailed", { failed }) end
     transmitStore()
     sendState(player)
@@ -3913,8 +3882,9 @@ function Commands.upgradeSystem(_, _, player, args)
             data.upgrades.maxActiveTasks = nextValue
         elseif t == "dailyTasks" then
             data.upgrades.dailyTaskCount = nextValue
-            local templates = availableTaskTemplates()
-            if #templates > 0 then data.tasks[#data.tasks + 1] = generateTask(templates[randomIndex(#templates)]) end
+            local taskService = taskServiceFor(player, data)
+            local templates = taskService:availableTemplates()
+            if #templates > 0 then data.tasks[#data.tasks + 1] = taskService:generateTask(templates[randomIndex(#templates)]) end
         end
         data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
         appendHistory(data, historyEntry("upgrade", "UpgradeSystem", { t, current, nextValue, cost }))
@@ -4063,23 +4033,12 @@ function Commands.task(_, _, player, args)
     local task = findTask(data, args and args.taskId)
     if not task then return finish(player, false, "任务不存在") end
     if action == "accept" then
-        if task.status ~= "open" then return finish(player, false, "任务状态不正确") end
-        local active = 0
-        for i = 1, #data.tasks do if data.tasks[i].status == "active" then active = active + 1 end end
-        if active >= maxActiveTasks(data) then return finish(player, false, "进行中任务已达上限") end
-        task.status = "active"
-        task.acceptedAt = nowHours()
-        task.deadline = task.acceptedAt + (task.limitHours or GodSystemConfig.DefaultTaskLimitHours)
-        task.startKills = math.max(0, floor(args and args.clientKills, player.getZombieKills and player:getZombieKills() or 0))
-        task.killProgress = task.kind == "kill" and 0 or nil
-        task.startRecycledItems = data.stats.recycledItems or 0
-        task.startRecycledPoints = data.stats.recycledPoints or 0
-        task.startSpentPoints = data.stats.spentPoints or 0
-        task.startBoughtItems = data.stats.boughtItems or 0
         data.stats.moveDistance = math.max(data.stats.moveDistance or 0, n(args and args.clientMoveDistance, data.stats.moveDistance or 0))
-        task.startMoveDistance = data.stats.moveDistance or 0
-        appendHistory(data, taskHistoryEntry("AcceptTask", task))
-        return finish(player, true, "任务已接取")
+        local accepted = taskServiceFor(player, data):accept(data, task, {
+            kills = math.max(0, floor(args and args.clientKills, player.getZombieKills and player:getZombieKills() or 0)),
+        })
+        if not accepted.ok then return finishCode(player, false, accepted.code == "activeLimit" and "ActiveTaskLimit" or "TaskStateInvalid") end
+        return finishCode(player, true, "TaskAccepted")
     elseif action == "claim" then
         local claimed, code = claimTaskForPlayer(player, data, task, args)
         return finishCode(player, claimed, code)
@@ -4095,17 +4054,11 @@ function Commands.refreshTasks(_, _, player)
     applyAdminConfigStore()
     if GodSystemAdminConfig.isFeatureEnabled("EnableTasks") == false then return finish(player, false, "Tasks disabled") end
     local data = playerData(player)
-    local cost = GodSystemConfig.RefreshTaskCost or 0
-    if cost > 0 and not addPoints(player, -cost, data) then return finish(player, false, "系统币不足") end
-    local templates = availableTaskTemplates()
-    for i = 1, #(data.tasks or {}) do
-        if data.tasks[i].status == "open" and #templates > 0 then
-            data.tasks[i] = generateTask(templates[randomIndex(#templates)])
-        end
+    local outcome = taskServiceFor(player, data):refresh(data, function(cost) return addPoints(player, -cost, data) end)
+    if not outcome.ok then
+        return finishCode(player, false, outcome.code == "insufficientFunds" and "CannotRefresh" or "NoOpenTask")
     end
-    data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
-    appendHistory(data, historyEntry("task", "RefreshTasks", { cost }))
-    finish(player, true, "任务已刷新")
+    finishCode(player, true, "RefreshTasks", { outcome.data.cost or 0 })
 end
 
 local function currentPosition(player)
@@ -4897,6 +4850,39 @@ function GodSystemServer.storageControllerCommit(player, cost, recovered, receip
     sendState(player)
 end
 
+function GodSystemServer.personalStorageData(player)
+    return GodSystemServer.personalStorageAccount(player)
+end
+
+function GodSystemServer.personalStorageFindItem(player, itemId)
+    return inventoryItemById(player, itemId)
+end
+
+function GodSystemServer.personalStorageCharge(player, cost)
+    local data = playerData(player)
+    local paid, fromBank, fromCash = spendCurrency(player, data, cost)
+    if not paid then return false, nil end
+    return true, { data = data, fromBank = fromBank, fromCash = fromCash }
+end
+
+function GodSystemServer.personalStorageRefund(player, receipt)
+    receipt = type(receipt) == "table" and receipt or {}
+    return GodSystemServer.refundCurrencySources(player, receipt.data or playerData(player),
+        receipt.fromBank or 0, receipt.fromCash or 0)
+end
+
+function GodSystemServer.personalStorageCommit(player, cost, historyCode, historyArgs)
+    local data = playerData(player)
+    cost = math.max(0, floor(cost, 0))
+    if cost > 0 then data.stats.spentPoints = (data.stats.spentPoints or 0) + cost end
+    appendHistory(data, historyEntry("personalStorage", historyCode, historyArgs or { cost }))
+    -- The virtual item snapshots live in a private server ModData slice.  Do
+    -- not broadcast that slice; Global ModData is persisted with the world.
+    transmitStore()
+    sendState(player)
+end
+
 require "GodSystem_StorageServer"
+require "GodSystem_PersonalStorageServer"
 
 return Commands

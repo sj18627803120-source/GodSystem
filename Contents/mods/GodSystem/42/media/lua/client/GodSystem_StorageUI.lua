@@ -490,8 +490,9 @@ end
 function GodSystemStorageWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
     self.storageTab = self:createButton(14, 30, 120, 30, text("Storage_Tab_Storage", "Storage"), "storage", self.onPage, true)
-    self.manageTab = self:createButton(142, 30, 160, 30, text("Storage_Tab_Containers", "Container management"), "manage", self.onPage)
-    self.statusLabel = ISLabel:new(316, 37, 20, "", 0.66, 0.82, 0.88, 1, UIFont.Small, true)
+    self.personalTab = self:createButton(142, 30, 176, 30, text("Storage_Tab_Personal", "实体网络 ↔ 个人仓"), "personal", self.onPage)
+    self.manageTab = self:createButton(326, 30, 160, 30, text("Storage_Tab_Containers", "Container management"), "manage", self.onPage)
+    self.statusLabel = ISLabel:new(500, 37, 20, "", 0.66, 0.82, 0.88, 1, UIFont.Small, true)
     self.statusLabel:initialise()
     self:addChild(self.statusLabel)
 
@@ -561,6 +562,10 @@ function GodSystemStorageWindow:createChildren()
         text("Storage_DepositSourceAll", "Deposit current container"), "depositSourceAll", self.onAction)
     self.withdrawSelectedButton = self:createButton(self.width - 152, self.height - 44, 138, 32,
         text("Storage_WithdrawSelected", "Withdraw selected"), "withdrawSelected", self.onAction, true)
+    self.bridgeDepositButton = self:createButton(14, self.height - 44, 220, 32,
+        text("PersonalStorage_FromPhysical", "转入个人仓"), "bridgeDeposit", self.onAction, true)
+    self.bridgeWithdrawButton = self:createButton(242, self.height - 44, 220, 32,
+        text("PersonalStorage_OpenBridge", "从个人仓转入实体网络"), "bridgeWithdraw", self.onAction)
 
     self.connectModeButton = self:createButton(14, self.height - 44, 145, 32,
         text("Storage_ConnectMode", "Connection mode"), "connectMode", self.onManageAction, true)
@@ -588,7 +593,7 @@ function GodSystemStorageWindow:layoutColumns()
     local contentHeight = math.max(220, self.height - top - bottom)
     local detailWidth = math.max(290, math.floor(innerWidth * 0.27))
     local inventoryWidth = math.max(320, math.floor(innerWidth * 0.30))
-    if self.page == "manage" then inventoryWidth = 0 end
+    if self.page ~= "storage" then inventoryWidth = 0 end
     local warehouseWidth = innerWidth - detailWidth - gap - (inventoryWidth > 0 and (inventoryWidth + gap) or 0)
     local warehouseX = margin + (inventoryWidth > 0 and (inventoryWidth + gap) or 0)
     local detailX = warehouseX + warehouseWidth + gap
@@ -605,6 +610,7 @@ function GodSystemStorageWindow:layoutColumns()
     local actionY = self.height - 44
     local buttons = {
         self.depositSelectedButton, self.depositSourceAllButton, self.withdrawSelectedButton,
+        self.bridgeDepositButton, self.bridgeWithdrawButton,
         self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton, self.unlinkButton, self.takeOverButton,
         self.organizerButton, self.organizerStopButton,
     }
@@ -625,24 +631,29 @@ end
 
 function GodSystemStorageWindow:updatePageVisibility()
     local storagePage = self.page == "storage"
+    local personalPage = self.page == "personal"
+    local managePage = self.page == "manage"
     self.sourceList:setVisible(storagePage)
     self.inventoryList:setVisible(storagePage)
-    self.categoryButton:setVisible(storagePage)
-    self.stateButton:setVisible(storagePage)
-    self.sourceFilterButton:setVisible(storagePage)
-    self.modButton:setVisible(storagePage)
-    self.containerStatusButton:setVisible(not storagePage)
+    self.categoryButton:setVisible(storagePage or personalPage)
+    self.stateButton:setVisible(storagePage or personalPage)
+    self.sourceFilterButton:setVisible(storagePage or personalPage)
+    self.modButton:setVisible(storagePage or personalPage)
+    self.containerStatusButton:setVisible(managePage)
     local storageButtons = { self.depositSelectedButton, self.depositSourceAllButton, self.withdrawSelectedButton }
     for i = 1, #storageButtons do storageButtons[i]:setVisible(storagePage) end
+    self.bridgeDepositButton:setVisible(personalPage)
+    self.bridgeWithdrawButton:setVisible(personalPage)
     local manageButtons = {
         self.connectModeButton, self.roleButton, self.priorityDownButton, self.priorityUpButton,
         self.unlinkButton, self.organizerButton, self.organizerStopButton,
     }
-    for i = 1, #manageButtons do manageButtons[i]:setVisible(not storagePage) end
-    self.takeOverButton:setVisible(not storagePage and isMultiplayerSession()
+    for i = 1, #manageButtons do manageButtons[i]:setVisible(managePage) end
+    self.takeOverButton:setVisible(managePage and isMultiplayerSession()
         and (Client.networkState or {}).isAdmin == true)
     styleButton(self.storageTab, storagePage)
-    styleButton(self.manageTab, not storagePage)
+    styleButton(self.personalTab, personalPage)
+    styleButton(self.manageTab, managePage)
 end
 
 function GodSystemStorageWindow:onFilter(button)
@@ -875,7 +886,7 @@ function GodSystemStorageWindow:rebuildWarehouse(preserveState)
     end
     local query = lower(self.searchBox and self.searchBox:getText() or "")
     local valid = {}
-    if self.page == "storage" then
+    if self.page ~= "manage" then
         local groups = {}
         for i = 1, #(snapshot.groups or {}) do if self:filterGroup(snapshot.groups[i], query) then groups[#groups + 1] = snapshot.groups[i] end end
         self:sortGroups(groups)
@@ -1179,6 +1190,36 @@ function GodSystemStorageWindow:withdrawSelection(mode)
     Client.withdrawRequests(requests, source and source.itemId or nil)
 end
 
+function GodSystemStorageWindow:bridgeRequests(mode)
+    local groups = selectedGroupsInOrder(self.warehouseRows, self.selectedWarehouseKeys)
+    if #groups == 0 then return {} end
+    if #groups == 1 and self.selectedInstanceId then
+        return { { groupKey = groups[1].key, itemIds = { self.selectedInstanceId } } }
+    end
+    local requests = {}
+    for i = 1, #groups do
+        local count = tonumber(groups[i].count) or 0
+        local selectedMode = #groups > 1 and "all" or (mode or "all")
+        if selectedMode == "one" then count = math.min(1, count)
+        elseif selectedMode == "half" then count = math.ceil(count / 2) end
+        requests[#requests + 1] = { groupKey = groups[i].key, count = count }
+    end
+    return requests
+end
+
+function GodSystemStorageWindow:bridgeSelection()
+    local requests = self:bridgeRequests("all")
+    if #requests == 0 then return end
+    self.pendingBridgeRequests = requests
+    GodSystemPersonalStorageClient.previewBridgeDeposit(requests)
+end
+
+function GodSystemStorageWindow:onBridgeConfirm(button)
+    if button and button.internal == "YES" and self.pendingBridgeRequests then
+        GodSystemPersonalStorageClient.bridgeDeposit(self.pendingBridgeRequests, true)
+    end
+end
+
 function GodSystemStorageWindow:updateWithdrawButton()
     if not self.withdrawSelectedButton then return end
     self.withdrawSelectedButton:setTitle(self.selectedInstanceId
@@ -1355,6 +1396,8 @@ function GodSystemStorageWindow:onAction(button)
             Client.depositAll(source and source.itemId or nil)
         end
     elseif button.internal == "withdrawSelected" then self:withdrawSelection("all")
+    elseif button.internal == "bridgeDeposit" then self:bridgeSelection()
+    elseif button.internal == "bridgeWithdraw" then GodSystemPersonalStorageUI.openBridge()
     end
 end
 
@@ -1445,6 +1488,40 @@ function UI.onOperationResult(command, ok, reason, payload)
         if ok then UI.window.statusLabel.name = text("Storage_Refreshing", "Refreshing...") end
         UI.window:rebuildInventory(true)
     end
+end
+
+function UI.onPersonalPreview(payload)
+    if not UI.window or not payload or payload.command ~= "bridgePreview" then return end
+    if payload.ok ~= true then
+        Client.notifyReason(payload.code or "internalError")
+        return
+    end
+    local simplified = payload.simplified or {}
+    if #simplified == 0 then
+        GodSystemPersonalStorageClient.bridgeDeposit(UI.window.pendingBridgeRequests or {}, false)
+        return
+    end
+    local names = {}
+    for i = 1, math.min(#simplified, 8) do
+        names[#names + 1] = tostring(simplified[i].name or simplified[i].fullType or "?")
+    end
+    local message = text("PersonalStorage_SimplifiedConfirm", "以下物品只能简化保存，是否继续：")
+        .. "\n" .. table.concat(names, "、") .. (#simplified > 8 and "…" or "")
+    local modal = ISModalDialog:new(UI.window.x + 120, UI.window.y + 120, 560, 240,
+        message, true, UI.window, UI.window.onBridgeConfirm, 0)
+    modal:initialise()
+    modal:addToUIManager()
+end
+
+function UI.onPersonalOperationResult(command, outcome)
+    if not UI.window or (command ~= "bridgeDeposit" and command ~= "bridgeWithdraw") then return end
+    local stats = outcome and outcome.data or {}
+    if GodSystem and GodSystem.notify then
+        GodSystem.notify(text("PersonalStorage_BridgeResult", "转换完成：成功 {1}，跳过 {2}，失败 {3}")
+            :gsub("{1}", tostring(stats.success or 0)):gsub("{2}", tostring(stats.skipped or 0))
+            :gsub("{3}", tostring(stats.failed or 0)))
+    end
+    UI.window.pendingBridgeRequests = nil
 end
 
 function UI.onOrganizerStatus()

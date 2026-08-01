@@ -20,4 +20,7 @@ ItemName_CN = {
 
     ItemName_GodSystem.SystemAutoLoader = "系统自动装填机",
     Tooltip_GodSystem_SystemAutoLoader = "将随身未收藏的散装弹药转为数字存储，每种弹药按设置拥有独立容量；可为随身的同类型弹匣装填。",
+
+    ItemName_GodSystem.StorageExpansionPermit = "个人仓扩容许可",
+    Tooltip_GodSystem_StorageExpansionPermit = "完成长期许可任务后获得。右键选择一种分类，为该角色账户永久增加 200 件个人仓专属容量。",
 }

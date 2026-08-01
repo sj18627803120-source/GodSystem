@@ -8,5 +8,6 @@
     "GodSystem.SystemTerminalRelief": "系统内部减载核心",
     "GodSystem.SystemVehicleRepairModule": "系统车辆修复模块",
     "GodSystem.StorageController": "系统仓库核心",
-    "GodSystem.SystemAutoLoader": "系统自动装填机"
+    "GodSystem.SystemAutoLoader": "系统自动装填机",
+    "GodSystem.StorageExpansionPermit": "个人仓扩容许可"
 }

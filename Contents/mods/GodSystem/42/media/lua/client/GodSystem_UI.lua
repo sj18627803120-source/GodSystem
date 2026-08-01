@@ -3,6 +3,8 @@ require "GodSystem_Core"
 require "GodSystem_UITheme"
 require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
+require "GodSystem_PersonalStorageUI"
+require "GodSystem_Keybind"
 require "GodSystem_FloatingButtonLifecycle"
 require "GodSystem_ListState"
 require "GodSystem_PageSections"
@@ -452,7 +454,9 @@ end
 local function gsGetActiveTaskRows()
     local rows = {}
     local data = GodSystem.getData()
-    local tasks = data.tasks or {}
+    local tasks = {}
+    for i = 1, #(data.tasks or {}) do tasks[i] = data.tasks[i] end
+    GodSystemTaskService.sortTasks(tasks)
     for i = 1, #tasks do
         local task = tasks[i]
         if task and task.status == "active" then
@@ -757,7 +761,24 @@ function GodSystemShortcutWindow:getActions()
         label = GodSystem.text(connectMode and "Storage_ConnectModeOff" or "Storage_ConnectModeOn",
             connectMode and "Disable connection mode" or "Enable connection mode"),
     }
+    if GodSystem.isFeatureEnabled("EnablePersonalStorage") ~= false then
+        actions[#actions + 1] = { action = "personalStorageOpen", label = GodSystem.text("Shortcut_PersonalStorage", "打开个人分类仓") }
+    end
+    local keyName = GodSystemKeybind and GodSystemKeybind.keyName(GodSystemKeybind.getKey()) or "N"
+    actions[#actions + 1] = { action = "panelKeyCapture", label = GodSystem.text("Shortcut_PanelKey", "面板快捷键") .. ": " .. keyName }
+    actions[#actions + 1] = { action = "panelKeyReset", label = GodSystem.text("Shortcut_PanelKeyReset", "恢复默认 N") }
+    actions[#actions + 1] = { action = "panelKeyDisable", label = GodSystem.text("Shortcut_PanelKeyDisable", "禁用面板快捷键") }
     return actions
+end
+
+function GodSystemShortcutWindow:onGodSystemKeyCapture(ok, key, code)
+    if ok then
+        GodSystem.notify(GodSystem.text("Shortcut_PanelKeySaved", "面板快捷键已改为") .. " " .. GodSystemKeybind.keyName(key)
+            .. "\n" .. GodSystem.text("Shortcut_PanelKeyConflictHint", "如与其他按键绑定冲突，两项功能都会响应。"))
+    elseif code == "cancelled" then
+        GodSystem.notify(GodSystem.text("Shortcut_PanelKeyCancelled", "已取消按键修改"))
+    end
+    self:refreshActions(true)
 end
 
 function GodSystemShortcutWindow:finishShortcutCommand(sent)
@@ -849,6 +870,16 @@ function GodSystemShortcutWindow:performAction(action)
         GodSystemStorageContext.toggleConnectMode()
         self:refreshActions(true)
         return true
+    elseif action == "personalStorageOpen" then
+        if GodSystemPersonalStorageUI then GodSystemPersonalStorageUI.open(); return true end
+    elseif action == "panelKeyCapture" then
+        GodSystemKeybind.beginCapture(self)
+        GodSystem.notify(GodSystem.text("Shortcut_PanelKeyCapturing", "请按下新的面板快捷键；Esc 取消"))
+        return true
+    elseif action == "panelKeyReset" then
+        GodSystemKeybind.reset(); self:refreshActions(true); return true
+    elseif action == "panelKeyDisable" then
+        GodSystemKeybind.disable(); self:refreshActions(true); return true
     end
     return false
 end
@@ -3915,6 +3946,14 @@ function GodSystemWindow:populateTerminalItemsSection()
     self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(false)
     self.seventhButton:setVisible(false)
+    if GodSystem.isFeatureEnabled("EnablePersonalStorage") ~= false then
+        gsSetButtonTitle(self.fourthButton, GodSystem.text("PersonalStorage_Open", "远程打开个人仓"))
+        self.fourthButton.enable = true
+        self.fourthButton:setVisible(true)
+        gsSetButtonTitle(self.fifthButton, GodSystem.text("PersonalStorage_BuyGeneral", "购买通用容量"))
+        self.fifthButton.enable = true
+        self.fifthButton:setVisible(true)
+    end
 
     local groups, order, skipped = GodSystem.getWaistSpaceRecycleGroups()
     local seen = {}
@@ -4106,6 +4145,10 @@ function GodSystemWindow:populateStorageNetwork()
         storageActions[#storageActions + 1] = { id = "secondary", width = 210 }
     end
     storageActions[#storageActions + 1] = { id = "third", width = 210 }
+    if GodSystem.isFeatureEnabled("EnablePersonalStorage") ~= false then
+        storageActions[#storageActions + 1] = { id = "fourth", width = 190 }
+        storageActions[#storageActions + 1] = { id = "fifth", width = 190 }
+    end
     self:setActionBar(storageActions)
     self:addListItem(GodSystem.text("Storage_Manual_Title", "User guide"), {
         kind = "storageInfo",
@@ -4123,6 +4166,16 @@ function GodSystemWindow:populateStorageNetwork()
                 and gsFormatTemplate(GodSystem.text("Storage_RecoveryRule", "Future recovery costs {1} system coins."), { status.recoveryCost or 2000 })
                 or GodSystem.text("Storage_FirstClaimRule", "The first storage core is free."),
         })
+    end
+    if GodSystem.isFeatureEnabled("EnablePersonalStorage") ~= false then
+        local personal = GodSystemPersonalStorageClient and GodSystemPersonalStorageClient.getSummary() or nil
+        local usage = personal and personal.usage or {}
+        self:addListItem(GodSystem.text("PersonalStorage_Title", "个人分类仓"), {
+            kind = "storageInfo",
+            detail = GodSystem.text("PersonalStorage_Overview", "分类专属容量由长期许可任务解锁；通用容量承接各分类超出的部分。个人仓可远程打开，物品转换为版本化快照保存。")
+                .. "\n" .. GodSystem.text("PersonalStorage_General", "通用") .. ": " .. tostring(usage.generalUsed or 0) .. "/" .. tostring(usage.generalCapacity or 0),
+        })
+        if GodSystemPersonalStorageClient then GodSystemPersonalStorageClient.requestState() end
     end
 end
 
@@ -4412,7 +4465,8 @@ function GodSystemWindow:populateTaskMain()
         local task = tasks[i]
         local progress = GodSystem.getTaskProgress(task)
         local text = GodSystem.getTaskListTitle(task)
-        local remain = task.status == "active" and (" " .. GodSystem.text("Short_Remain", "Left") .. tostring(GodSystem.getRemainingHours(task)) .. "h") or ""
+        local remain = task.status == "active" and not GodSystemTaskService.isPermit(task)
+            and (" " .. GodSystem.text("Short_Remain", "Left") .. tostring(GodSystem.getRemainingHours(task)) .. "h") or ""
         local detail = string.format("%d/%d%s", math.min(progress, task.target or 1), task.target or 1, remain)
         if task.status == "open" then
             openCount = openCount + 1
@@ -4713,20 +4767,60 @@ local function gsBoolText(value)
     return value == true and "true" or "false"
 end
 
+local function gsHealthLine(label, health)
+    health = health or { ok = false, code = "unavailable" }
+    local state = health.ok == true and GodSystem.text("Diag_StatusOk", "正常")
+        or GodSystem.text("Diag_StatusError", "异常")
+    return tostring(label) .. "：" .. state .. "（" .. tostring(health.code or "-") .. "）"
+end
+
 function GodSystemWindow:populateDiagnostics()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_Close", "Close"))
     self.secondaryButton:setVisible(gsIsMultiplayer())
     gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_DiagnosticsRefresh", "Refresh diagnostics"))
+    self.fourthButton:setVisible(true)
+    gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_DiagnosticsCopy", "复制高级报告"))
 
-    local data = GodSystem.getData() or {}
+    local data = GodSystem.data or {}
     local server = data.serverDiagnostics or {}
     local client = {}
     if GodSystemNetwork and GodSystemNetwork.getDiagnostics then
         client = GodSystemNetwork.getDiagnostics() or {}
     end
 
-    local lines = {
-        GodSystem.text("Diag_Header", "Diagnostics"),
+    local keybindHealth = GodSystemKeybind and GodSystemKeybind.health and GodSystemKeybind.health()
+        or { ok = false, code = "moduleMissing" }
+    local taskHealth = GodSystem.taskService and GodSystem.taskService.health
+        and GodSystem.taskService:health(data) or { ok = false, code = "moduleMissing" }
+    local personalHealth = GodSystemPersonalStorageClient and GodSystemPersonalStorageClient.health
+        and GodSystemPersonalStorageClient.health() or { ok = false, code = "moduleMissing" }
+    local snapshotHealth = GodSystemItemSnapshot and GodSystemItemSnapshot.health
+        and GodSystemItemSnapshot.health() or { ok = false, code = "moduleMissing" }
+    local bridgeHealth = personalHealth.data and personalHealth.data.bridge
+        or { ok = false, code = "moduleMissing" }
+    local allHealthy = keybindHealth.ok == true and taskHealth.ok == true
+        and personalHealth.ok == true and snapshotHealth.ok == true and bridgeHealth.ok == true
+
+    local summaryLines = {
+        GodSystem.text("Diag_Header", "诊断"),
+        GodSystem.text("Diag_Overall", "整体状态") .. "：" .. (allHealthy
+            and GodSystem.text("Diag_StatusOk", "正常") or GodSystem.text("Diag_StatusError", "需要检查")),
+        GodSystem.text("Diag_ModeVersion", "运行环境") .. "：" .. (gsIsMultiplayer() and "MP" or "SP")
+            .. " / " .. tostring(GodSystemConfig.Version or "?"),
+        gsHealthLine(GodSystem.text("Diag_ModuleKeybind", "系统快捷键"), keybindHealth),
+        gsHealthLine(GodSystem.text("Diag_ModuleTasks", "任务系统"), taskHealth),
+        gsHealthLine(GodSystem.text("Diag_ModulePersonalStorage", "个人分类仓"), personalHealth),
+        gsHealthLine(GodSystem.text("Diag_ModuleSnapshot", "物品状态保存"), snapshotHealth),
+        gsHealthLine(GodSystem.text("Diag_ModuleBridge", "实体仓转换"), bridgeHealth),
+        GodSystem.text("Diag_LastProblem", "最近问题") .. "："
+            .. tostring((personalHealth.data and personalHealth.data.lastError) or client.lastError or server.lastError or GodSystem.text("Diag_None", "无")),
+        GodSystem.text("Diag_LastOperation", "最近操作ID") .. "："
+            .. tostring((personalHealth.data and personalHealth.data.lastOperationId) or client.lastOperationId or "-"),
+        GodSystem.text("Diag_CopyHint", "遇到问题时点击“复制高级报告”，将内容发给作者。"),
+    }
+
+    local reportLines = {
+        "GodSystem diagnostics",
         "mode=" .. (gsIsMultiplayer() and "MP" or "SP") .. " version=" .. tostring(GodSystemConfig.Version or "?"),
         "balance=" .. tostring(GodSystem.getCurrencyTotal and GodSystem.getCurrencyTotal() or 0),
         "client.hasServerState=" .. gsBoolText(client.hasServerState),
@@ -4751,10 +4845,19 @@ function GodSystemWindow:populateDiagnostics()
         "server.lastTraitBenefitsOk=" .. tostring(server.lastTraitBenefitsOk),
         "server.lastTraitBenefitsApplied=" .. tostring(server.lastTraitBenefitsApplied or 0),
         "server.lastTraitBenefitsType=" .. tostring(server.lastTraitBenefitsType or "-"),
+        "module.keybind=" .. tostring(keybindHealth.ok) .. ":" .. tostring(keybindHealth.code),
+        "module.tasks=" .. tostring(taskHealth.ok) .. ":" .. tostring(taskHealth.code),
+        "module.personalStorage=" .. tostring(personalHealth.ok) .. ":" .. tostring(personalHealth.code),
+        "module.snapshot=" .. tostring(snapshotHealth.ok) .. ":" .. tostring(snapshotHealth.code),
+        "module.storageBridge=" .. tostring(bridgeHealth.ok) .. ":" .. tostring(bridgeHealth.code),
+        "personal.lastOperationId=" .. tostring((personalHealth.data and personalHealth.data.lastOperationId) or "-"),
+        "personal.lastError=" .. tostring((personalHealth.data and personalHealth.data.lastError) or "-"),
     }
 
-    for i = 1, #lines do
-        self:addWrappedListText(lines[i], { kind = "diagnostics", data = lines[i] })
+    self.diagnosticReport = table.concat(reportLines, "\n")
+
+    for i = 1, #summaryLines do
+        self:addWrappedListText(summaryLines[i], { kind = "diagnostics", data = summaryLines[i] })
     end
 end
 
@@ -6367,6 +6470,17 @@ function GodSystemWindow:onThirdAction()
 end
 
 function GodSystemWindow:onFourthAction()
+    if self.mode == "diagnostics" then
+        if Clipboard and Clipboard.setClipboard then
+            Clipboard.setClipboard(self.diagnosticReport or "")
+            GodSystem.notify(GodSystem.text("Notify_DiagnosticsCopied", "诊断报告已复制"))
+        end
+        return
+    end
+    if self.mode == "storage" then
+        if GodSystemPersonalStorageUI then GodSystemPersonalStorageUI.open() end
+        return
+    end
     if self.mode == "companion" then
         if GodSystemCompanion and GodSystemCompanion.recall then GodSystemCompanion.recall() end
         self:populateList()
@@ -6409,6 +6523,10 @@ function GodSystemWindow:onFourthAction()
 end
 
 function GodSystemWindow:onFifthAction()
+    if self.mode == "storage" then
+        if GodSystemPersonalStorageClient then GodSystemPersonalStorageClient.buyGeneral() end
+        return
+    end
     if self.mode == "waist" then
         if self:getActivePageSection("waist") == "services" then
             self:prepareActionSelection(self:getSelectedPayload())

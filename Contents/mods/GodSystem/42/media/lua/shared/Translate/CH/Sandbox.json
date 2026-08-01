@@ -147,5 +147,7 @@
   "Sandbox_GodSystem_EnableAttributes": "启用属性成长",
   "Sandbox_GodSystem_EnableAttributes_tooltip": "控制使用系统币购买原版及标准MOD技能经验的属性页面是否可用。",
   "Sandbox_GodSystem_EnableAutoLoaderShop": "商城出售自动装填机",
-  "Sandbox_GodSystem_EnableAutoLoaderShop_tooltip": "仅控制系统商城是否显示并出售自动装填机；不会禁用玩家已经持有的装填机。"
+  "Sandbox_GodSystem_EnableAutoLoaderShop_tooltip": "仅控制系统商城是否显示并出售自动装填机；不会禁用玩家已经持有的装填机。",
+  "Sandbox_GodSystem_EnablePersonalStorage": "启用个人分类仓",
+  "Sandbox_GodSystem_EnablePersonalStorage_tooltip": "允许玩家使用扩容许可、购买通用容量并通过虚拟快照远程存取个人物品。"
 }

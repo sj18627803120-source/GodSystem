@@ -58,6 +58,7 @@ Storage.ProtectedFullTypes = {
     ["GodSystem.SystemSpaceTerminal"] = true,
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.StorageController"] = true,
+    ["GodSystem.StorageExpansionPermit"] = true,
 }
 
 local function number(value, fallback)

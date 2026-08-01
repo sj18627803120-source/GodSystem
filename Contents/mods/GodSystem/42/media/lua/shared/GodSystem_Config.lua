@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20.1.7"
+GodSystemConfig.Version = "42.20.2.1"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "系统币"
@@ -107,8 +107,13 @@ GodSystemConfig.AutoRecyclerFullTypes = {
 }
 GodSystemConfig.AutoLoaderFullType = "GodSystem.SystemAutoLoader"
 GodSystemConfig.AutoLoaderAmmoCapacity = 2000
+GodSystemConfig.StorageExpansionPermitFullType = "GodSystem.StorageExpansionPermit"
+GodSystemConfig.PersonalStoragePermitCapacity = 200
+GodSystemConfig.PersonalStorageGeneralCost = 10000
+GodSystemConfig.PersonalStorageGeneralCapacity = 10
 GodSystemConfig.TaskItemBlacklist = {
     ["GodSystem.StorageController"] = true,
+    ["GodSystem.StorageExpansionPermit"] = true,
 }
 GodSystemConfig.AutoRecyclerMarkerKey = "GodSystemAutoRecycler"
 GodSystemConfig.AutoRecyclerLevelKey = "GodSystemAutoRecyclerLevel"
@@ -224,6 +229,7 @@ GodSystemConfig.LotteryBlacklist = {
     ["GodSystem.SystemSpaceTerminal"] = true,
     ["GodSystem.StorageController"] = true,
     ["GodSystem.SystemAutoLoader"] = true,
+    ["GodSystem.StorageExpansionPermit"] = true,
 }
 GodSystemConfig.ModCategoryBuyPrices = {
     accessory = 180,
@@ -406,6 +412,7 @@ GodSystemConfig.AutoShopBlacklist = {
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.StorageController"] = true,
     ["GodSystem.SystemAutoLoader"] = true,
+    ["GodSystem.StorageExpansionPermit"] = true,
 }
 
 GodSystemConfig.FloatingButton = {
@@ -425,6 +432,7 @@ GodSystemConfig.RecycleBlacklist = {
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.StorageController"] = true,
     ["GodSystem.SystemAutoLoader"] = true,
+    ["GodSystem.StorageExpansionPermit"] = true,
 }
 
 GodSystemConfig.ShopItems = {

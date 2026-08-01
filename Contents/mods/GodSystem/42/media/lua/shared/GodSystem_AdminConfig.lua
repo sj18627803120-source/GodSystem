@@ -90,6 +90,7 @@ local SETTING_META = {
     { key = "EnableCompanion", group = "features", type = "boolean", default = true, singlePlayerOnly = true, labelKey = "AdminSetting_EnableCompanion", descKey = "AdminSetting_EnableCompanion_Desc" },
     { key = "EnableAttributes", group = "features", type = "boolean", default = true, labelKey = "AdminSetting_EnableAttributes", descKey = "AdminSetting_EnableAttributes_Desc" },
     { key = "EnableAutoLoaderShop", group = "features", type = "boolean", default = true, labelKey = "AdminSetting_EnableAutoLoaderShop", descKey = "AdminSetting_EnableAutoLoaderShop_Desc" },
+    { key = "EnablePersonalStorage", group = "features", type = "boolean", default = true, labelKey = "AdminSetting_EnablePersonalStorage", descKey = "AdminSetting_EnablePersonalStorage_Desc" },
 }
 
 local META_BY_KEY = {}

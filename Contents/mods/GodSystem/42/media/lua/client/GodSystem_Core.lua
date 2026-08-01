@@ -11,6 +11,8 @@ require "GodSystem_TerminalUpgrades"
 require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
+require "GodSystem_TaskService"
+require "GodSystem_PersonalStorage"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
@@ -429,6 +431,10 @@ function GodSystem.getData()
     data.lastWaistAutoRecycleHour = data.lastWaistAutoRecycleHour or math.floor(gsNowHours())
     data.autoTaskClaimEnabled = data.autoTaskClaimEnabled == true
     data.lastAutoTaskClaimHour = tonumber(data.lastAutoTaskClaimHour) or gsNowHours()
+    GodSystemPersonalStorage.normalizeData(data)
+    GodSystemTaskService.ensurePermitTask(data, gsNowHours(), gsRandomIndex,
+        GodSystemAdminConfig.isFeatureEnabled("EnableTasks") ~= false
+        and GodSystemAdminConfig.isFeatureEnabled("EnablePersonalStorage") ~= false)
     data.companion = GodSystemCompanionConfig.ensureData(data.companion)
     data.ui = data.ui or {}
     data.ui.x = data.ui.x or GodSystemConfig.FloatingButton.x
@@ -769,7 +775,7 @@ end
 
 function GodSystem.updateKillTaskProgress(delta, baselineKills)
     local data = GodSystem.getData()
-    local changed = gsApplyKillTaskDelta(data, delta, baselineKills)
+    local changed = GodSystem.getTaskService():applyKillDelta(data, delta, baselineKills)
     if changed then
         GodSystem.save()
     end
@@ -783,7 +789,7 @@ function GodSystem.normalizeActiveKillTasks(baselineKills)
     for i = 1, #(data.tasks or {}) do
         local task = data.tasks[i]
         if task and task.status == "active" and task.kind == "kill" then
-            gsEnsureKillTaskProgress(task, kills)
+            GodSystem.getTaskService():ensureKillProgress(task, kills)
         end
     end
 end
@@ -2266,6 +2272,15 @@ function GodSystem.payTaskFailurePenalty(amount)
     local data = GodSystem.getData()
     data.stats.bankPenalty = (data.stats.bankPenalty or 0) + fromBank
     return paid, fromBank, fromCash
+end
+
+function GodSystem.recordPersonalStoragePurchase(cost, capacity)
+    local data = GodSystem.getData()
+    gsAppendHistory(data, {
+        kind = "personalStorage",
+        text = gsFormatText(GodSystem.text("History_PersonalStorageGeneralPurchased",
+            "Purchased {2} personal-storage general capacity for {1} coins"), { cost or 0, capacity or 0 }),
+    })
 end
 
 function GodSystem.ensureRecycleDailyLimit()
@@ -4549,11 +4564,13 @@ function GodSystem.getTaskKindLabel(task)
         spendPoints = "Spend",
         buyItems = "Buy",
         moveDistance = "Move",
+        storagePermit = "Long-term",
     }
     return GodSystem.text("TaskKind_" .. tostring(kind), fallback[kind] or tostring(kind or "Task"))
 end
 
 function GodSystem.getTaskDifficulty(task)
+    if task and task.difficulty then return "D" .. tostring(math.max(1, math.min(4, math.floor(tonumber(task.difficulty) or 1)))) end
     local penalty = math.max(0, math.floor(tonumber(task and task.penaltyPoints) or 0))
     if penalty >= 150 then return "D4" end
     if penalty >= 80 then return "D3" end
@@ -6925,38 +6942,6 @@ function GodSystem.recycleSelectedItems(mode, itemIds, allowDestroyContents, con
     return true
 end
 
-function GodSystem.generateTaskFromTemplate(template)
-    local now = gsNowHours()
-    return {
-        taskId = tostring(template.id) .. "_" .. tostring(math.floor(now * 100)) .. "_" .. tostring(gsRandomIndex(9999)),
-        sourceId = template.id,
-        title = template.title,
-        kind = template.kind,
-        target = template.target,
-        item = template.item,
-        items = gsCopyStringArray(template.items),
-        limitHours = template.limitHours or GodSystemConfig.DefaultTaskLimitHours,
-        rewardPoints = GodSystemAdminConfig.applyTaskReward(template.rewardPoints or 0),
-        rewardItems = gsCopyItems(template.rewardItems),
-        penaltyPoints = GodSystemAdminConfig.applyTaskPenalty(template.penaltyPoints or 0),
-        description = template.description,
-        status = "open",
-        createdAt = now,
-        createdDay = gsCurrentDay(),
-    }
-end
-
-function GodSystem.getActiveTaskCount()
-    local data = GodSystem.getData()
-    local count = 0
-    for i = 1, #(data.tasks or {}) do
-        if data.tasks[i].status == "active" then
-            count = count + 1
-        end
-    end
-    return count
-end
-
 function GodSystem.isTaskTemplateAvailable(template)
     if not template then
         return false
@@ -6991,119 +6976,6 @@ function GodSystem.getAvailableTaskTemplates()
     return result
 end
 
-function GodSystem.generateDailyTasks(force)
-    local data = GodSystem.getData()
-    local day = gsCurrentDay()
-    if not force and data.lastGeneratedDay == day then
-        return
-    end
-
-    local kept = {}
-    for i = 1, #(data.tasks or {}) do
-        local task = data.tasks[i]
-        if task.status == "active" then
-            table.insert(kept, task)
-        elseif task.status == "claimed" or task.status == "failed" then
-            gsAppendHistory(data, { kind = "task", text = GodSystem.getTaskStatusText(task) .. ": " .. tostring(GodSystem.getTaskTitle(task)) })
-        end
-    end
-
-    local templates = GodSystem.getAvailableTaskTemplates()
-    local used = {}
-    local count = math.min(GodSystem.getDailyTaskCount(), #templates)
-    for _ = 1, count do
-        local index = gsRandomIndex(#templates)
-        local guard = 0
-        while used[index] and guard < 30 do
-            index = gsRandomIndex(#templates)
-            guard = guard + 1
-        end
-        used[index] = true
-        table.insert(kept, GodSystem.generateTaskFromTemplate(templates[index]))
-    end
-
-    data.lastGeneratedDay = day
-    data.tasks = kept
-    gsAppendHistory(data, { kind = "system", text = GodSystem.text("History_DailyTasks", "Daily tasks published x") .. tostring(count) })
-    GodSystem.save()
-end
-
-function GodSystem.refreshOpenTasks()
-    if GodSystem.isFeatureEnabled("EnableTasks") == false then
-        GodSystem.notify("Tasks disabled")
-        return false
-    end
-    local data = GodSystem.getData()
-    local cost = GodSystemConfig.RefreshTaskCost or 0
-    if not GodSystem.canAfford(cost) then
-        GodSystem.notify(GodSystem.text("Notify_CannotRefresh", "Not enough currency to refresh tasks"))
-        return false
-    end
-
-    local openCount = 0
-    local activeCount = 0
-    for i = 1, #(data.tasks or {}) do
-        if data.tasks[i].status == "open" then
-            openCount = openCount + 1
-        elseif data.tasks[i].status == "active" then
-            activeCount = activeCount + 1
-        end
-    end
-    if openCount <= 0 then
-        if activeCount >= GodSystem.getMaxActiveTasks() then
-            GodSystem.notify(GodSystem.text("Notify_CannotRefreshActiveFull", "Active task slots are full. Complete or abandon a task first."))
-            return false
-        end
-        GodSystem.notify(GodSystem.text("Notify_NoOpenTask", "No open task to refresh"))
-        return false
-    end
-
-    if not GodSystem.addPoints(-cost) then
-        return false
-    end
-    local templates = GodSystem.getAvailableTaskTemplates()
-    for i = 1, #(data.tasks or {}) do
-        if data.tasks[i].status == "open" then
-            data.tasks[i] = GodSystem.generateTaskFromTemplate(templates[gsRandomIndex(#templates)])
-        end
-    end
-    gsAppendHistory(data, { kind = "task", text = GodSystem.text("History_RefreshTasks", "Refreshed open tasks -") .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins") })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_RefreshTasks", "Refreshed open tasks -") .. tostring(cost) .. GodSystem.text("Unit_Coin", " coins"))
-    return true
-end
-
-function GodSystem.acceptTask(task)
-    if GodSystem.isFeatureEnabled("EnableTasks") == false then
-        GodSystem.notify("Tasks disabled")
-        return false
-    end
-    if not task or task.status ~= "open" then
-        return false
-    end
-    if GodSystem.getActiveTaskCount() >= GodSystem.getMaxActiveTasks() then
-        GodSystem.notify(GodSystem.text("Notify_ActiveTaskLimit", "Active task limit reached"))
-        return false
-    end
-
-    local data = GodSystem.getData()
-    local player = gsPlayer()
-    task.status = "active"
-    task.acceptedAt = gsNowHours()
-    task.deadline = task.acceptedAt + (task.limitHours or GodSystemConfig.DefaultTaskLimitHours)
-    task.startKills = player and player:getZombieKills() or 0
-    task.killProgress = task.kind == "kill" and 0 or nil
-    task.startRecycledItems = data.stats.recycledItems or 0
-    task.startRecycledPoints = data.stats.recycledPoints or 0
-    task.startSpentPoints = data.stats.spentPoints or 0
-    task.startBoughtItems = data.stats.boughtItems or 0
-    task.startMoveDistance = data.stats.moveDistance or 0
-    gsAppendHistory(data, { kind = "task", text = GodSystem.text("History_AcceptTask", "Accepted task: ") .. tostring(GodSystem.getTaskTitle(task)) })
-    GodSystem.save()
-    GodSystem.notify(GodSystem.text("Notify_AcceptTask", "Accepted task: ") .. tostring(GodSystem.getTaskTitle(task)))
-    return true
-end
-
 function GodSystem.getInventoryItemCount(fullType)
     local player = gsPlayer()
     if not player then
@@ -7123,126 +6995,6 @@ function GodSystem.getAnyInventoryItemCount(fullTypes)
     return total
 end
 
-function GodSystem.getTaskProgress(task)
-    if not task then
-        return 0
-    end
-
-    local data = GodSystem.getData()
-    local player = gsPlayer()
-    if task.kind == "kill" then
-        local kills = player and player.getZombieKills and player:getZombieKills() or 0
-        return gsEnsureKillTaskProgress(task, kills)
-    elseif task.kind == "recycleItems" then
-        return math.max(0, (data.stats.recycledItems or 0) - (task.startRecycledItems or 0))
-    elseif task.kind == "recyclePoints" then
-        return math.max(0, (data.stats.recycledPoints or 0) - (task.startRecycledPoints or 0))
-    elseif task.kind == "surviveHours" then
-        return math.max(0, math.floor(gsNowHours() - (task.acceptedAt or gsNowHours())))
-    elseif task.kind == "turnInItem" then
-        return GodSystem.getInventoryItemCount(task.item)
-    elseif task.kind == "turnInAnyItem" then
-        return GodSystem.getAnyInventoryItemCount(task.items)
-    elseif task.kind == "spendPoints" then
-        return math.max(0, (data.stats.spentPoints or 0) - (task.startSpentPoints or 0))
-    elseif task.kind == "buyItems" then
-        return math.max(0, (data.stats.boughtItems or 0) - (task.startBoughtItems or 0))
-    elseif task.kind == "moveDistance" then
-        return math.max(0, math.floor((data.stats.moveDistance or 0) - (task.startMoveDistance or 0)))
-    end
-    return 0
-end
-
-function GodSystem.isTaskComplete(task)
-    return GodSystem.getTaskProgress(task) >= (task.target or 1)
-end
-
-function GodSystem.isTaskExpired(task)
-    return task and task.status == "active" and task.deadline and gsNowHours() > task.deadline
-end
-
-function GodSystem.getRemainingHours(task)
-    if not task or not task.deadline then
-        return task and (task.limitHours or GodSystemConfig.DefaultTaskLimitHours) or 0
-    end
-    return math.max(0, math.ceil(task.deadline - gsNowHours()))
-end
-
-function GodSystem.failTask(task, silent, historyKey)
-    if not task or task.status ~= "active" then
-        return false
-    end
-    local data = GodSystem.getData()
-    task.status = "failed"
-    task.failedAt = gsNowHours()
-    data.stats.failedTasks = (data.stats.failedTasks or 0) + 1
-    local paid, fromBank, fromCash = GodSystem.payTaskFailurePenalty(task.penaltyPoints or 0)
-    local prefix = GodSystem.text(historyKey or "History_FailTask", "Task failed: ")
-    gsAppendHistory(data, { kind = "task", text = prefix .. tostring(GodSystem.getTaskTitle(task)) .. GodSystem.text("History_Penalty", ", penalty ") .. tostring(paid or 0) .. "/" .. tostring(task.penaltyPoints or 0) .. GodSystem.text("Unit_Coin", " coins") .. " (" .. GodSystem.text("Bank_Current", "Current account") .. " " .. tostring(fromBank or 0) .. ", " .. GodSystem.text("Task_CashPenalty", "cash") .. " " .. tostring(fromCash or 0) .. ")" })
-    GodSystem.save()
-    if not silent then
-        GodSystem.notify(GodSystem.text("Notify_FailTask", "Task failed: ") .. tostring(GodSystem.getTaskTitle(task)))
-    end
-    return true
-end
-
-function GodSystem.abandonTask(task)
-    if not task or task.status ~= "active" then
-        GodSystem.notify(GodSystem.text("Notify_SelectTask", "Select a task first"))
-        return false
-    end
-    return GodSystem.failTask(task, false, "History_AbandonTask")
-end
-
-function GodSystem.claimTask(task, silent)
-    if GodSystem.isFeatureEnabled("EnableTasks") == false then
-        GodSystem.notify("Tasks disabled")
-        return false
-    end
-    if not task or task.status ~= "active" then
-        return false
-    end
-
-    if GodSystem.isTaskExpired(task) and not GodSystem.isTaskComplete(task) then
-        GodSystem.failTask(task, false, "History_TaskTimeout")
-        return false
-    end
-
-    if not GodSystem.isTaskComplete(task) then
-        GodSystem.notify(GodSystem.text("Notify_TaskIncomplete", "Task incomplete"))
-        return false
-    end
-
-    if task.kind == "turnInItem" then
-        local removed = select(1, GodSystem.removeInventoryItems(task.item, task.target or 1))
-        if removed < (task.target or 1) then
-            GodSystem.notify(GodSystem.text("Notify_TurnInNotEnough", "Not enough items"))
-            return false
-        end
-    elseif task.kind == "turnInAnyItem" then
-        local removed = select(1, GodSystem.removeAnyInventoryItems(task.items, task.target or 1))
-        if removed < (task.target or 1) then
-            GodSystem.notify(GodSystem.text("Notify_TurnInNotEnough", "Not enough items"))
-            return false
-        end
-    end
-
-    local data = GodSystem.getData()
-    if (task.rewardPoints or 0) > 0 then
-        GodSystem.addPoints(task.rewardPoints)
-    end
-    GodSystem.giveItems(task.rewardItems)
-    task.status = "claimed"
-    task.claimedAt = gsNowHours()
-    data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
-    gsAppendHistory(data, { kind = "task", text = GodSystem.text("History_ClaimTask", "Task completed: ") .. tostring(GodSystem.getTaskTitle(task)) })
-    GodSystem.save()
-    if not silent then
-        GodSystem.notify(GodSystem.text("Notify_ClaimTask", "Task completed: ") .. tostring(GodSystem.getTaskTitle(task)))
-    end
-    return true
-end
-
 function GodSystem.toggleAutoTaskClaim()
     local data = GodSystem.getData()
     data.autoTaskClaimEnabled = data.autoTaskClaimEnabled ~= true
@@ -7252,32 +7004,151 @@ function GodSystem.toggleAutoTaskClaim()
     return data.autoTaskClaimEnabled
 end
 
+local function gsTaskHistoryText(code, task, extra)
+    extra = extra or {}
+    local title = task and GodSystem.getTaskTitle(task) or ""
+    if code == "AcceptTask" then return GodSystem.text("History_AcceptTask", "Accepted task: ") .. title end
+    if code == "ClaimTask" then return GodSystem.text("History_ClaimTask", "Task completed: ") .. title end
+    if code == "RefreshTasks" then return GodSystem.text("History_RefreshTasks", "Refreshed open tasks -") .. tostring(extra[1] or 0) .. GodSystem.text("Unit_Coin", " coins") end
+    if code == "DailyTasks" then return GodSystem.text("History_DailyTasks", "Daily tasks published x") .. tostring(extra[1] or 0) end
+    if code == "TaskStatusClaimed" then return GodSystem.text("Task_StatusClaimed", "Claimed") .. ": " .. title end
+    if code == "TaskStatusFailed" then return GodSystem.text("Task_StatusFailed", "Failed") .. ": " .. title end
+    local prefix = GodSystem.text(code == "TaskTimeout" and "History_TaskTimeout" or code == "TaskAbandoned" and "History_AbandonTask" or "History_FailTask", "Task failed: ")
+    return prefix .. title .. GodSystem.text("History_Penalty", ", penalty ") .. tostring(extra[1] or 0) .. GodSystem.text("Unit_Coin", " coins")
+end
+
+function GodSystem.getTaskService()
+    if GodSystem.taskService then return GodSystem.taskService end
+    GodSystem.taskService = GodSystemTaskService.create({
+        nowHours = gsNowHours,
+        currentDay = gsCurrentDay,
+        randomIndex = gsRandomIndex,
+        featureEnabled = GodSystem.isFeatureEnabled,
+        maxActiveTasks = function() return GodSystem.getMaxActiveTasks() end,
+        dailyTaskCount = function() return GodSystem.getDailyTaskCount() end,
+        templateAvailable = function(template) return GodSystem.isTaskTemplateAvailable(template) end,
+        itemCount = GodSystem.getInventoryItemCount,
+        anyItemCount = GodSystem.getAnyInventoryItemCount,
+        removeItems = function(fullType, count) return select(1, GodSystem.removeInventoryItems(fullType, count)) end,
+        removeAnyItems = function(fullTypes, count) return select(1, GodSystem.removeAnyInventoryItems(fullTypes, count)) end,
+        addPoints = GodSystem.addPoints,
+        giveItems = GodSystem.giveItems,
+        save = function() GodSystem.save() end,
+        appendHistory = function(data, code, task, extra)
+            local values = extra or {}
+            if values.count then values = { values.count } elseif values[1] == nil and values.penalty then values = { values.penalty } end
+            gsAppendHistory(data, { kind = "task", text = gsTaskHistoryText(code, task, values) })
+        end,
+        notify = function(code, values)
+            local task = values and values[1]
+            if type(task) == "table" and task.kind then task = task else task = values and values.task end
+            if code == "TaskClaimed" then GodSystem.notify(GodSystem.text("Notify_ClaimTask", "Task completed: ") .. tostring(GodSystem.getTaskTitle(task)))
+            elseif code == "TaskFailed" then GodSystem.notify(GodSystem.text("Notify_FailTask", "Task failed: ") .. tostring(GodSystem.getTaskTitle(task))) end
+        end,
+        payTaskPenalty = function(data, task, isPermit)
+            local amount = task.penaltyPoints or 0
+            if isPermit then
+                amount = math.floor(((data.bank and data.bank.current or 0) + GodSystem.getCurrencyTotal()) * 0.5)
+            end
+            return select(1, GodSystem.payTaskFailurePenalty(amount))
+        end,
+        applyDefaultDeathPenalty = function()
+            local before = GodSystem.getBank().current or 0
+            GodSystem.applyBankDeathPenalty()
+            return math.max(0, before - (GodSystem.getBank().current or 0))
+        end,
+    })
+    return GodSystem.taskService
+end
+
+-- 42.20.2.1: task behavior is owned by the injected task service.  The public
+-- functions remain as the stable UI/network boundary while SP and MP share rules.
+function GodSystem.generateTaskFromTemplate(template)
+    return GodSystem.getTaskService():generateTask(template)
+end
+
+function GodSystem.getActiveTaskCount()
+    return GodSystem.getTaskService():activeCount(GodSystem.getData())
+end
+
+function GodSystem.generateDailyTasks(force)
+    return GodSystem.getTaskService():generateDaily(GodSystem.getData(), force).ok
+end
+
+function GodSystem.refreshOpenTasks()
+    local outcome = GodSystem.getTaskService():refresh(GodSystem.getData(), function(cost) return GodSystem.addPoints(-cost) end)
+    if not outcome.ok then
+        local key = outcome.code == "insufficientFunds" and "Notify_CannotRefresh" or outcome.code == "noOpenTask" and "Notify_NoOpenTask" or "Notify_CannotRefreshActiveFull"
+        GodSystem.notify(GodSystem.text(key, outcome.code))
+        return false
+    end
+    GodSystem.notify(GodSystem.text("Notify_RefreshTasks", "Tasks refreshed"))
+    return true
+end
+
+function GodSystem.acceptTask(task)
+    local player = gsPlayer()
+    local outcome = GodSystem.getTaskService():accept(GodSystem.getData(), task, {
+        kills = player and player.getZombieKills and player:getZombieKills() or 0,
+    })
+    if outcome.ok then GodSystem.notify(GodSystem.text("Notify_AcceptTask", "Accepted task: ") .. tostring(GodSystem.getTaskTitle(task)))
+    else GodSystem.notify(GodSystem.text(outcome.code == "activeLimit" and "Notify_ActiveTaskLimit" or "Notify_SelectTask", outcome.code)) end
+    return outcome.ok
+end
+
+function GodSystem.getTaskProgress(task)
+    local player = gsPlayer()
+    return GodSystem.getTaskService():progress(GodSystem.getData(), task, {
+        kills = player and player.getZombieKills and player:getZombieKills() or 0,
+    })
+end
+
+function GodSystem.isTaskComplete(task)
+    return GodSystem.getTaskProgress(task) >= (task and task.target or 1)
+end
+
+function GodSystem.isTaskExpired(task)
+    return GodSystem.getTaskService():isExpired(task)
+end
+
+function GodSystem.getRemainingHours(task)
+    return GodSystem.getTaskService():remainingHours(task)
+end
+
+function GodSystem.failTask(task, silent, historyKey)
+    return GodSystem.getTaskService():fail(GodSystem.getData(), task, historyKey or "TaskFailed", silent).ok
+end
+
+function GodSystem.abandonTask(task)
+    return GodSystem.getTaskService():fail(GodSystem.getData(), task, "TaskAbandoned", false).ok
+end
+
+function GodSystem.claimTask(task, silent)
+    local player = gsPlayer()
+    return GodSystem.getTaskService():claim(GodSystem.getData(), task, {
+        silent = silent == true,
+        kills = player and player.getZombieKills and player:getZombieKills() or 0,
+    }).ok
+end
+
 function GodSystem.processAutoTaskClaim()
     local data = GodSystem.getData()
     if data.autoTaskClaimEnabled ~= true then return false end
     local nowHour = gsNowHours()
-    if nowHour < (data.lastAutoTaskClaimHour or nowHour) then
-        data.lastAutoTaskClaimHour = nowHour
-    end
-    if nowHour - (data.lastAutoTaskClaimHour or nowHour) < 1 then
-        return false
-    end
+    if nowHour - (data.lastAutoTaskClaimHour or nowHour) < 1 then return false end
     data.lastAutoTaskClaimHour = nowHour
     local claimed = 0
+    local active = {}
     for i = 1, #(data.tasks or {}) do
-        local task = data.tasks[i]
-        if task and task.status == "active" and GodSystem.isTaskComplete(task) then
-            if GodSystem.claimTask(task, true) then
-                claimed = claimed + 1
-            end
-        end
+        if data.tasks[i] and data.tasks[i].status == "active" then active[#active + 1] = data.tasks[i] end
+    end
+    for i = 1, #active do
+        local task = active[i]
+        if task and task.status == "active" and GodSystem.isTaskComplete(task) and GodSystem.claimTask(task, true) then claimed = claimed + 1 end
     end
     GodSystem.save()
-    if claimed > 0 then
-        GodSystem.notify(gsFormatText(GodSystem.text("Notify_AutoTaskClaimed", "Automatically claimed {1} task(s)"), { claimed }))
-        return true
-    end
-    return false
+    if claimed > 0 then GodSystem.notify(gsFormatText(GodSystem.text("Notify_AutoTaskClaimed", "Automatically claimed {1} task(s)"), { claimed })) end
+    return claimed > 0
 end
 
 function GodSystem.getTaskStatusText(task)
@@ -7323,16 +7194,17 @@ function GodSystem.getTaskDetailLines(task)
     local progress = GodSystem.getTaskProgress(task)
     local target = math.max(1, math.floor(tonumber(task.target) or 1))
     local rewardText = GodSystem.getRewardText(task.rewardPoints, task.rewardItems)
-    local limit = task.limitHours or GodSystemConfig.DefaultTaskLimitHours
+    local permit = GodSystemTaskService.isPermit(task)
+    local limit = permit and nil or (task.limitHours or GodSystemConfig.DefaultTaskLimitHours)
     local lines = {
         GodSystem.getTaskListTitle(task),
         GodSystem.text("Task_Type", "Type") .. ": " .. GodSystem.getTaskKindLabel(task),
         GodSystem.text("Task_Difficulty", "Difficulty") .. ": " .. GodSystem.getTaskDifficulty(task),
         GodSystem.text("Task_Target", "Target") .. ": " .. tostring(task.target or 1),
         GodSystem.text("Task_Progress", "Progress") .. ": " .. tostring(math.min(progress, target)) .. "/" .. tostring(target),
-        GodSystem.text("Task_Limit", "Limit") .. ": " .. tostring(limit) .. GodSystem.text("Unit_Hour", "h"),
     }
-    if task.status == "active" then
+    table.insert(lines, GodSystem.text("Task_Limit", "Limit") .. ": " .. (permit and GodSystem.text("Task_NoTimeLimit", "No time limit") or tostring(limit) .. GodSystem.text("Unit_Hour", "h")))
+    if task.status == "active" and not permit then
         table.insert(lines, GodSystem.text("Task_Remaining", "Remaining") .. ": " .. tostring(GodSystem.getRemainingHours(task)) .. GodSystem.text("Unit_Hour", "h"))
     end
     local description = GodSystem.getTaskDescription(task)
@@ -7344,7 +7216,11 @@ function GodSystem.getTaskDetailLines(task)
     table.insert(lines, rewardText)
     table.insert(lines, "")
     table.insert(lines, GodSystem.text("TaskSection_Penalty", "Failure penalty"))
-    table.insert(lines, tostring(task.penaltyPoints or 0) .. GodSystem.text("Unit_Coin", " coins") .. " - " .. GodSystem.text("Task_PenaltyBankFirst", "deduct current account first, then cash"))
+    if permit then
+        table.insert(lines, GodSystem.text("Task_StoragePermit_Penalty", "Abandoning or dying deducts 50% of current account plus carried currency; current account is deducted first."))
+    else
+        table.insert(lines, tostring(task.penaltyPoints or 0) .. GodSystem.text("Unit_Coin", " coins") .. " - " .. GodSystem.text("Task_PenaltyBankFirst", "deduct current account first, then cash"))
+    end
     return lines
 end
 
@@ -7399,15 +7275,17 @@ function GodSystem.failActiveTasksOnDeath()
     return failed
 end
 
-function GodSystem.handlePlayerDeath()
+function GodSystem.handlePlayerDeath(player)
     local data = GodSystem.getData()
-    local changed = false
-    if GodSystem.applyBankDeathPenalty() then
-        changed = true
+    player = player or gsPlayer()
+    local modData = player and player.getModData and player:getModData() or nil
+    local token = modData and modData.GodSystemDeathSettlementToken or nil
+    if not token then
+        token = GodSystemPersonalStorage.newOperationId("death-sp")
+        if modData then modData.GodSystemDeathSettlementToken = token end
     end
-    if GodSystem.failActiveTasksOnDeath() > 0 then
-        changed = true
-    end
+    local outcome = GodSystem.getTaskService():settleDeath(data, token)
+    local changed = outcome.ok and outcome.code ~= "duplicateDeath"
     if changed then
         GodSystem.notify(GodSystem.text("Notify_DeathHandled", "Death settlement completed"))
         GodSystem.save()
@@ -7485,7 +7363,7 @@ function GodSystem.onPlayerDeath(player)
     GodSystem.autoRecyclerCache = nil
     GodSystemCarryCapacity.clearRuntime(type(player) == "number" and nil or player)
     GodSystem.normalizeActiveKillTasks()
-    GodSystem.handlePlayerDeath()
+    GodSystem.handlePlayerDeath(type(player) == "number" and nil or player)
 end
 
 function GodSystem.onGameStart()
@@ -7499,6 +7377,8 @@ end
 
 function GodSystem.onCreatePlayer(_, player)
     if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
+    local modData = player and player.getModData and player:getModData() or nil
+    if modData then modData.GodSystemDeathSettlementToken = nil end
     GodSystemCarryCapacity.clearRuntime(player)
     GodSystem.applyCarryCapacity(player or gsPlayer(), GodSystem.getData())
 end

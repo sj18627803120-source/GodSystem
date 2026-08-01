@@ -1252,7 +1252,20 @@ function GodSystemNetwork.onPlayerDeath(p)
     if GodSystem and GodSystem.normalizeActiveKillTasks then
         GodSystem.normalizeActiveKillTasks(lastObservedKills or lastSentKills or 0)
     end
-    send((Protocol.C2S and Protocol.C2S.Death) or "death", {})
+    p = p or player()
+    local modData = p and p.getModData and p:getModData() or nil
+    local deathToken = modData and modData.GodSystemDeathSettlementToken or nil
+    if not deathToken then
+        deathToken = GodSystemPersonalStorage.newOperationId("death-mp")
+        if modData then modData.GodSystemDeathSettlementToken = deathToken end
+    end
+    send((Protocol.C2S and Protocol.C2S.Death) or "death", { deathToken = deathToken })
+end
+
+function GodSystemNetwork.resetDeathSettlementToken(_, p)
+    p = p or player()
+    local modData = p and p.getModData and p:getModData() or nil
+    if modData then modData.GodSystemDeathSettlementToken = nil end
 end
 
 Events.OnServerCommand.Remove(OnServerCommand)
@@ -1272,6 +1285,8 @@ Events.OnGameStart.Remove(GodSystemNetwork.hello)
 Events.OnGameStart.Add(GodSystemNetwork.hello)
 Events.OnCreatePlayer.Remove(GodSystemNetwork.hello)
 Events.OnCreatePlayer.Add(GodSystemNetwork.hello)
+Events.OnCreatePlayer.Remove(GodSystemNetwork.resetDeathSettlementToken)
+Events.OnCreatePlayer.Add(GodSystemNetwork.resetDeathSettlementToken)
 Events.OnTick.Remove(GodSystemNetwork.helloRetryOnTick)
 Events.OnTick.Add(GodSystemNetwork.helloRetryOnTick)
 if Events.OnPlayerUpdate then

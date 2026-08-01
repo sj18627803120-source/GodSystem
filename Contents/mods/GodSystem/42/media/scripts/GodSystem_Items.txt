@@ -99,6 +99,16 @@ module GodSystem
         Tooltip = Tooltip_GodSystem_SystemAutoLoader,
     }
 
+    item StorageExpansionPermit
+    {
+        DisplayName = Storage Expansion Permit,
+        DisplayCategory = Electronics,
+        ItemType = base:normal,
+        Icon = SystemSpaceTerminal,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_StorageExpansionPermit,
+    }
+
     item SystemTerminalRelief
     {
         DisplayName = System Terminal Relief,
