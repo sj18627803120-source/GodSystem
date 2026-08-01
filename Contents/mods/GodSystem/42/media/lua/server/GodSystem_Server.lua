@@ -2119,8 +2119,7 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
     local innerCapacity = readNumber(inventory, "getCapacity")
     local outerReduction = readNumber(item, "getWeightReduction")
     local innerReduction = readNumber(inventory, "getWeightReduction")
-    local ageFactor = readNumber(inventory, "getAgeFactor")
-    if outerCapacity == nil or innerCapacity == nil or outerReduction == nil or innerReduction == nil or ageFactor == nil then return nil end
+    if outerCapacity == nil or innerCapacity == nil or outerReduction == nil or innerReduction == nil then return nil end
 
     local terminalData = item.getModData and item:getModData() or nil
     local reliefLevelKey = GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"
@@ -2142,8 +2141,6 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
         innerCapacity = innerCapacity,
         outerReduction = outerReduction,
         innerReduction = innerReduction,
-        ageFactor = ageFactor,
-        coolingLevel = GodSystemTerminalFood.getCoolingLevel(playerData(player)),
         reliefLevel = reliefLevel,
         reliefOffset = reliefOffset,
     }
@@ -3853,7 +3850,7 @@ function Commands.upgradeSystem(_, _, player, args)
             terminalCapacity = "capacity",
             terminalReduction = "reduction",
             terminalRelief = "relief",
-            terminalCooling = "cooling",
+            terminalFreshness = "freshness",
         }
         local terminalType = terminalTypes[t]
         if terminalType then
@@ -3976,7 +3973,7 @@ function Commands.terminalFreshnessService(_, _, player, args)
         local days = math.max(0, floor(args and args.days, 0))
         local allowed, reason = GodSystemTerminalFood.canPurchaseService(data, days)
         if not allowed then
-            local code = reason == "coolingRequired" and "TerminalFreshnessCoolingRequired"
+            local code = reason == "freshnessRequired" and "TerminalFreshnessRequired"
                 or reason == "serviceCap" and "TerminalFreshnessServiceCap"
                 or "TerminalFreshnessInvalidPackage"
             return complete(false, code)

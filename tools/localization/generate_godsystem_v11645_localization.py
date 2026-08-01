@@ -41,6 +41,11 @@ REMOVED_UI_KEYS = {
     "Waist_CapacityExtended",
     "Storage_Error_CoreHostNotEmpty",
     "Storage_Error_CapacityLockFailed",
+    "Upgrade_TerminalCooling",
+    "Upgrade_TerminalCoolingDesc",
+    "Terminal_FreshnessCoolingRequired",
+    "Notify_TerminalCoolingRequired",
+    "NotifyMP_TerminalFreshnessCoolingRequired",
 }
 
 

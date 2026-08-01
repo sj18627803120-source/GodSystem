@@ -2755,6 +2755,10 @@ function GodSystemWindow:clearPendingActionSelection()
     self.pendingRestoreScroll = nil
 end
 
+function GodSystemWindow:hasPendingListRestore()
+    return self.pendingRestoreMode == self.mode and type(self.pendingRestoreScroll) == "table"
+end
+
 function GodSystemWindow:resetScrollingListState(list)
     if not list then
         return
@@ -2959,11 +2963,10 @@ end
 
 function GodSystemWindow:prepareActionSelection(payload)
     local selectedId = self:getPayloadId(payload or self:getSelectedPayload())
-    if not selectedId or selectedId == "" then return end
-    self.pendingRestoreSelectedId = selectedId
+    self.pendingRestoreSelectedId = selectedId and selectedId ~= "" and selectedId or nil
     self.pendingRestoreSelectedTaskList = self.selectedTaskList
     self.pendingRestoreMode = self.mode
-    self.restoreSelectedId = selectedId
+    self.restoreSelectedId = self.pendingRestoreSelectedId
     self.restoreSelectedTaskList = self.selectedTaskList
     self:captureScrollState()
     self.pendingRestoreScroll = {
@@ -3030,6 +3033,9 @@ function GodSystemWindow:needsServerState()
 end
 
 function GodSystemWindow:finishMultiplayerCommand(sent)
+    if not self:hasPendingListRestore() then
+        self:prepareActionSelection()
+    end
     if not gsIsMultiplayer() then
         self:populateList()
         return sent ~= false
@@ -3384,6 +3390,11 @@ end
 
 function GodSystemWindow:updateTaskPrimaryButton(payload)
     if self.mode ~= "tasks" or not self.primaryButton then
+        return
+    end
+    if (payload and payload.kind == "upgrade") or self:getActivePageSection("tasks") == "taskExtensions" then
+        gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_UpgradeSystem", "Upgrade"))
+        gsStyleActionButton(self.primaryButton, "primary")
         return
     end
     local title = GodSystem.text("Btn_TaskAccept", "Accept")
@@ -3939,19 +3950,30 @@ function GodSystemWindow:populateTerminalUpgradesSection()
     self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(false)
     self.seventhButton:setVisible(false)
-    for _, upgradeType in ipairs({ "terminalCapacity", "terminalReduction", "terminalRelief", "terminalCooling" }) do
+    for _, upgradeType in ipairs({ "terminalCapacity", "terminalReduction", "terminalRelief", "terminalFreshness" }) do
         local info = GodSystem.getSystemUpgradeInfo(upgradeType)
         if info then
             local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c"))
                 or GodSystem.text("Upgrade_Maxed", "Maxed")
             local detail = "Lv." .. tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
-            if info.terminalType == "cooling" and info.terminalInfo then
-                detail = detail .. " | x" .. tostring(info.terminalInfo.value or 1)
+            if info.terminalType == "freshness" and info.terminalInfo then
+                local restorePercent = math.floor((tonumber(info.terminalInfo.value) or 0) * 100 + 0.5)
+                detail = detail .. " | " .. tostring(restorePercent) .. "%/" .. GodSystem.text("Unit_Day", "d")
             end
             self:addListItem(info.label, { kind = "upgrade", data = info, detail = detail })
         end
     end
     self:setStandardActionBar()
+end
+
+function GodSystemWindow:getTerminalFreshnessDetail(info)
+    info = info or GodSystem.getAutoRecyclerInfo()
+    local level = math.max(0, math.floor(tonumber(info.freshnessLevel) or 0))
+    local restorePercent = math.floor((tonumber(info.freshnessRestorePerDay) or 0) * 100 + 0.5)
+    return gsFormatTemplate(GodSystem.text("Terminal_FreshnessEffectDesc", "Only direct, non-rotten Food in the terminal is restored. Nested bags and rotten food are skipped. Service time is consumed only while online. Current efficiency Lv.{1}: restore {2}% of the fresh window per game day."), {
+        tostring(level),
+        tostring(restorePercent),
+    })
 end
 
 function GodSystemWindow:populateTerminalServicesSection(info)
@@ -3966,20 +3988,24 @@ function GodSystemWindow:populateTerminalServicesSection(info)
     local freshnessState = info.freshnessActive
         and (string.format("%.1f", tonumber(info.freshnessRemainingDays) or 0) .. GodSystem.text("Unit_Day", "d"))
         or (info.freshnessExpired and GodSystem.text("Terminal_FreshnessExpired", "Expired") or GodSystem.text("Terminal_FreshnessInactive", "Inactive"))
-    local coolingRequirement = (tonumber(info.coolingLevel) or 0) >= 1
-        and ("Lv." .. tostring(info.coolingLevel) .. " | x" .. tostring(info.coolingMultiplier or 1))
-        or GodSystem.text("Terminal_FreshnessCoolingRequired", "Cooling Lv.1 required")
+    local freshnessRequirement = (tonumber(info.freshnessLevel) or 0) >= 1
+        and ("Lv." .. tostring(info.freshnessLevel) .. " | "
+            .. tostring(math.floor((tonumber(info.freshnessRestorePerDay) or 0) * 100 + 0.5)) .. "%/" .. GodSystem.text("Unit_Day", "d"))
+        or GodSystem.text("Terminal_FreshnessRequired", "Freshness efficiency Lv.1 required")
     self:addListItem(GodSystem.text("Terminal_ServiceFreshness", "Freshness service"), {
         kind = "terminalFreshnessService",
-        detail = freshnessState .. " | " .. coolingRequirement,
+        detail = freshnessState .. " | " .. freshnessRequirement,
     })
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_TerminalFreshnessOneDay", "Buy 1 day") .. " -100" .. GodSystem.text("Unit_CoinShort", "c"))
-    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_TerminalAutoRecycle", "Auto recycle"))
+    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Btn_TerminalFreshnessTenDays", "Buy 10 days") .. " -900" .. GodSystem.text("Unit_CoinShort", "c"))
+    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_TerminalFreshnessTwentyDays", "Buy 20 days") .. " -1600" .. GodSystem.text("Unit_CoinShort", "c"))
+    gsSetButtonTitle(self.fourthButton, GodSystem.text("Btn_TerminalFreshnessThirtyDays", "Buy 30 days") .. " -2100" .. GodSystem.text("Unit_CoinShort", "c"))
+    gsSetButtonTitle(self.fifthButton, GodSystem.text("Btn_TerminalAutoRecycle", "Auto recycle"))
     self.primaryButton:setVisible(true)
     self.secondaryButton:setVisible(true)
-    self.thirdButton:setVisible(false)
-    self.fourthButton:setVisible(false)
-    self.fifthButton:setVisible(false)
+    self.thirdButton:setVisible(true)
+    self.fourthButton:setVisible(true)
+    self.fifthButton:setVisible(true)
     self.sixthButton:setVisible(false)
     self.seventhButton:setVisible(false)
     self:setStandardActionBar()
@@ -4937,7 +4963,9 @@ function GodSystemWindow:populateList()
     local selectionRestored = self:restoreSelection()
     local listStateRestored = self:restoreScrollState()
     self:restoreActiveListState()
-    self:restorePageSectionState(self.mode)
+    if not self:hasPendingListRestore() then
+        self:restorePageSectionState(self.mode)
+    end
     self:updateDetail()
     self:restoreDetailListState()
     if (selectionRestored or listStateRestored) and self.pendingRestoreMode == self.mode then
@@ -5024,7 +5052,11 @@ function GodSystemWindow:updateDetail()
         elseif self.mode == "lottery" then
             self:setDetailText(GodSystem.text("Hint_Lottery", "Choose all-category or a category, then draw 1, 10, or a custom count. Results are granted directly."))
         elseif self.mode == "waist" then
-            self:setDetailText(GodSystem.text("Hint_WaistSpace", "The space terminal reads the system space terminal. Click rows to select, then sell selected or sell all."))
+            if self:getActivePageSection("waist") == "services" then
+                self:setDetailText(self:getTerminalFreshnessDetail())
+            else
+                self:setDetailText(GodSystem.text("Hint_WaistSpace", "The space terminal reads the system space terminal. Click rows to select, then sell selected or sell all."))
+            end
         elseif self.mode == "storage" then
             self:setDetailText(GodSystem.text("Hint_StorageNetwork", "Claim a storage core here. Mark fixed containers in connection mode, then install the core into one completely empty marked furniture to create the storage entrance."))
         elseif self.mode == "bank" then
@@ -5162,6 +5194,8 @@ function GodSystemWindow:updateDetail()
     elseif payload.kind == "upgrade" then
         local upgradeType = payload.data and payload.data.upgradeType
         self:setDetailText(GodSystem.getSystemUpgradeDetailText(upgradeType))
+    elseif payload.kind == "terminalFreshnessService" then
+        self:setDetailText(tostring(payload.detail or "") .. "\n" .. self:getTerminalFreshnessDetail())
     elseif payload.kind == "medicalService" then
         local info = payload.data or {}
         self:setDetailText(tostring(info.desc or "") .. " | " .. GodSystem.text("Upgrade_Cost", "Cost") .. " " .. tostring(info.cost or 0) .. GodSystem.text("Unit_CoinShort", "c"))
@@ -5818,6 +5852,7 @@ function GodSystemWindow:onPrimaryAction()
             self:confirmMedicalService(payload.data)
             return
         elseif payload.kind == "upgrade" then
+            self:prepareActionSelection(payload)
             local sent = GodSystem.upgradeSystem(payload.data and payload.data.upgradeType)
             self:finishMultiplayerCommand(sent)
             return
@@ -5841,16 +5876,9 @@ function GodSystemWindow:onPrimaryAction()
             return
         end
         if section == "services" then
-            if not payload or payload.kind == "terminalFreshnessService" then
-                self:prepareActionSelection(payload)
-                self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(1))
-                return
-            end
-            if payload.kind == "terminalAutoRecycle" then
-                self:prepareActionSelection(payload)
-                self:finishMultiplayerCommand(GodSystem.toggleWaistAutoRecycle())
-                return
-            end
+            self:prepareActionSelection(payload)
+            self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(1))
+            return
         end
         local selected = self.waistSelected or {}
         local hasSelected = false
@@ -5948,6 +5976,7 @@ function GodSystemWindow:onPrimaryAction()
             GodSystem.notify(GodSystem.text("Notify_RewardClaimed", "Reward already claimed"))
         end
     elseif payload.kind == "upgrade" then
+        self:prepareActionSelection(payload)
         local sent = GodSystem.upgradeSystem(payload.data and payload.data.upgradeType)
         self:finishMultiplayerCommand(sent)
         return
@@ -6179,14 +6208,8 @@ function GodSystemWindow:onSecondaryAction()
             return
         end
         if info.found and section == "services" then
-            local payload = self:getSelectedPayload()
-            if payload and payload.kind == "terminalAutoRecycle" then
-                self:prepareActionSelection(payload)
-                self:finishMultiplayerCommand(GodSystem.toggleWaistAutoRecycle())
-                return
-            end
-            if self:requestServerRefresh() then return end
-            self:populateList()
+            self:prepareActionSelection(self:getSelectedPayload())
+            self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(10))
             return
         end
         local sent = true
@@ -6299,6 +6322,11 @@ function GodSystemWindow:onThirdAction()
         return
     end
     if self.mode == "waist" then
+        if self:getActivePageSection("waist") == "services" then
+            self:prepareActionSelection(payload)
+            self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(20))
+            return
+        end
         local sent = GodSystem.upgradeAutoRecycler()
         self:finishMultiplayerCommand(sent)
         return
@@ -6361,6 +6389,11 @@ function GodSystemWindow:onFourthAction()
         return
     end
     if self.mode == "waist" then
+        if self:getActivePageSection("waist") == "services" then
+            self:prepareActionSelection(self:getSelectedPayload())
+            self:finishMultiplayerCommand(GodSystem.buyTerminalFreshnessService(30))
+            return
+        end
         local sent = GodSystem.upgradeTerminal("reduction")
         self:finishMultiplayerCommand(sent)
         return
@@ -6377,6 +6410,11 @@ end
 
 function GodSystemWindow:onFifthAction()
     if self.mode == "waist" then
+        if self:getActivePageSection("waist") == "services" then
+            self:prepareActionSelection(self:getSelectedPayload())
+            self:finishMultiplayerCommand(GodSystem.toggleWaistAutoRecycle())
+            return
+        end
         local sent = GodSystem.upgradeTerminal("relief")
         self:finishMultiplayerCommand(sent)
         return

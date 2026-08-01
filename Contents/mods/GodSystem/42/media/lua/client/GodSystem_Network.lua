@@ -324,7 +324,6 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
         and writeNumber(inventory, "setCapacity", "getCapacity", payload.innerCapacity)
         and writeNumber(item, "setWeightReduction", "getWeightReduction", payload.outerReduction)
         and writeNumber(inventory, "setWeightReduction", "getWeightReduction", payload.innerReduction)
-        and writeNumber(inventory, "setAgeFactor", "getAgeFactor", payload.ageFactor)
     if not applied then
         if pendingAttempt ~= true then GodSystemNetwork.queueTerminalSync(payload) end
         return false
@@ -363,7 +362,6 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
     local terminalData = item.getModData and item:getModData() or nil
     if terminalData then
         terminalData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
-        terminalData[GodSystemConfig.TerminalCoolingLevelKey or "GodSystemTerminalCoolingLevel"] = math.max(0, math.floor(tonumber(payload.coolingLevel) or 0))
     end
 
     GodSystem.autoRecyclerCache = { item = item }
@@ -1416,7 +1414,7 @@ end)
 
 wrap("upgradeTerminal", function(upgradeType)
     upgradeType = tostring(upgradeType or "")
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "cooling" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "freshness" then return false end
     return send("upgradeSystem", { upgradeType = "terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2) })
 end)
 
