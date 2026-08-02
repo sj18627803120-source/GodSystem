@@ -1,4 +1,4 @@
-# GodSystem localization source, updated through v1.16.72.
+# GodSystem localization source, updated through v42.20.1.8.
 # Format intentionally stays flat: Key: "UTF-8 Chinese text"
 Btn_HideUnlocked: "隐藏解锁"
 Btn_ShopHiddenManager: "隐藏管理"
@@ -881,3 +881,15 @@ NotifyMP_TerminalFreshnessPurchased: "终端返鲜服务已续费：{1} 天，�
 NotifyMP_TerminalFreshnessExpired: "终端返鲜服务已到期"
 History_TerminalFreshnessService: "终端返鲜服务"
 HistoryMP_TerminalFreshnessService: "终端返鲜服务 {1} 天，花费 {2} 系统币"
+Settings_ModOptionsTitle: "神级系统"
+Settings_PanelKey: "打开/关闭系统面板"
+Settings_PanelKeyHint: "在游戏中打开或关闭神级系统主面板。按键冲突不会覆盖其他功能。"
+Tab_Settings: "设置"
+Settings_PanelKeyCurrent: "当前面板快捷键："
+Settings_ChangeKey: "修改按键"
+Settings_ResetKey: "恢复默认 N"
+Settings_PressKey: "请按下按键（Esc 取消）"
+Settings_KeySaved: "面板快捷键已修改为："
+Settings_KeyCaptureCancelled: "已取消修改按键"
+Settings_KeyReset: "面板快捷键已恢复为 N"
+Settings_ModOptionsHint: "这里与游戏原生 Mod Options 使用同一个按键设置。"

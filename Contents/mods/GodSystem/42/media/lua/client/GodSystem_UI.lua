@@ -6,6 +6,8 @@ require "GodSystem_StorageContext"
 require "GodSystem_FloatingButtonLifecycle"
 require "GodSystem_ListState"
 require "GodSystem_PageSections"
+require "GodSystem_TaskOrder"
+require "GodSystem_PanelKey"
 if not ((isClient and isClient()) or (isServer and isServer())) then
     require "GodSystem_Companion"
     require "GodSystem_CompanionUI"
@@ -30,6 +32,7 @@ GodSystemUI.lastFloatingButtonCheckMs = 0
 
 local ListState = GodSystemListState
 local PageSections = GodSystemPageSections
+local TaskOrder = GodSystemTaskOrder
 
 local function gsSetLabel(label, text)
     if label then
@@ -452,7 +455,7 @@ end
 local function gsGetActiveTaskRows()
     local rows = {}
     local data = GodSystem.getData()
-    local tasks = data.tasks or {}
+    local tasks = TaskOrder.sortedCopy(data.tasks or {}, "active", GodSystem.getTaskTitle)
     for i = 1, #tasks do
         local task = tasks[i]
         if task and task.status == "active" then
@@ -2042,6 +2045,7 @@ function GodSystemWindow:createChildren()
         { id = "traits", label = GodSystem.text("Tab_Traits", "Traits") },
         { id = "upgrades", label = GodSystem.text("Tab_Upgrades", "Upgrades") },
         { id = "shortcuts", label = GodSystem.text("Btn_Shortcuts", "Shortcuts"), tool = true },
+        { id = "settings", label = GodSystem.text("Tab_Settings", "Settings"), tool = true },
         { id = "history", label = GodSystem.text("Tab_History", "History"), tool = true },
         { id = "info", label = GodSystem.text("Tab_Info", "Info"), tool = true },
         { id = "admin", label = GodSystem.text("Tab_Admin", "Admin"), tool = true },
@@ -2359,6 +2363,9 @@ function GodSystemWindow:prerender()
 end
 
 function GodSystemWindow:onModeButton(button)
+    if GodSystemPanelKey.isCapturing() then
+        GodSystemPanelKey.cancelCapture("pageChanged")
+    end
     if button and button.internal == "shortcuts" then
         if GodSystemUI.toggleShortcutWindow then
             GodSystemUI.toggleShortcutWindow(self)
@@ -3026,6 +3033,9 @@ function GodSystemWindow:addSyncPlaceholder(detail)
 end
 
 function GodSystemWindow:needsServerState()
+    if self.mode == "settings" then
+        return false
+    end
     if not gsIsMultiplayer() then
         return false
     end
@@ -4406,21 +4416,27 @@ function GodSystemWindow:populateTaskMain()
         GodSystem.generateDailyTasks(false)
     end
     local tasks = data.tasks or {}
+    local openTasks = TaskOrder.sortedCopy(tasks, "open", GodSystem.getTaskTitle)
+    local activeTasks = TaskOrder.sortedCopy(tasks, "active", GodSystem.getTaskTitle)
     local openCount = 0
     local activeCount = 0
-    for i = 1, #tasks do
-        local task = tasks[i]
+    for i = 1, #openTasks do
+        local task = openTasks[i]
         local progress = GodSystem.getTaskProgress(task)
         local text = GodSystem.getTaskListTitle(task)
-        local remain = task.status == "active" and (" " .. GodSystem.text("Short_Remain", "Left") .. tostring(GodSystem.getRemainingHours(task)) .. "h") or ""
+        local remain = ""
         local detail = string.format("%d/%d%s", math.min(progress, task.target or 1), task.target or 1, remain)
-        if task.status == "open" then
-            openCount = openCount + 1
-            self:addListItem(text, { kind = "task", data = task, detail = detail })
-        elseif task.status == "active" then
-            activeCount = activeCount + 1
-            self:addActiveListItem(text, { kind = "task", data = task, detail = detail })
-        end
+        openCount = openCount + 1
+        self:addListItem(text, { kind = "task", data = task, detail = detail })
+    end
+    for i = 1, #activeTasks do
+        local task = activeTasks[i]
+        local progress = GodSystem.getTaskProgress(task)
+        local text = GodSystem.getTaskListTitle(task)
+        local remain = " " .. GodSystem.text("Short_Remain", "Left") .. tostring(GodSystem.getRemainingHours(task)) .. "h"
+        local detail = string.format("%d/%d%s", math.min(progress, task.target or 1), task.target or 1, remain)
+        activeCount = activeCount + 1
+        self:addActiveListItem(text, { kind = "task", data = task, detail = detail })
     end
     if openCount == 0 then
         self:addListItem(GodSystem.text("Task_OpenEmpty", "No available task"), { kind = "empty", detail = "" })
@@ -4683,6 +4699,50 @@ function GodSystemWindow:populateHistory()
     end
 end
 
+function GodSystemWindow:populateSettings()
+    local keyName = GodSystemPanelKey.getKeyName(GodSystemPanelKey.getKey())
+    self:addWrappedListText(
+        GodSystem.text("Settings_PanelKeyCurrent", "Current panel key: ") .. tostring(keyName),
+        { kind = "info", detail = "" }
+    )
+    self:addWrappedListText(
+        GodSystem.text("Settings_PanelKeyHint", "Use Change key, then press a key. Esc cancels. Conflicting bindings are not overwritten."),
+        { kind = "info", detail = "" }
+    )
+    self:addWrappedListText(
+        GodSystem.text("Settings_ModOptionsHint", "The same binding is also available in the game's Mod Options."),
+        { kind = "info", detail = "" }
+    )
+    gsSetButtonTitle(self.primaryButton, GodSystem.text("Settings_ChangeKey", "Change key"))
+    gsSetButtonTitle(self.secondaryButton, GodSystem.text("Settings_ResetKey", "Reset to N"))
+    gsSetButtonTitle(self.thirdButton, GodSystem.text("Btn_Close", "Close"))
+    self:setActionBar({
+        { id = "primary", width = 150 },
+        { id = "secondary", width = 150 },
+        { id = "third", width = 120 },
+    })
+end
+
+function GodSystemWindow:onPanelKeyCaptured(ok, key, reason)
+    if ok then
+        GodSystem.notify(GodSystem.text("Settings_KeySaved", "Panel key changed to: ") .. GodSystemPanelKey.getKeyName(key))
+    elseif reason == "cancelled" then
+        GodSystem.notify(GodSystem.text("Settings_KeyCaptureCancelled", "Key capture cancelled"))
+    else
+        return
+    end
+    if self.mode == "settings" and self.getIsVisible and self:getIsVisible() then
+        self:populateList()
+    end
+end
+
+function GodSystemWindow:beginPanelKeyCapture()
+    GodSystemPanelKey.beginCapture(function(ok, key, reason)
+        self:onPanelKeyCaptured(ok, key, reason)
+    end)
+    gsSetButtonTitle(self.primaryButton, GodSystem.text("Settings_PressKey", "Press a key (Esc to cancel)"))
+end
+
 function GodSystemWindow:populateInfo()
     gsSetButtonTitle(self.primaryButton, GodSystem.text("Btn_Close", "Close"))
     self.secondaryButton:setVisible(GodSystemConfig.EnableDebugTools == true)
@@ -4893,7 +4953,7 @@ function GodSystemWindow:populateList()
     self:applyBaseLayout()
     self:setTaskLayout(self.mode == "tasks" and self:getActivePageSection("tasks") == "tasks")
     self:setShopLayout(self.mode == "shop" or self.mode == "recycle" or self.mode == "admin" or self.mode == "lottery" or self.mode == "attribute")
-    self:setTextPageLayout(self.mode == "history" or self.mode == "info" or self.mode == "diagnostics")
+    self:setTextPageLayout(self.mode == "settings" or self.mode == "history" or self.mode == "info" or self.mode == "diagnostics")
     self:updateModeButtonStyles()
 
     if self:needsServerState() then
@@ -4930,6 +4990,8 @@ function GodSystemWindow:populateList()
         self:populateUpgrades()
     elseif self.mode == "companion" then
         self:populateCompanion()
+    elseif self.mode == "settings" then
+        self:populateSettings()
     elseif self.mode == "history" then
         self:populateHistory()
     elseif self.mode == "info" then
@@ -5784,6 +5846,10 @@ end
 
 function GodSystemWindow:onPrimaryAction()
     local payload = self:getSelectedPayload()
+    if self.mode == "settings" then
+        self:beginPanelKeyCapture()
+        return
+    end
     if self.mode == "attribute" then
         self:showAttributeAmountDialog(payload)
         return
@@ -6134,6 +6200,13 @@ function GodSystemWindow:onListRightMouseUp(x, y)
 end
 
 function GodSystemWindow:onSecondaryAction()
+    if self.mode == "settings" then
+        GodSystemPanelKey.cancelCapture("reset")
+        GodSystemPanelKey.reset()
+        GodSystem.notify(GodSystem.text("Settings_KeyReset", "Panel key restored to N"))
+        self:populateList()
+        return
+    end
     if self.mode == "storage" then
         if self.storageSecondaryAction == "forceRecover" then
             self:confirmStorageRecovery(true)
@@ -6257,6 +6330,11 @@ end
 
 function GodSystemWindow:onThirdAction()
     local payload = self:getSelectedPayload()
+    if self.mode == "settings" then
+        GodSystemPanelKey.cancelCapture("closed")
+        self:close()
+        return
+    end
     if self.mode == "storage" then
         if GodSystemStorageContext and GodSystemStorageContext.toggleConnectMode then
             GodSystemStorageContext.toggleConnectMode()
@@ -6454,6 +6532,9 @@ function GodSystemWindow:onSeventhAction()
 end
 
 function GodSystemWindow:close()
+    if GodSystemPanelKey.isCapturing() then
+        GodSystemPanelKey.cancelCapture("windowClosed")
+    end
     if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
     local data = GodSystem.getData()
     data.ui.windowX = math.floor(self.x or 0)
@@ -6669,9 +6750,16 @@ function GodSystemUI.onGameStart()
 end
 
 function GodSystemUI.onSessionEnd()
+    if GodSystemPanelKey.isCapturing() then
+        GodSystemPanelKey.cancelCapture("sessionEnded")
+    end
     GodSystemUI.closeShopHiddenWindow()
     GodSystemUI.closeFloatingButton()
 end
+
+GodSystemPanelKey.registerToggle(function()
+    GodSystemUI.toggleWindow()
+end)
 
 if Events.OnGameStart then
     Events.OnGameStart.Remove(GodSystemUI.onGameStart)

@@ -11,6 +11,7 @@ require "GodSystem_TerminalUpgrades"
 require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
+require "GodSystem_TaskOrder"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
@@ -4554,11 +4555,7 @@ function GodSystem.getTaskKindLabel(task)
 end
 
 function GodSystem.getTaskDifficulty(task)
-    local penalty = math.max(0, math.floor(tonumber(task and task.penaltyPoints) or 0))
-    if penalty >= 150 then return "D4" end
-    if penalty >= 80 then return "D3" end
-    if penalty >= 30 then return "D2" end
-    return "D1"
+    return GodSystemTaskOrder.difficultyLabel(task)
 end
 
 function GodSystem.getTaskListTitle(task)

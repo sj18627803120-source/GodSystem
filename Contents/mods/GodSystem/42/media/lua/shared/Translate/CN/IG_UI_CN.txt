@@ -1648,4 +1648,17 @@ IGUI_CN = {
 
     IGUI_GodSystem_Upgrade_TerminalFreshnessRate = "当前返鲜效果：每个在线游戏日恢复新鲜期的 {1}%。",
     IGUI_GodSystem_Upgrade_TerminalFreshnessNextRate = "升级后：{1}%。",
+
+    IGUI_GodSystem_Settings_ModOptionsTitle = "神级系统",
+    IGUI_GodSystem_Settings_PanelKey = "打开/关闭系统面板",
+    IGUI_GodSystem_Settings_PanelKeyHint = "在游戏中打开或关闭神级系统主面板。按键冲突不会覆盖其他功能。",
+    IGUI_GodSystem_Tab_Settings = "设置",
+    IGUI_GodSystem_Settings_PanelKeyCurrent = "当前面板快捷键：",
+    IGUI_GodSystem_Settings_ChangeKey = "修改按键",
+    IGUI_GodSystem_Settings_ResetKey = "恢复默认 N",
+    IGUI_GodSystem_Settings_PressKey = "请按下按键（Esc 取消）",
+    IGUI_GodSystem_Settings_KeySaved = "面板快捷键已修改为：",
+    IGUI_GodSystem_Settings_KeyCaptureCancelled = "已取消修改按键",
+    IGUI_GodSystem_Settings_KeyReset = "面板快捷键已恢复为 N",
+    IGUI_GodSystem_Settings_ModOptionsHint = "这里与游戏原生 Mod Options 使用同一个按键设置。",
 }

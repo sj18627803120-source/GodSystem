@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20.1.7"
+GodSystemConfig.Version = "42.20.1.8"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "系统币"
