@@ -126,16 +126,9 @@ local function categoryFor(fullType, item)
     return category
 end
 
-local function fallbackBuy(category, fullType)
+local function fallbackBuy(category)
     local prices = Config.ModCategoryBuyPrices or {}
     local price = finiteNumber(prices[category] or prices.normal, 120)
-    local mod = moduleName(fullType)
-    if mod and not (Config.RecycleDefaultAllowedModules or {})[mod] then
-        if category == "weapon" then price = math.max(price, finiteNumber(Config.AutoShopModWeaponMinBuy, price))
-        elseif category == "ammo" then price = math.max(price, finiteNumber(Config.AutoShopModAmmoMinBuy, price))
-        elseif category == "clothing" then price = math.max(price, finiteNumber(Config.AutoShopModClothingMinBuy, price))
-        else price = math.max(price, finiteNumber(Config.AutoShopModMinBuy, price)) end
-    end
     return math.max(1, integer(price, 1))
 end
 
@@ -149,9 +142,9 @@ local function baseReference(fullType, item)
     local category = categoryFor(fullType, item)
     local configured = (Config.VanillaItemBuyPrices or {})[fullType]
     if configured ~= nil then
-        return math.max(1, integer(configured, 1)), category, "price_table", false
+        return math.max(1, integer(configured, 1)), category, "price_table", false, true
     end
-    return fallbackBuy(category, fullType), category, "category_fallback", isUnknownThirdParty(fullType)
+    return fallbackBuy(category), category, "category_fallback", isUnknownThirdParty(fullType), false
 end
 
 local function itemConditionMultiplier(item)
@@ -230,33 +223,36 @@ local function scanRecipes(index, unverified, manager, stats)
         local recipe = listGet(recipes, i)
         local recipeModule = recipeModuleName(recipe)
         local sources = recipe and safeMethod(recipe, "getSource", nil) or nil
-        local consumed = {}
-        local complex = false
+        local consumedGroups = {}
         for sourceIndex = 0, listSize(sources) - 1 do
             local source = listGet(sources, sourceIndex)
             local keep = safeMethod(source, "isKeep", false) == true
             local destroy = safeMethod(source, "isDestroy", false) == true
             if not keep then
                 local items = sourceItems(source, recipeModule)
-                if #items == 1 and not destroy then
-                    consumed[#consumed + 1] = items[1]
-                else
-                    for j = 1, #items do unverified[items[j]] = true end
-                    complex = true
-                end
+                if #items > 0 then consumedGroups[#consumedGroups + 1] = { items = items, destroy = destroy } end
             end
         end
         local luaCreate = trim(safeMethod(recipe, "getLuaCreate", ""))
         local outputs = recipeOutputs(recipe, recipeModule)
-        if #consumed == 1 and not complex and outputs and luaCreate == "" then
-            if addRoute(index, consumed[1], outputs, "recipe") then stats.recipes = stats.recipes + 1 end
-        else
-            for j = 1, #consumed do unverified[consumed[j]] = true end
+        -- Only a recipe with one consumed source group can describe a direct
+        -- unpack/open conversion. Multi-input crafting recipes must not make
+        -- every ingredient look like a risky container.
+        if #consumedGroups == 1 then
+            local group = consumedGroups[1]
+            local deterministic = not group.destroy and outputs ~= nil and luaCreate == ""
+            for j = 1, #group.items do
+                if deterministic then
+                    if addRoute(index, group.items[j], outputs, "recipe") then stats.recipes = stats.recipes + 1 end
+                else
+                    unverified[group.items[j]] = true
+                end
+            end
         end
     end
 end
 
-local function scanReplacements(index, unverified, manager, stats)
+local function scanReplacements(index, manager, stats)
     local items = safeMethod(manager, "getAllItems", nil)
     for i = 0, listSize(items) - 1 do
         local script = listGet(items, i)
@@ -280,8 +276,9 @@ local function scanReplacements(index, unverified, manager, stats)
                     end
                 end
             end
-            local luaCreate = trim(safeMethod(script, "getLuaCreate", ""))
-            if luaCreate ~= "" then unverified[fullType] = true end
+            -- Item.getLuaCreate is an item-creation callback, not proof that
+            -- this item can itself be opened or dismantled. Recipe scanning is
+            -- the only source of dynamic one-item conversion risk.
         end
     end
 end
@@ -305,7 +302,7 @@ function Policy.rebuildTransformIndex(manager)
     manager = manager or scriptManager()
     if manager then
         local okRecipes = pcall(scanRecipes, index, unverified, manager, stats)
-        local okReplacements = pcall(scanReplacements, index, unverified, manager, stats)
+        local okReplacements = pcall(scanReplacements, index, manager, stats)
         if not okRecipes then stats.warnings = stats.warnings + 1 end
         if not okReplacements then stats.warnings = stats.warnings + 1 end
     end
@@ -335,18 +332,17 @@ local function eligible(fullType, context)
 end
 
 local function baseRecycle(fullType, item)
-    local reference, category, source, unknownThirdParty = baseReference(fullType, item)
+    local reference, category, source, unknownThirdParty, hasExactPrice = baseReference(fullType, item)
     local recycle
     if unknownThirdParty then
         recycle = math.max(1, integer(Config.UnknownModItemRecycleValue, 1))
-        source = "unknown_mod"
     else
         recycle = math.max(1, math.floor(reference * finiteNumber(Config.RecycleSellRatio, 0.05)))
     end
     if Admin.applySellPrice then recycle = Admin.applySellPrice(fullType, recycle) end
     recycle = math.max(0, math.floor(recycle * itemConditionMultiplier(item)))
     if recycle > 0 then recycle = math.max(1, recycle) end
-    return reference, recycle, category, source, unknownThirdParty
+    return reference, recycle, category, source, unknownThirdParty, hasExactPrice
 end
 
 local function terminalRecycleValue(fullType, visiting, depth)
@@ -395,14 +391,14 @@ function Policy.quote(fullType, item, context)
     if cacheKey and Policy.quoteCache[cacheKey] then return Policy.quoteCache[cacheKey] end
 
     local allowed = eligible(fullType, context.kind or "economy")
-    local reference, recycle, category, source, unknownThirdParty = baseRecycle(fullType, item)
+    local reference, recycle, category, source, unknownThirdParty, hasExactPrice = baseRecycle(fullType, item)
     local conversion, converted, conversionStatus = terminalRecycleValue(fullType, {}, 1)
     if not (Policy.transformIndex or {})[fullType] then conversion = 0 end
     local margin = math.max(0, finiteNumber(Config.EconomyConversionSafetyMargin, 0.10))
     local safeMinimum = conversion > 0 and safeCeil(conversion * (1 + margin)) or 0
-    local unverified = unknownThirdParty or Policy.unverifiedTypes[fullType] == true
+    local unverified = Policy.unverifiedTypes[fullType] == true
     local dynamicFloor = 0
-    if unverified then
+    if unverified and not hasExactPrice then
         local assumed = math.max(1, integer(Config.EconomyUnknownDynamicOutputCount, 500))
         local minimumRecycle = math.max(1, integer(Config.UnknownModItemRecycleValue, 1))
         dynamicFloor = safeCeil(assumed * minimumRecycle * (1 + margin))
@@ -431,6 +427,8 @@ function Policy.quote(fullType, item, context)
         verificationStatus = status,
         warnings = warnings,
         unknownThirdParty = unknownThirdParty,
+        hasExactPrice = hasExactPrice,
+        dynamicConversionUnknown = unverified,
         dynamicFloor = dynamicFloor,
         shopMode = Policy.getShopMode(fullType),
         policyRevision = Policy.revision,

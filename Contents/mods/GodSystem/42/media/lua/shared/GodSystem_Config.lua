@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20.2.1"
+GodSystemConfig.Version = "42.20.2.2"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "系统币"
@@ -178,10 +178,6 @@ GodSystemConfig.AutoRecyclerRecoverCosts = {
 }
 GodSystemConfig.AutoUnlockShopFromRecycle = true
 GodSystemConfig.AutoShopAllowAnyModule = true
-GodSystemConfig.AutoShopModMinBuy = 200
-GodSystemConfig.AutoShopModWeaponMinBuy = 600
-GodSystemConfig.AutoShopModAmmoMinBuy = 250
-GodSystemConfig.AutoShopModClothingMinBuy = 180
 GodSystemConfig.AutoShopListOnlyCostRatio = 0.5
 GodSystemConfig.AutoShopListOnlyMinCost = 50
 GodSystemConfig.RecycleSellRatio = 0.05
@@ -249,7 +245,7 @@ GodSystemConfig.ModCategoryBuyPrices = {
 GodSystemConfig.UnknownModItemRecycleValue = 1
 GodSystemConfig.EconomyConversionSafetyMargin = 0.10
 GodSystemConfig.EconomyUnknownDynamicOutputCount = 500
-GodSystemConfig.EconomyPolicyVersion = "42.20.2.1"
+GodSystemConfig.EconomyPolicyVersion = "42.20.2.2"
 GodSystemConfig.DailyRecycleSoftCap = 0
 GodSystemConfig.DiminishedRecyclePayout = 1
 GodSystemConfig.PositiveTraitCostPerPoint = 800

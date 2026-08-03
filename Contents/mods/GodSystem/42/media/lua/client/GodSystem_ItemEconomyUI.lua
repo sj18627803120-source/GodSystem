@@ -8,6 +8,7 @@ require "ISUI/ISButton"
 require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISTextEntryBox"
+require "ISUI/ISContextMenu"
 
 GodSystemItemEconomyUI = GodSystemItemEconomyUI or {}
 
@@ -267,15 +268,20 @@ function GodSystemItemEconomyWindow:drawCatalogItem(list, y, row, alt)
 end
 
 function GodSystemItemEconomyWindow:refreshFilters()
-    self.categoryButton:setTitle(text("EconomyFilter_Category", "Category") .. ": " .. categoryLabel(self.categoryFilter))
-    self.safetyButton:setTitle(text("EconomyFilter_Safety", "Safety") .. ": " .. valueLabel(self.safetyFilter))
-    self.shopFilterButton:setTitle(text("EconomyFilter_Shop", "Shop") .. ": " .. valueLabel(self.shopFilter))
-    self.overrideFilterButton:setTitle(text("EconomyFilter_Override", "Override") .. ": " .. valueLabel(self.overrideFilter))
+    self.categoryButton:setTitle(text("EconomyFilter_Category", "Category") .. ": " .. categoryLabel(self.categoryFilter) .. " >")
+    self.safetyButton:setTitle(text("EconomyFilter_Safety", "Safety") .. ": " .. valueLabel(self.safetyFilter) .. " >")
+    self.shopFilterButton:setTitle(text("EconomyFilter_Shop", "Shop") .. ": " .. valueLabel(self.shopFilter) .. " >")
+    self.overrideFilterButton:setTitle(text("EconomyFilter_Override", "Override") .. ": " .. valueLabel(self.overrideFilter) .. " >")
 end
 
-local function nextValue(values, current)
-    for i = 1, #values do if values[i] == current then return values[(i % #values) + 1] end end
-    return values[1]
+local function openChoiceMenu(target, values, current, labeler, callback)
+    local player = getPlayer()
+    local context = ISContextMenu.get(player:getPlayerNum(), getMouseX(), getMouseY())
+    for i = 1, #values do
+        local value = values[i]
+        local option = context:addOption(labeler(value), target, callback, value)
+        option.checkMark = value == current
+    end
 end
 
 function GodSystemItemEconomyWindow:onCategory()
@@ -285,15 +291,52 @@ function GodSystemItemEconomyWindow:onCategory()
         if not seen[key] then seen[key] = true; categories[#categories + 1] = key end
     end
     table.sort(categories, function(a, b) if a == "all" then return true elseif b == "all" then return false end return a < b end)
-    self.categoryFilter = nextValue(categories, self.categoryFilter); self.page = 1; self:refreshFilters(); self:populate()
+    openChoiceMenu(self, categories, self.categoryFilter, categoryLabel, self.setCategoryFilter)
 end
 
-function GodSystemItemEconomyWindow:onSafety() self.safetyFilter = nextValue(FILTER_SAFETY, self.safetyFilter); self.page = 1; self:refreshFilters(); self:populate() end
-function GodSystemItemEconomyWindow:onShopFilter() self.shopFilter = nextValue(FILTER_SHOP, self.shopFilter); self.page = 1; self:refreshFilters(); self:populate() end
-function GodSystemItemEconomyWindow:onOverrideFilter() self.overrideFilter = nextValue(FILTER_OVERRIDE, self.overrideFilter); self.page = 1; self:refreshFilters(); self:populate() end
-function GodSystemItemEconomyWindow:onShopMode() self.editShopMode = nextValue(SHOP_MODES, self.editShopMode); self:updateEditorButtons() end
-function GodSystemItemEconomyWindow:onRecycleState() self.editRecycleState = nextValue(TRI_STATES, self.editRecycleState); self:updateEditorButtons() end
-function GodSystemItemEconomyWindow:onLotteryState() self.editLotteryState = nextValue(TRI_STATES, self.editLotteryState); self:updateEditorButtons() end
+function GodSystemItemEconomyWindow:setCategoryFilter(value)
+    self.categoryFilter = value; self.page = 1; self:refreshFilters(); self:populate()
+end
+
+function GodSystemItemEconomyWindow:setSafetyFilter(value)
+    self.safetyFilter = value; self.page = 1; self:refreshFilters(); self:populate()
+end
+
+function GodSystemItemEconomyWindow:setShopFilter(value)
+    self.shopFilter = value; self.page = 1; self:refreshFilters(); self:populate()
+end
+
+function GodSystemItemEconomyWindow:setOverrideFilter(value)
+    self.overrideFilter = value; self.page = 1; self:refreshFilters(); self:populate()
+end
+
+function GodSystemItemEconomyWindow:setShopMode(value) self.editShopMode = value; self:updateEditorButtons() end
+function GodSystemItemEconomyWindow:setRecycleState(value) self.editRecycleState = value; self:updateEditorButtons() end
+function GodSystemItemEconomyWindow:setLotteryState(value) self.editLotteryState = value; self:updateEditorButtons() end
+
+function GodSystemItemEconomyWindow:onSafety()
+    openChoiceMenu(self, FILTER_SAFETY, self.safetyFilter, valueLabel, self.setSafetyFilter)
+end
+
+function GodSystemItemEconomyWindow:onShopFilter()
+    openChoiceMenu(self, FILTER_SHOP, self.shopFilter, valueLabel, self.setShopFilter)
+end
+
+function GodSystemItemEconomyWindow:onOverrideFilter()
+    openChoiceMenu(self, FILTER_OVERRIDE, self.overrideFilter, valueLabel, self.setOverrideFilter)
+end
+
+function GodSystemItemEconomyWindow:onShopMode()
+    openChoiceMenu(self, SHOP_MODES, self.editShopMode, valueLabel, self.setShopMode)
+end
+
+function GodSystemItemEconomyWindow:onRecycleState()
+    openChoiceMenu(self, TRI_STATES, self.editRecycleState, valueLabel, self.setRecycleState)
+end
+
+function GodSystemItemEconomyWindow:onLotteryState()
+    openChoiceMenu(self, TRI_STATES, self.editLotteryState, valueLabel, self.setLotteryState)
+end
 
 function GodSystemItemEconomyWindow:onSearchChanged(entry)
     self.searchText = entry and entry.getInternalText and entry:getInternalText() or ""
@@ -359,9 +402,9 @@ function GodSystemItemEconomyWindow:onCatalogSelected(item)
 end
 
 function GodSystemItemEconomyWindow:updateEditorButtons()
-    self.shopModeButton:setTitle(text("EconomyAdmin_ShopMode", "Shop") .. ": " .. valueLabel(self.editShopMode))
-    self.recycleButton:setTitle(text("EconomyAdmin_RecycleMode", "Recycle") .. ": " .. valueLabel(self.editRecycleState))
-    self.lotteryButton:setTitle(text("EconomyAdmin_LotteryMode", "Lottery") .. ": " .. valueLabel(self.editLotteryState))
+    self.shopModeButton:setTitle(text("EconomyAdmin_ShopMode", "Shop") .. ": " .. valueLabel(self.editShopMode) .. " >")
+    self.recycleButton:setTitle(text("EconomyAdmin_RecycleMode", "Recycle") .. ": " .. valueLabel(self.editRecycleState) .. " >")
+    self.lotteryButton:setTitle(text("EconomyAdmin_LotteryMode", "Lottery") .. ": " .. valueLabel(self.editLotteryState) .. " >")
     local item = self:getSelected()
     local enabled = item ~= nil and item.eligible == true
     self.saveButton:setEnable(enabled)

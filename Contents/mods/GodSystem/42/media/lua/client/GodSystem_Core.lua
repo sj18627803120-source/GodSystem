@@ -4415,7 +4415,6 @@ function GodSystem.getEconomyQuoteDetail(fullType, item, adminDetail)
     local sourceLabels = {
         price_table = GodSystem.text("EconomySource_PriceTable", "Reference price table"),
         category_fallback = GodSystem.text("EconomySource_Category", "Category fallback"),
-        unknown_mod = GodSystem.text("EconomySource_UnknownMod", "Unknown Mod fallback"),
     }
     local lines = {
         GodSystem.text("EconomyDetail_Buy", "Shop price") .. ": " .. tostring(quote.finalBuy or 0),
@@ -4425,7 +4424,11 @@ function GodSystem.getEconomyQuoteDetail(fullType, item, adminDetail)
         lines[#lines + 1] = GodSystem.text("EconomyDetail_Conversion", "Unpack recycle total") .. ": " .. tostring(quote.conversionValue)
             .. " | " .. GodSystem.text("EconomyDetail_SafeMinimum", "safe minimum") .. ": " .. tostring(quote.safeMinimum or 0)
     elseif quote.verificationStatus == "unverified" then
-        lines[#lines + 1] = GodSystem.text("EconomyDetail_Unverified", "Dynamic output is not verifiable; a conservative shop floor is applied.")
+        if (quote.dynamicFloor or 0) > 0 then
+            lines[#lines + 1] = GodSystem.text("EconomyDetail_Unverified", "Dynamic output is not verifiable; a conservative shop floor is applied.")
+        else
+            lines[#lines + 1] = GodSystem.text("EconomyDetail_UnverifiedExact", "Dynamic output is not verifiable; the existing exact price is retained without the generic risk floor.")
+        end
     end
     if adminDetail == true then
         lines[#lines + 1] = "fullType: " .. tostring(fullType or "")

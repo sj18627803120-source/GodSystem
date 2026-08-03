@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Root,
-    [string]$ExpectedVersion = "42.20.2.1"
+    [string]$ExpectedVersion = "42.20.2.2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +21,7 @@ function Reject-Text([string]$Text, [string]$Pattern, [string]$Message) {
     Write-Output "  OK: $Message"
 }
 
-Write-Output "=== Test-GodSystemV422021: Unified Economy Policy ==="
+Write-Output "=== Test-GodSystemV422022: Category Economy Policy and Direct Menus ==="
 
 $lua = Join-Path $Root "Contents\mods\GodSystem\42\media\lua"
 $policy = Read-Utf8 (Join-Path $lua "shared\GodSystem_EconomyPolicy.lua")
@@ -41,7 +41,7 @@ $b42Info = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\42\mod.info")
 $workshop = Read-Utf8 (Join-Path $Root "workshop.txt")
 
 Require-Text $policy 'function\s+Policy\.quote\s*\(' 'Economy policy exposes one quote entry point'
-foreach ($field in @('eligible', 'category', 'referenceBuy', 'recycleValue', 'conversionValue', 'safeMinimum', 'finalBuy', 'priceSource', 'verificationStatus', 'warnings')) {
+foreach ($field in @('eligible', 'category', 'referenceBuy', 'recycleValue', 'conversionValue', 'safeMinimum', 'finalBuy', 'priceSource', 'verificationStatus', 'warnings', 'hasExactPrice', 'dynamicConversionUnknown', 'dynamicFloor')) {
     Require-Text $policy ($field + '\s*=') "Economy quote contains $field"
 }
 Require-Text $policy 'Base\.MoneyBundle[\s\S]{0,180}Base\.Money[\s\S]{0,120}count\s*=\s*100' 'MoneyBundle has a deterministic 100-money conversion route'
@@ -49,11 +49,14 @@ Require-Text $policy 'MAX_DEPTH\s*=\s*32' 'Conversion recursion is bounded to 32
 Require-Text $policy 'visiting\[fullType\]' 'Conversion recursion detects cycles'
 Require-Text $policy 'getAllRecipes|getAllItems' 'Runtime conversion index scans loaded scripts'
 Require-Text $policy 'getReplaceOnUse|getReplaceOnDeplete' 'Runtime conversion index reads replacement rules'
-Require-Text $policy 'EconomyUnknownDynamicOutputCount[\s\S]{0,240}UnknownModItemRecycleValue' 'Unknown dynamic items use the configured conservative floor'
+Require-Text $policy 'if\s+unverified\s+and\s+not\s+hasExactPrice' 'The 550 risk floor applies only to detected dynamic conversions without an exact price'
+Require-Text $policy '#consumedGroups\s*==\s*1' 'Only single-source conversions can enter unpack-risk analysis'
+Reject-Text $policy 'unknownThirdParty\s+or\s+Policy\.unverifiedTypes' 'Ordinary unknown Mod items are no longer treated as dynamic conversions'
+Reject-Text $policy 'getLuaCreate[\s\S]{0,160}unverified\[fullType\]' 'Item creation callbacks alone do not trigger the unpack-risk floor'
 Require-Text $config 'UnknownModItemRecycleValue\s*=\s*1' 'Unknown Mod items recycle for one coin by default'
 Require-Text $config 'EconomyConversionSafetyMargin\s*=\s*0\.10' 'Conversion safety margin defaults to ten percent'
 Require-Text $config 'EconomyUnknownDynamicOutputCount\s*=\s*500' 'Unknown dynamic output guarantee defaults to 500'
-Reject-Text $config 'DefaultRecycleValueCap|RecycleValues|RecycleCategoryValues|AutoShopBuyMultiplier|AutoShopMinMarkup|LooseAmmoRecycleUnitDivisor|ShellRecycleUnitDivisor|SmallUnitRecycleDivisor' 'Retired recycle tables and batch-divisor pricing are removed'
+Reject-Text $config 'DefaultRecycleValueCap|RecycleValues|RecycleCategoryValues|AutoShopBuyMultiplier|AutoShopMinMarkup|LooseAmmoRecycleUnitDivisor|ShellRecycleUnitDivisor|SmallUnitRecycleDivisor|AutoShopModMinBuy|AutoShopModWeaponMinBuy|AutoShopModAmmoMinBuy|AutoShopModClothingMinBuy' 'Retired recycle tables, batch divisors and obsolete blanket Mod floors are removed'
 
 Require-Text $core 'require\s+"GodSystem_EconomyPolicy"' 'SP core loads the shared economy policy'
 Require-Text $server 'require\s+"GodSystem_EconomyPolicy"' 'MP server loads the shared economy policy'
@@ -63,6 +66,8 @@ Reject-Text ($core + $server) 'getRecycleUnitDivisor|unitDivisor' 'No runtime ba
 Require-Text $admin 'shopMode\s*==\s*"forced"|shopMode\s*=\s*shopMode' 'Administrator overrides support forced shop mode'
 Require-Text $admin 'shopEnabled\s*==\s*false[\s\S]{0,120}shopMode\s*=\s*"disabled"' 'Legacy disabled shop overrides migrate to tri-state mode'
 Require-Text $protocol 'AdminEconomyOverrideSet|AdminEconomyOverrideClear' 'Protocol exposes atomic item economy override commands'
+Require-Text $server 'function\s+Commands\.adminEconomyOverrideSet[\s\S]{0,220}isAdminPlayer' 'MP item economy saves require administrator access'
+Require-Text $server 'function\s+Commands\.adminEconomyOverrideClear[\s\S]{0,220}isAdminPlayer' 'MP automatic-price restores require administrator access'
 Require-Text $server 'Unsafe internal item is read-only' 'Server keeps internal economic items read-only'
 Require-Text $server 'Furniture requires a known world sprite' 'Server refuses forced furniture without an exact variant'
 Require-Text $variants 'mode\s*~=\s*"forced"' 'Forced global products are excluded from player hidden management'
@@ -73,16 +78,27 @@ Require-Text $transactions 'kind\s*==\s*"buyShop"' 'Server transaction cache fin
 Require-Text $transactions 'kind\s*==\s*"listOnlyAutoShop"' 'Server transaction cache fingerprints single-item listings'
 Require-Text $server 'txKind\s*=\s*"buyShop"[\s\S]{0,2500}GodSystemTransactionOps\.begin' 'Shop purchase uses persistent idempotence results'
 Require-Text $server 'txKind\s*=\s*"listOnlyAutoShop"[\s\S]{0,2500}GodSystemTransactionOps\.begin' 'Single-item listing uses persistent idempotence results'
+Require-Text $core 'function\s+GodSystem\.getWaistSpaceRecycleGroups[\s\S]{0,1800}GodSystem\.getRecycleValue' 'Waist-space recycling groups use the shared player recycle quote'
+Require-Text $core 'function\s+GodSystem\.recycleWaistSpaceItemsInternal[\s\S]{0,800}GodSystem\.getWaistSpaceRecycleGroups' 'Waist-space manual and automatic recycling consume the quoted groups'
+Require-Text $core 'function\s+GodSystem\.removeInventoryItems[\s\S]{0,1200}GodSystem\.getRecycleValue' 'Ordinary inventory removal uses the shared player recycle quote'
+Require-Text $core 'function\s+GodSystem\.recycleInventoryItems[\s\S]{0,1000}GodSystem\.removeInventoryItems' 'Ordinary inventory recycling consumes the shared removal path'
+Require-Text $core 'function\s+GodSystem\.getInventoryRecycleGroups[\s\S]{0,1800}GodSystem\.getRecycleValue' 'Recycle preview totals use the same player quote'
+Require-Text $server 'local\s+function\s+recycleWaistInternal[\s\S]{0,4200}recycleValue\s*\(' 'MP waist recycling uses the authoritative shared recycle quote'
+Require-Text $server 'local\s+function\s+recycleSelectedInternal[\s\S]{0,6000}recycleValue\s*\(' 'MP selected-item recycling uses the authoritative shared recycle quote'
+Require-Text $ui 'getEconomyQuoteDetail' 'Ordinary shop and recycle details display the shared quote explanation'
 
 Require-Text $ui 'GodSystemItemEconomyUI\.open' 'Administrator page opens the item economy window'
 Require-Text $economyUi 'local\s+PAGE_SIZE\s*=\s*200' 'Item economy catalog is paged at 200 rows'
 Require-Text $economyUi 'EconomyFilter_Category|EconomyFilter_Safety|EconomyFilter_Shop|EconomyFilter_Override' 'Item economy window provides all required filters'
+Require-Text $economyUi 'require\s+"ISUI/ISContextMenu"' 'Item economy selectors use the native context menu'
+Require-Text $economyUi 'ISContextMenu\.get' 'Item economy choices open a direct selection menu'
+Reject-Text $economyUi 'local\s+function\s+nextValue|nextValue\s*\(' 'Item economy choices no longer require repeated click cycling'
 Require-Text $economyUi 'saveEconomyOverride' 'Item economy window submits one combined override'
 Reject-Text $economyUi 'Events\.|OnTick|OnPlayerUpdate|OnRender' 'Item economy catalog does not add background or per-frame scans'
 
 foreach ($key in @(
     'EconomyAdmin_Open', 'EconomyAdmin_Title', 'EconomyDetail_Buy', 'EconomyDetail_Recycle',
-    'EconomyDetail_SafeMinimum', 'EconomyWarning_Arbitrage', 'AdminSetting_EconomySafetyMargin',
+    'EconomyDetail_SafeMinimum', 'EconomyDetail_UnverifiedExact', 'EconomyWarning_Arbitrage', 'AdminSetting_EconomySafetyMargin',
     'AdminSetting_EconomyUnknownOutput', 'NotifyMP_ShopBuySuccess', 'NotifyMP_ShopItemNotFound',
     'NotifyMP_ListOnlySuccess'
 )) {
@@ -102,11 +118,15 @@ if (-not $luaExe) {
     $localLua = Join-Path $env:LOCALAPPDATA "Programs\Lua51\5.1.5\lua.exe"
     if (Test-Path -LiteralPath $localLua) { $luaExe = Get-Item -LiteralPath $localLua }
 }
-if (-not $luaExe) { throw "Lua 5.1 runtime is required for 42.20.2.1 validation" }
+if (-not $luaExe) { throw "Lua 5.1 runtime is required for 42.20.2.2 validation" }
 $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
-& $luaPath (Join-Path $PSScriptRoot "Test-GodSystemV422021EconomyRuntime.lua") ($Root -replace '\\', '/')
-if ($LASTEXITCODE -ne 0) { throw "42.20.2.1 economy runtime test failed" }
-& $luaPath (Join-Path $PSScriptRoot "Test-GodSystemV422021TransactionRuntime.lua") (Join-Path $lua "server\GodSystem_TransactionOps.lua")
-if ($LASTEXITCODE -ne 0) { throw "42.20.2.1 transaction runtime test failed" }
+& $luaPath (Join-Path $PSScriptRoot "Test-GodSystemV422022EconomyRuntime.lua") ($Root -replace '\\', '/')
+if ($LASTEXITCODE -ne 0) { throw "42.20.2.2 economy runtime test failed" }
+& $luaPath (Join-Path $PSScriptRoot "Test-GodSystemV422022TransactionRuntime.lua") (Join-Path $lua "server\GodSystem_TransactionOps.lua")
+if ($LASTEXITCODE -ne 0) { throw "42.20.2.2 transaction runtime test failed" }
+& $luaPath (Join-Path $PSScriptRoot "Test-GodSystemV422022EconomyUIRuntime.lua") $lua
+if ($LASTEXITCODE -ne 0) { throw "42.20.2.2 administrator economy UI runtime test failed" }
+& $luaPath (Join-Path $PSScriptRoot "Test-GodSystemV422022PlayerJourneyRuntime.lua") ($Root -replace '\\', '/')
+if ($LASTEXITCODE -ne 0) { throw "42.20.2.2 ordinary-player journey runtime test failed" }
 
-Write-Output "Test-GodSystemV422021 passed for $ExpectedVersion"
+Write-Output "Test-GodSystemV422022 passed for $ExpectedVersion"

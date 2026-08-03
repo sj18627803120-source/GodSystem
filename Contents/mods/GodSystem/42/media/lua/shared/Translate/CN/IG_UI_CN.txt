@@ -1717,4 +1717,6 @@ IGUI_CN = {
     IGUI_GodSystem_NotifyMP_ShopBuySuccess = "购买成功：{1} 件，花费 {2} 系统币",
     IGUI_GodSystem_NotifyMP_ShopItemNotFound = "商城物品不存在或物品定义已缺失：{1}",
     IGUI_GodSystem_NotifyMP_ListOnlySuccess = "已上架 {1}，花费 {2} 系统币，商城售价 {3}",
+
+    IGUI_GodSystem_EconomyDetail_UnverifiedExact = "动态产出无法可靠验证；该物品已有明确价格，因此保留明确价格，不套用通用风险底价。",
 }

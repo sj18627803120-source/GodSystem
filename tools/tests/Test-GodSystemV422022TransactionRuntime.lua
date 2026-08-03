@@ -1,4 +1,4 @@
-local transactionPath = assert(arg[1], "transaction module path is required")
+local transactionPath = assert(arg[1], "42.20.2.2 transaction module path is required")
 
 isServer = function() return true end
 dofile(transactionPath)
@@ -26,4 +26,4 @@ assert(Ops.begin(root, owner, "listOnlyAutoShop", listing) == true, "new listing
 Ops.remember(root, owner, "listOnlyAutoShop", listing, true, "ListOnlySuccess", {}, { cost = 55 })
 assert(Ops.get(root, owner, "listOnlyAutoShop", listing).payload.cost == 55, "listing result must be replayable")
 
-print("Test-GodSystemV422021TransactionRuntime OK")
+print("Test-GodSystemV422022TransactionRuntime OK")
