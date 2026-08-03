@@ -1248,6 +1248,17 @@ local scriptItem = getScriptManager():FindItem("Base.Axe")
 local items = getScriptManager():getItemsTag("base:isfirefuel")
 ```
 
+### 17.5 B42.20 经济转换索引核对
+
+2026-08-03 依据当前官方 JavaDoc 复核：`Recipe:getSource()` 返回 `Recipe.Source` 列表，来源可通过 `getItems()` 读取；`Recipe:getResult()` 返回结果对象；`Recipe:getLuaCreate()` 可判断是否存在动态创建回调。`Recipe:getModule()` 继承自 `BaseScriptObject`，返回的是 `ScriptModule` 对象而不是模块名字符串，模块名必须再调用 `ScriptModule:getName()`。因此处理未带 `Module.` 前缀的来源或结果时，不能直接把 `getModule()` 与物品名拼接。
+
+- 官方 `Recipe`：<https://projectzomboid.com/modding/zombie/scripting/objects/Recipe.html>
+- 官方 `Recipe.Source`：<https://projectzomboid.com/modding/zombie/scripting/objects/Recipe.Source.html>
+- 官方 `BaseScriptObject`：<https://projectzomboid.com/modding/zombie/scripting/objects/BaseScriptObject.html>
+- 官方 `ScriptModule`：<https://projectzomboid.com/modding/zombie/scripting/objects/ScriptModule.html>
+
+GodSystem 42.20.2.1 只把“单一被消耗来源、非 `keep`/`destroy`、单一确定结果、没有 `LuaCreate`”加入自动转换索引；多来源、多选项、动态回调和无法解析的规则只标记为未验证，不能据此宣称绝对防套利。
+
 ---
 
 ## 十八、Sound 音频系统
