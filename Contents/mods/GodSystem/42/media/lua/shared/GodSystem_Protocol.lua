@@ -42,6 +42,10 @@ GodSystemProtocol.C2S = {
     AdminConfigSet = "adminConfigSet",
     AdminItemOverrideSet = "adminItemOverrideSet",
     AdminItemOverrideClear = "adminItemOverrideClear",
+    AdminShopVariantOverrideSet = "adminShopVariantOverrideSet",
+    AdminShopVariantOverrideClear = "adminShopVariantOverrideClear",
+    AdminEconomyOverrideSet = "adminEconomyOverrideSet",
+    AdminEconomyOverrideClear = "adminEconomyOverrideClear",
 }
 
 GodSystemProtocol.S2C = {
@@ -89,6 +93,10 @@ GodSystemProtocol.StateCommands = {
     adminConfigSet = true,
     adminItemOverrideSet = true,
     adminItemOverrideClear = true,
+    adminShopVariantOverrideSet = true,
+    adminShopVariantOverrideClear = true,
+    adminEconomyOverrideSet = true,
+    adminEconomyOverrideClear = true,
 }
 
 GodSystemProtocol.KeyCommands = {
@@ -123,6 +131,10 @@ GodSystemProtocol.KeyCommands = {
     adminConfigSet = true,
     adminItemOverrideSet = true,
     adminItemOverrideClear = true,
+    adminShopVariantOverrideSet = true,
+    adminShopVariantOverrideClear = true,
+    adminEconomyOverrideSet = true,
+    adminEconomyOverrideClear = true,
 }
 
 GodSystemProtocol.BackgroundSyncMs = 300000

@@ -370,6 +370,26 @@ option GodSystem.AutoShopListOnlyMinCost
     translation = GodSystem_AutoShopListOnlyMinCost,
 }
 
+option GodSystem.EconomyConversionSafetyMargin
+{
+    type = double,
+    min = 0,
+    max = 10,
+    default = 0.10,
+    page = GodSystem_Economy,
+    translation = GodSystem_EconomyConversionSafetyMargin,
+}
+
+option GodSystem.EconomyUnknownDynamicOutputCount
+{
+    type = integer,
+    min = 1,
+    max = 1000000,
+    default = 500,
+    page = GodSystem_Economy,
+    translation = GodSystem_EconomyUnknownDynamicOutputCount,
+}
+
 option GodSystem.BankLoanBaseCredit
 {
     type = integer,

@@ -5,6 +5,7 @@ require "GodSystem_Localization"
 require "GodSystem_Localization_Override"
 require "GodSystem_Protocol"
 require "GodSystem_AdminConfig"
+require "GodSystem_EconomyPolicy"
 require "GodSystem_Maintenance"
 require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
@@ -19,6 +20,20 @@ if not (isServer and isServer()) then return end
 GodSystemServer = GodSystemServer or {}
 GodSystemServer.terminalCache = GodSystemServer.terminalCache or {}
 GodSystemServer.configuredShopKeySet = GodSystemShopVariants.getConfiguredKeySet(GodSystemConfig.ShopItems or {})
+
+function GodSystemServer.getConfiguredShopKeySet()
+    local result = {}
+    for key, value in pairs(GodSystemServer.configuredShopKeySet or {}) do result[key] = value end
+    for fullType, override in pairs(GodSystemAdminConfig.getItemOverrides() or {}) do
+        if override.shopMode == "forced" and fullType ~= "Moveables.Moveable" then
+            result[GodSystemShopVariants.getKey(fullType)] = true
+        end
+    end
+    for variantKey, override in pairs(GodSystemAdminConfig.getShopVariantOverrides() or {}) do
+        if override.shopMode == "forced" then result[variantKey] = true end
+    end
+    return result
+end
 
 local Protocol = GodSystemProtocol or {}
 local MODULE = Protocol.Module or "GodSystem"
@@ -122,11 +137,15 @@ local function adminConfigStore()
             data.settings = GodSystemAdminConfig.getSandboxDefaults()
         end
         data.itemOverrides = data.itemOverrides or {}
+        data.shopVariantOverrides = data.shopVariantOverrides or {}
+        data.economyRevision = math.max(1, floor(data.economyRevision, 1))
         return data
     end
     _G.__GodSystemAdminConfigStore = _G.__GodSystemAdminConfigStore or {
         settings = GodSystemAdminConfig.getSandboxDefaults(),
         itemOverrides = {},
+        shopVariantOverrides = {},
+        economyRevision = 1,
     }
     return _G.__GodSystemAdminConfigStore
 end
@@ -139,7 +158,7 @@ end
 
 local function applyAdminConfigStore()
     local data = adminConfigStore()
-    data.settings, data.itemOverrides = GodSystemAdminConfig.applyRuntime(data.settings, data.itemOverrides)
+    data.settings, data.itemOverrides, data.shopVariantOverrides = GodSystemAdminConfig.applyRuntime(data.settings, data.itemOverrides, data.shopVariantOverrides, data.economyRevision)
     return data
 end
 
@@ -250,7 +269,7 @@ local function playerData(player)
     data.tasks = data.tasks or {}
     data.history = data.history or {}
     data.unlockedShopItems = data.unlockedShopItems or {}
-    GodSystemShopVariants.normalizeUnlocked(data, GodSystemServer.configuredShopKeySet)
+    GodSystemShopVariants.normalizeUnlocked(data, GodSystemServer.getConfiguredShopKeySet())
     data.stats = data.stats or {}
     data.stats.recycledItems = data.stats.recycledItems or 0
     data.stats.recycledPoints = data.stats.recycledPoints or 0
@@ -1542,19 +1561,6 @@ local function applyTraitBenefits(player, traitType)
     return allOk, applied
 end
 
-local function scriptItemValue(fullType, methods)
-    local scriptItem = getScriptManager and getScriptManager() and getScriptManager():FindItem(fullType) or nil
-    if not scriptItem then return "" end
-    for i = 1, #methods do
-        local fn = scriptItem[methods[i]]
-        if fn then
-            local ok, value = pcall(fn, scriptItem)
-            if ok and value and tostring(value) ~= "" then return tostring(value) end
-        end
-    end
-    return ""
-end
-
 local function trim(text)
     return tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
@@ -1563,75 +1569,13 @@ local function moduleName(fullType)
     return fullType and string.match(fullType, "^([^%.]+)%.") or nil
 end
 
-local function categoryFromRaw(raw)
-    raw = trim(raw)
-    local compact = string.lower(raw):gsub("[%s_%-%./\\|>]+", "")
-    if compact == "" then return "normal" end
-    if string.find(compact, "accessory", 1, true) or string.find(compact, "jewelry", 1, true) then return "accessory" end
-    if string.find(compact, "casing", 1, true) then return "casing" end
-    if string.find(compact, "security", 1, true) then return "security" end
-    if string.find(compact, "firstaid", 1, true) or string.find(compact, "medical", 1, true) then return "medical" end
-    if string.find(compact, "beverage", 1, true) or string.find(compact, "water", 1, true) or string.find(compact, "drink", 1, true) then return "drink" end
-    if string.find(compact, "food", 1, true) or string.find(compact, "canned", 1, true) then return "food" end
-    if string.find(compact, "container", 1, true) then return "container" end
-    if string.find(compact, "cooking", 1, true) or string.find(compact, "utensil", 1, true) then return "cooking" end
-    if string.find(compact, "fire", 1, true) then return "fire" end
-    if string.find(compact, "tool", 1, true) or string.find(compact, "maintenance", 1, true) then return "tool" end
-    if string.find(compact, "material", 1, true) then return "material" end
-    if string.find(compact, "ammo", 1, true) or string.find(compact, "bullet", 1, true) or string.find(compact, "shell", 1, true) then return "ammo" end
-    if string.find(compact, "weapon", 1, true) then return "weapon" end
-    if string.find(compact, "cloth", 1, true) or string.find(compact, "clothing", 1, true) then return "clothing" end
-    if string.find(compact, "literature", 1, true) or string.find(compact, "book", 1, true) or string.find(compact, "map", 1, true) then return "literature" end
-    if string.find(compact, "drainable", 1, true) then return "drainable" end
-    if string.find(compact, "elect", 1, true) or string.find(compact, "radio", 1, true) then return "electronics" end
-    if string.find(compact, "farm", 1, true) or string.find(compact, "seed", 1, true) then return "farming" end
-    if string.find(compact, "vehicle", 1, true) or string.find(compact, "mechanic", 1, true) then return "vehicle" end
-    if string.find(compact, "key", 1, true) then return "key" end
-    if compact == "survival" then return "survival" end
-    return "normal"
-end
-
 local function pricingCategory(fullType, item)
-    if fullType and GodSystemConfig.VanillaItemPriceCategories and GodSystemConfig.VanillaItemPriceCategories[fullType] then
-        return GodSystemAdminConfig.applyCategory(fullType, GodSystemConfig.VanillaItemPriceCategories[fullType])
-    end
-    local raw = fullType and scriptItemValue(fullType, { "getDisplayCategory", "getTypeString", "getType", "getCategory" }) or ""
-    if raw == "" and item and item.getCategory then
-        local ok, value = pcall(item.getCategory, item)
-        if ok and value then raw = tostring(value) end
-    end
-    return GodSystemAdminConfig.applyCategory(fullType, categoryFromRaw(raw))
-end
-
-local function categoryFallbackBuyPrice(categoryKey, fullType)
-    local prices = GodSystemConfig.ModCategoryBuyPrices or {}
-    local key = tostring(categoryKey or "normal")
-    local price = prices[key] or prices.normal or 120
-    local mod = moduleName(fullType)
-    if mod and not (GodSystemConfig.RecycleDefaultAllowedModules or {})[mod] then
-        if key == "weapon" then price = math.max(price, GodSystemConfig.AutoShopModWeaponMinBuy or price)
-        elseif key == "ammo" then price = math.max(price, GodSystemConfig.AutoShopModAmmoMinBuy or price)
-        elseif key == "clothing" then price = math.max(price, GodSystemConfig.AutoShopModClothingMinBuy or price)
-        else price = math.max(price, GodSystemConfig.AutoShopModMinBuy or price) end
-    end
-    return math.max(1, floor(price, 1))
+    return GodSystemEconomyPolicy.quote(fullType, item, { kind = "category" }).category
 end
 
 local function itemPriceInfo(fullType, item)
-    if not fullType then return { buyPrice = 0, sellPrice = 0, category = "normal" } end
-    local categoryKey = pricingCategory(fullType, item)
-    local buyPrice = GodSystemConfig.VanillaItemBuyPrices and GodSystemConfig.VanillaItemBuyPrices[fullType] or nil
-    if not buyPrice then buyPrice = categoryFallbackBuyPrice(categoryKey, fullType) end
-    buyPrice = math.max(1, floor(buyPrice, 1))
-    local baseBuyPrice = buyPrice
-    local ratio = GodSystemConfig.RecycleSellRatio or 0.05
-    local mod = moduleName(fullType)
-    if mod and not (GodSystemConfig.RecycleDefaultAllowedModules or {})[mod] then
-        ratio = GodSystemConfig.ModItemSellRatio or ratio
-    end
-    buyPrice = GodSystemAdminConfig.applyShopBuyPrice(fullType, baseBuyPrice)
-    local sellPrice = GodSystemAdminConfig.applySellPrice(fullType, math.max(1, math.floor(baseBuyPrice * ratio)))
-    return { buyPrice = buyPrice, sellPrice = sellPrice, category = categoryKey }
+    local quote = GodSystemEconomyPolicy.quote(fullType, item, { kind = "economy" })
+    return { buyPrice = quote.finalBuy, sellPrice = quote.recycleValue, category = quote.category, quote = quote }
 end
 
 local function itemBuyPrice(fullType)
@@ -1642,40 +1586,12 @@ local function itemSellPrice(fullType, item)
     return itemPriceInfo(fullType, item).sellPrice or 0
 end
 
-local function configuredShopPriceForFullType(fullType)
-    local best = nil
-    for i = 1, #(GodSystemConfig.ShopItems or {}) do
-        local row = GodSystemConfig.ShopItems[i]
-        local items = row.items or {}
-        for j = 1, #items do
-            if items[j].fullType == fullType then
-                local total = 0
-                for k = 1, #items do
-                    total = total + itemBuyPrice(items[k].fullType) * math.max(1, floor(items[k].count, 1))
-                end
-                local price = total > 0 and total or floor(row.price, 0)
-                if price > 0 and (not best or price < best) then best = price end
-            end
-        end
-    end
-    return best
-end
-
 local function autoShopBuyPriceForItem(fullType, sellValue)
-    local info = itemPriceInfo(fullType)
-    if info and (info.buyPrice or 0) > 0 then return info.buyPrice end
-    local price = math.max((sellValue or 1) * (GodSystemConfig.AutoShopBuyMultiplier or 3), (sellValue or 1) + (GodSystemConfig.AutoShopMinMarkup or 10))
-    local configured = configuredShopPriceForFullType(fullType)
-    if configured then price = math.max(price, configured) end
-    return GodSystemAdminConfig.applyShopBuyPrice(fullType, math.max(1, floor(price, 1)))
+    return GodSystemEconomyPolicy.quote(fullType, nil, { kind = "shop" }).finalBuy
 end
 
 local function autoShopListOnlyCost(fullType, sellValue)
-    local baseSell = math.max(1, floor(sellValue, 1))
-    local buyPrice = math.max(1, floor(autoShopBuyPriceForItem(fullType, baseSell), 1))
-    local ratio = math.max(0, n(GodSystemConfig.AutoShopListOnlyCostRatio, 0.5))
-    local minCost = math.max(0, floor(GodSystemConfig.AutoShopListOnlyMinCost, 50))
-    return math.max(minCost, math.ceil(buyPrice * ratio)), buyPrice
+    return GodSystemEconomyPolicy.listingCost(fullType, nil)
 end
 
 local function isAutoShopListOnlyAllowed(fullType)
@@ -1719,12 +1635,36 @@ local function shopById(data, id)
             return row
         end
     end
+    local forcedKey = id:match("^admin:(.+)$")
+    if forcedKey then
+        local variant = GodSystemAdminConfig.getShopVariantOverride(forcedKey)
+        local fullType = variant and variant.fullType or forcedKey
+        local worldSprite = variant and variant.worldSprite or nil
+        local mode = variant and variant.shopMode or GodSystemAdminConfig.getShopMode(fullType)
+        if mode ~= "forced" or not itemExists(fullType)
+            or (GodSystem.isEconomicItemAllowed and GodSystem.isEconomicItemAllowed(fullType, "shop") == false) then
+            return nil, "disabled"
+        end
+        return {
+            id = id,
+            fullType = fullType,
+            worldSprite = worldSprite,
+            variantKey = forcedKey,
+            group = "admin",
+            adminForced = true,
+            items = { { fullType = fullType, worldSprite = worldSprite, count = 1 } },
+        }
+    end
     for variantKey, item in pairs(data.unlockedShopItems or {}) do
         local fullType = item.fullType or variantKey
         local unlockedId = "unlocked_" .. tostring(variantKey)
         if unlockedId == id or tostring(variantKey) == id then
+            local mode = GodSystemAdminConfig.getShopVariantMode(variantKey, fullType)
+            if mode == "forced" then
+                return shopById(data, "admin:" .. tostring(variantKey))
+            end
             if item.hidden == true then return nil, "hidden" end
-            if GodSystemAdminConfig.isShopItemEnabled(fullType, true) == false then return nil, "disabled" end
+            if mode == "disabled" or GodSystemAdminConfig.isShopItemEnabled(fullType, true) == false then return nil, "disabled" end
             return {
                 id = unlockedId,
                 fullType = fullType,
@@ -1756,56 +1696,10 @@ local function isAutoRecyclerContainer(item)
     return isAutoRecyclerFullType(item:getFullType())
 end
 
-local function isLooseAmmoRecycleItem(fullType, item)
-    if not fullType then return false end
-    if string.find(fullType, "Box", 1, true)
-        or string.find(fullType, "Carton", 1, true)
-        or string.find(fullType, "Clip", 1, true)
-        or string.find(fullType, "Magazine", 1, true)
-        or string.find(fullType, "AmmoBox", 1, true)
-        or string.find(fullType, "Strap", 1, true)
-        or string.find(fullType, "Case", 1, true)
-        or string.find(fullType, "Bag_", 1, true) then
-        return false
-    end
-    local lowerType = string.lower(fullType)
-    local looksLikeLooseAmmoName = string.find(lowerType, "bullet", 1, true)
-        or string.find(lowerType, "shell", 1, true)
-        or string.find(lowerType, "ammo", 1, true)
-        or string.find(lowerType, "round", 1, true)
-        or string.find(lowerType, "cartridge", 1, true)
-        or string.find(lowerType, "caliber", 1, true)
-        or string.find(lowerType, "9mm", 1, true)
-        or string.find(lowerType, "308", 1, true)
-        or string.find(lowerType, "556", 1, true)
-        or string.find(lowerType, "3030", 1, true)
-    if not looksLikeLooseAmmoName then return false end
-    if item and item.getCategory then
-        local ok, category = pcall(item.getCategory, item)
-        if ok and category == "Ammo" then return true end
-    end
-    local configuredCategory = GodSystemConfig.VanillaItemPriceCategories and GodSystemConfig.VanillaItemPriceCategories[fullType] or nil
-    if configuredCategory == "ammo" then return true end
-    if pricingCategory(fullType, item) == "ammo" then return true end
-    if string.find(fullType, "Bullets", 1, true) or string.find(fullType, "ShotgunShells", 1, true) then return true end
-    return false
-end
-
-local function recycleUnitDivisor(fullType)
-    if not fullType then return 1 end
-    if isLooseAmmoRecycleItem(fullType) then return 1 end
-    if string.find(fullType, "ShotgunShells", 1, true) and not string.find(fullType, "Box", 1, true) then return GodSystemConfig.LooseShellRecycleDivisor or 5 end
-    if string.find(fullType, "Bullets", 1, true) and not string.find(fullType, "Box", 1, true) then return GodSystemConfig.LooseAmmoRecycleDivisor or 10 end
-    if string.find(fullType, "Nails", 1, true) and not string.find(fullType, "Box", 1, true) then return GodSystemConfig.SmallUnitRecycleDivisor or 10 end
-    return 1
-end
-
 local function calculateRecyclePayout(fullType, rawValue, count)
     rawValue = floor(rawValue, 0)
     if rawValue <= 0 then return 0 end
-    local divisor = recycleUnitDivisor(fullType)
-    if divisor <= 1 then return math.max(1, rawValue) end
-    return math.floor((count or 1) / divisor)
+    return math.max(1, rawValue)
 end
 
 local function recycleValue(item, allowContainers)
@@ -1815,17 +1709,9 @@ local function recycleValue(item, allowContainers)
         or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return 0 end
     if GodSystemAdminConfig.isRecycleItemEnabled(fullType, true) == false then return 0 end
     if allowContainers ~= true and GodSystemConfig.AllowRecycleContainers ~= true and itemHasInventory(item) then return 0 end
-    if isLooseAmmoRecycleItem(fullType, item) then return 1 end
-    local value = itemSellPrice(fullType, item)
-    if item.isBroken then
-        local ok, broken = pcall(item.isBroken, item)
-        if ok and broken then value = math.floor(value * 0.5) end
-    end
-    if item.getUsedDelta then
-        local ok, used = pcall(item.getUsedDelta, item)
-        if ok and used and used > 0 and used < 1 then value = math.floor(value * used) end
-    end
-    return math.max(1, value)
+    local quote = GodSystemEconomyPolicy.quote(fullType, item, { kind = "recycle" })
+    if quote.eligible ~= true then return 0 end
+    return math.max(1, math.floor(tonumber(quote.recycleValue) or 1))
 end
 
 local function itemInventoryCount(item)
@@ -1869,7 +1755,7 @@ local function canContextListItem(data, item)
     local fullType = item:getFullType()
     if not isAutoShopListOnlyAllowed(fullType) then return false, "notListable" end
     local variantKey = GodSystemShopVariants.getKey(fullType, item)
-    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.configuredShopKeySet, variantKey)
+    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.getConfiguredShopKeySet(), variantKey)
     if listed then
         if source == "configured" then return false, "configuredListed" end
         if data.unlockedShopItems and data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
@@ -1922,7 +1808,7 @@ local function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite
     local buyPrice = autoShopBuyPriceForItem(fullType, baseSell)
     local worldSprite = GodSystemShopVariants.getWorldSprite(itemOrSprite)
     local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
-    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.configuredShopKeySet, variantKey)
+    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.getConfiguredShopKeySet(), variantKey)
     if listed then return nil, variantKey, source end
     data.unlockedShopItems[variantKey] = {
         fullType = fullType,
@@ -2704,6 +2590,7 @@ function Commands.adminConfigSet(_, _, player, args)
     end
     local data = adminConfigStore()
     data.settings = GodSystemAdminConfig.sanitizeSettings(args and args.settings or {})
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
     applyAdminConfigStore()
     findAutoRecycler(playerData(player), player)
     transmitAdminConfig()
@@ -2726,6 +2613,7 @@ function Commands.adminItemOverrideSet(_, _, player, args)
     local data = adminConfigStore()
     data.itemOverrides = data.itemOverrides or {}
     data.itemOverrides[fullType] = override
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
     applyAdminConfigStore()
     transmitAdminConfig()
     finish(player, true, "Item override saved")
@@ -2743,9 +2631,84 @@ function Commands.adminItemOverrideClear(_, _, player, args)
     local data = adminConfigStore()
     data.itemOverrides = data.itemOverrides or {}
     data.itemOverrides[fullType] = nil
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
     applyAdminConfigStore()
     transmitAdminConfig()
     finish(player, true, "Item override cleared")
+end
+
+function Commands.adminShopVariantOverrideSet(_, _, player, args)
+    if not isAdminPlayer(player) then return finish(player, false, "Admin only") end
+    local variantKey = trim(args and args.variantKey or "")
+    local override = GodSystemAdminConfig.sanitizeShopVariantOverride(args and args.override or {})
+    if variantKey == "" or not override then return finish(player, false, "Valid furniture variant required") end
+    local expectedKey = GodSystemShopVariants.getKey(override.fullType, override.worldSprite)
+    if expectedKey ~= variantKey then return finish(player, false, "Furniture variant mismatch") end
+    local data = adminConfigStore()
+    data.shopVariantOverrides = data.shopVariantOverrides or {}
+    data.shopVariantOverrides[variantKey] = override
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
+    applyAdminConfigStore()
+    transmitAdminConfig()
+    finish(player, true, "Shop variant override saved")
+end
+
+function Commands.adminShopVariantOverrideClear(_, _, player, args)
+    if not isAdminPlayer(player) then return finish(player, false, "Admin only") end
+    local variantKey = trim(args and args.variantKey or "")
+    if variantKey == "" then return finish(player, false, "Furniture variant required") end
+    local data = adminConfigStore()
+    data.shopVariantOverrides = data.shopVariantOverrides or {}
+    data.shopVariantOverrides[variantKey] = nil
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
+    applyAdminConfigStore()
+    transmitAdminConfig()
+    finish(player, true, "Shop variant override cleared")
+end
+
+function Commands.adminEconomyOverrideSet(_, _, player, args)
+    if not isAdminPlayer(player) then return finish(player, false, "Admin only") end
+    local fullType = trim(args and args.fullType or "")
+    local override = GodSystemAdminConfig.sanitizeItemOverride(args and args.override or {})
+    if fullType == "" or not override then return finish(player, false, "Valid item override required") end
+    if GodSystem.isEconomicItemAllowed and GodSystem.isEconomicItemAllowed(fullType, "admin") == false then
+        return finish(player, false, "Unsafe internal item is read-only")
+    end
+    local variantKey = trim(args and args.variantKey or "")
+    local variant = nil
+    if variantKey ~= "" then
+        variant = GodSystemAdminConfig.sanitizeShopVariantOverride(args and args.variantOverride or {})
+        if not variant or variant.fullType ~= fullType or GodSystemShopVariants.getKey(fullType, variant.worldSprite) ~= variantKey then
+            return finish(player, false, "Furniture variant mismatch")
+        end
+    elseif override.shopMode == "forced" and fullType == "Moveables.Moveable" then
+        return finish(player, false, "Furniture requires a known world sprite")
+    end
+    local data = adminConfigStore()
+    data.itemOverrides = data.itemOverrides or {}
+    data.shopVariantOverrides = data.shopVariantOverrides or {}
+    data.itemOverrides[fullType] = override
+    if variant then data.shopVariantOverrides[variantKey] = variant end
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
+    applyAdminConfigStore()
+    transmitAdminConfig()
+    finish(player, true, "Item economy override saved")
+end
+
+function Commands.adminEconomyOverrideClear(_, _, player, args)
+    if not isAdminPlayer(player) then return finish(player, false, "Admin only") end
+    local fullType = trim(args and args.fullType or "")
+    local variantKey = trim(args and args.variantKey or "")
+    if fullType == "" then return finish(player, false, "Item fullType required") end
+    local data = adminConfigStore()
+    data.itemOverrides = data.itemOverrides or {}
+    data.shopVariantOverrides = data.shopVariantOverrides or {}
+    data.itemOverrides[fullType] = nil
+    if variantKey ~= "" then data.shopVariantOverrides[variantKey] = nil end
+    data.economyRevision = math.max(1, floor(data.economyRevision, 1)) + 1
+    applyAdminConfigStore()
+    transmitAdminConfig()
+    finish(player, true, "Automatic item economy restored")
 end
 
 function Commands.syncKills(_, _, player, args)
@@ -2928,20 +2891,51 @@ end
 function Commands.buyShop(_, _, player, args)
     applyAdminConfigStore()
     if GodSystemAdminConfig.isFeatureEnabled("EnableShop") == false then return finish(player, false, "Shop disabled") end
+    local txKind = "buyShop"
+    local txRoot = store()
+    local txOwner = userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+        end
+    end
     if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted, persistError = transmitStore()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return errorMessage(player, tostring(persistError))
+    end
     local ok, err = pcall(function()
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
+        end
         local data = playerData(player)
         local row, lookupReason = shopById(data, args and args.id)
         if not row then
-            if lookupReason == "hidden" then return finishCode(player, false, "ShopItemHiddenStale") end
-            return finish(player, false, "商品不存在")
+            if lookupReason == "hidden" then return complete(false, "ShopItemHiddenStale") end
+            return complete(false, "ShopItemNotFound")
         end
         local quantity = math.max(1, floor(args and args.quantity, 1))
         local price = shopUnitPrice(row) * quantity
-        if not canAfford(player, price, data) then return finish(player, false, "系统币不足") end
+        if not canAfford(player, price, data) then return complete(false, "CurrencyNotEnough") end
         local grant = {}
         for i = 1, #(row.items or {}) do
-            if not itemExists(row.items[i].fullType) then return finish(player, false, "物品不存在: " .. tostring(row.items[i].fullType)) end
+            if not itemExists(row.items[i].fullType) then return complete(false, "ShopItemNotFound", { row.items[i].fullType }) end
             grant[#grant + 1] = { fullType = row.items[i].fullType, worldSprite = row.items[i].worldSprite, count = math.max(1, floor(row.items[i].count, 1)) * quantity }
         end
         local addedAll = {}
@@ -2969,22 +2963,27 @@ function Commands.buyShop(_, _, player, args)
             if not okGive then
                 local inv = player:getInventory()
                 for j = 1, #addedAll do removeItemFromContainer(inv, addedAll[j]) end
-                return finish(player, false, "发放物品失败，不扣币")
+                return complete(false, "ItemGrantFailed")
             end
             for j = 1, #added do addedAll[#addedAll + 1] = added[j] end
         end
         if not addPoints(player, -price, data) then
             local inv = player:getInventory()
             for j = 1, #addedAll do removeItemFromContainer(inv, addedAll[j]) end
-            return finish(player, false, "系统币不足")
+            return complete(false, "CurrencyNotEnough")
         end
         data.stats.spentPoints = (data.stats.spentPoints or 0) + price
         data.stats.boughtItems = (data.stats.boughtItems or 0) + quantity
         appendHistory(data, shopHistoryEntry("BuyShop", row, { quantity, price }))
-        finish(player, true, "购买成功")
+        return complete(true, "ShopBuySuccess", { quantity, price }, { quantity = quantity, price = price })
     end)
     unguard(player)
-    if not ok then errorMessage(player, tostring(err)) end
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        local errorPersisted, errorPersistError = transmitStore()
+        if not errorPersisted then return errorMessage(player, tostring(errorPersistError)) end
+        errorMessage(player, tostring(err))
+    end
 end
 
 local function restoreRecycleSelection(player, removed)
@@ -3250,39 +3249,75 @@ end
 
 function Commands.listOnlyAutoShop(_, _, player, args)
     applyAdminConfigStore()
+    local txKind = "listOnlyAutoShop"
+    local txRoot = store()
+    local txOwner = userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+        end
+    end
     if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted, persistError = transmitStore()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return errorMessage(player, tostring(persistError))
+    end
     local ok, err = pcall(function()
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
+        end
         local data = playerData(player)
         local fullType = tostring(args and args.fullType or "")
         local itemId = tostring(args and args.itemId or "")
-        if fullType == "" or itemId == "" then return finishCode(player, false, "RecycleSelectionChanged") end
-        if not isAutoShopListOnlyAllowed(fullType) then return finish(player, false, "该物品无法上架") end
+        if fullType == "" or itemId == "" then return complete(false, "RecycleSelectionChanged") end
+        if not isAutoShopListOnlyAllowed(fullType) then return complete(false, "ListOnlyDisabled") end
         local item, container = inventoryItemById(player, itemId)
         if not item or not container or item:getFullType() ~= fullType then
-            return finishCode(player, false, "RecycleSelectionChanged")
+            return complete(false, "RecycleSelectionChanged")
         end
         local listable, reason = canContextListItem(data, item)
         if not listable then
-            if reason == "configuredListed" then return finishCode(player, true, "ShopConfiguredAlreadyListed") end
-            if reason == "hiddenListed" then return finishCode(player, true, "ShopHiddenAlreadyListed") end
-            if reason == "alreadyListed" then return finishCode(player, true, "ListOnlyAlreadyUnlocked") end
-            return finish(player, false, "该物品无法上架")
+            if reason == "configuredListed" then return complete(true, "ShopConfiguredAlreadyListed") end
+            if reason == "hiddenListed" then return complete(true, "ShopHiddenAlreadyListed") end
+            if reason == "alreadyListed" then return complete(true, "ListOnlyAlreadyUnlocked") end
+            return complete(false, "ListOnlyDisabled")
         end
         local label = item and item.getDisplayName and item:getDisplayName() or fullType
         local sellValue = itemSellPrice(fullType, item)
         local cost, buyPrice = autoShopListOnlyCost(fullType, sellValue)
         local paid, fromBank, fromCash = spendCurrency(player, data, cost)
-        if not paid then return finishCode(player, false, "ListOnlyInsufficient") end
+        if not paid then return complete(false, "ListOnlyInsufficient") end
         local unlocked = unlockAutoShopItem(data, fullType, label, sellValue, item)
         if not unlocked then
             GodSystemServer.refundCurrencySources(player, data, fromBank, fromCash)
-            return finishCode(player, false, "RecycleSelectionChanged")
+            return complete(false, "RecycleSelectionChanged")
         end
         appendHistory(data, historyEntry("shop", "ListOnlyAutoShop", { label, cost, buyPrice }))
-        finish(player, true, "上架成功 -" .. tostring(cost))
+        return complete(true, "ListOnlySuccess", { label, cost, buyPrice }, { cost = cost, buyPrice = buyPrice })
     end)
     unguard(player)
-    if not ok then errorMessage(player, tostring(err)) end
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        local errorPersisted, errorPersistError = transmitStore()
+        if not errorPersisted then return errorMessage(player, tostring(errorPersistError)) end
+        errorMessage(player, tostring(err))
+    end
 end
 
 local function recycleWaistInternal(player, args, unlockShop)
@@ -4555,6 +4590,11 @@ function Commands.setShopItemHidden(_, _, player, args)
         local data = playerData(player)
         local variantKey = tostring(args and (args.variantKey or args.fullType) or "")
         local hidden = args and args.hidden == true
+        local stored = data.unlockedShopItems and data.unlockedShopItems[variantKey] or nil
+        local fullType = stored and stored.fullType or variantKey
+        if GodSystemAdminConfig.getShopVariantMode(variantKey, fullType) == "forced" then
+            return finishCode(player, false, "ShopItemForced")
+        end
         local found, changed, item = GodSystemShopVariants.setHidden(data, variantKey, hidden)
         if not found then return finishCode(player, false, "ShopItemMissing") end
         local code = hidden and "ShopItemHidden" or "ShopItemVisible"
@@ -4618,7 +4658,11 @@ function Commands.setShopItemsHidden(_, _, player, args)
         local data = playerData(player)
         local changedKeys, skippedKeys = {}, {}
         for i = 1, #keys do
-            local found, changed = GodSystemShopVariants.setHidden(data, keys[i], targetHidden)
+            local stored = data.unlockedShopItems and data.unlockedShopItems[keys[i]] or nil
+            local fullType = stored and stored.fullType or keys[i]
+            local forced = GodSystemAdminConfig.getShopVariantMode(keys[i], fullType) == "forced"
+            local found, changed = false, false
+            if not forced then found, changed = GodSystemShopVariants.setHidden(data, keys[i], targetHidden) end
             if found and changed then changedKeys[#changedKeys + 1] = keys[i]
             else skippedKeys[#skippedKeys + 1] = keys[i] end
         end
@@ -4646,6 +4690,11 @@ function Commands.deleteShopItem(_, _, player, args)
     local ok, err = pcall(function()
         local data = playerData(player)
         local variantKey = tostring(args and args.variantKey or "")
+        local stored = data.unlockedShopItems and data.unlockedShopItems[variantKey] or nil
+        local fullType = stored and stored.fullType or variantKey
+        if GodSystemAdminConfig.getShopVariantMode(variantKey, fullType) == "forced" then
+            return finishCode(player, false, "ShopItemForced")
+        end
         local deleted, item = GodSystemShopVariants.deleteUnlocked(data, variantKey)
         if not deleted or not item then return finishCode(player, false, "ShopItemMissing") end
         local label = item.label or item.fullType or variantKey

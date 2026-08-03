@@ -60,9 +60,12 @@ if (-not $AllowRetiredRemoveUnlocked) {
     Require-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}setShopItemHidden' 'Legacy remove command must delegate to hidden state'
 }
 Reject-Text $server 'function\s+Commands\.removeUnlocked[\s\S]{0,500}unlockedShopItems\[[^\]]+\]\s*=\s*nil' 'Legacy server command must not delete a committed listing'
-Require-Text $server 'listOnlyAutoShop[\s\S]{0,1800}itemId' 'MP listing must re-resolve an exact item instance'
+# Transaction replay/operation-id handling now precedes the exact instance
+# validation, so keep this historical invariant without coupling it to the
+# old handler length.
+Require-Text $server 'function\s+Commands\.listOnlyAutoShop[\s\S]{0,5200}inventoryItemById\s*\(\s*player\s*,\s*itemId' 'MP listing must re-resolve an exact item instance'
 Require-Text $server 'shopById[\s\S]{0,1800}hidden' 'Server direct-buy lookup must reject hidden stale rows'
-Require-Text $server 'normalizeUnlocked\s*\(\s*data\s*,\s*GodSystemServer\.configuredShopKeySet' 'MP load must migrate configured and duplicate listings'
+Require-Text $server 'normalizeUnlocked\s*\(\s*data\s*,\s*GodSystemServer\.(?:getConfiguredShopKeySet\s*\(\s*\)|configuredShopKeySet)' 'MP load must migrate configured and duplicate listings'
 Require-Text $server 'getWorldSprite\s*\(\s*added\[j\]\s*\)\s*==\s*grant\[i\]\.worldSprite' 'Furniture purchase must verify the restored world sprite before charging'
 Require-Text $server 'local function lotteryCandidates[\s\S]{0,1800}data\.unlockedShopItems' 'Lottery must continue reading every player listing, including hidden rows'
 Reject-Text $server 'local function lotteryCandidates[\s\S]{0,1800}hidden\s*~?=' 'Lottery candidates must not filter hidden player listings'

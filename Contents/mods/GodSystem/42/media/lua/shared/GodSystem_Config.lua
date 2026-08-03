@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20.1.8"
+GodSystemConfig.Version = "42.20.2.1"
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "系统币"
@@ -178,8 +178,6 @@ GodSystemConfig.AutoRecyclerRecoverCosts = {
 }
 GodSystemConfig.AutoUnlockShopFromRecycle = true
 GodSystemConfig.AutoShopAllowAnyModule = true
-GodSystemConfig.AutoShopBuyMultiplier = 4
-GodSystemConfig.AutoShopMinMarkup = 12
 GodSystemConfig.AutoShopModMinBuy = 200
 GodSystemConfig.AutoShopModWeaponMinBuy = 600
 GodSystemConfig.AutoShopModAmmoMinBuy = 250
@@ -187,7 +185,6 @@ GodSystemConfig.AutoShopModClothingMinBuy = 180
 GodSystemConfig.AutoShopListOnlyCostRatio = 0.5
 GodSystemConfig.AutoShopListOnlyMinCost = 50
 GodSystemConfig.RecycleSellRatio = 0.05
-GodSystemConfig.ModItemSellRatio = 0.05
 GodSystemConfig.ShopLotteryMinCost = 30
 GodSystemConfig.ShopLotteryCostMultiplier = 1
 GodSystemConfig.LotteryAllPrice = 100
@@ -250,10 +247,9 @@ GodSystemConfig.ModCategoryBuyPrices = {
     weapon = 600,
 }
 GodSystemConfig.UnknownModItemRecycleValue = 1
-GodSystemConfig.DefaultRecycleValueCap = 5
-GodSystemConfig.LooseAmmoRecycleDivisor = 10
-GodSystemConfig.LooseShellRecycleDivisor = 5
-GodSystemConfig.SmallUnitRecycleDivisor = 10
+GodSystemConfig.EconomyConversionSafetyMargin = 0.10
+GodSystemConfig.EconomyUnknownDynamicOutputCount = 500
+GodSystemConfig.EconomyPolicyVersion = "42.20.2.1"
 GodSystemConfig.DailyRecycleSoftCap = 0
 GodSystemConfig.DiminishedRecyclePayout = 1
 GodSystemConfig.PositiveTraitCostPerPoint = 800
@@ -531,228 +527,6 @@ GodSystemConfig.ShopItems = {
         featureKey = "EnableAutoLoaderShop",
         items = { { fullType = "GodSystem.SystemAutoLoader", count = 1 } }
     },
-}
-
-GodSystemConfig.RecycleValues = {
-    -- Food and drinks
-    ["Base.TinnedBeans"] = 4,
-    ["Base.TinnedSoup"] = 4,
-    ["Base.CannedChili"] = 5,
-    ["Base.CannedCorn"] = 4,
-    ["Base.CannedCornedBeef"] = 6,
-    ["Base.CannedFruitCocktail"] = 5,
-    ["Base.CannedMushroomSoup"] = 4,
-    ["Base.CannedPeaches"] = 5,
-    ["Base.CannedPeas"] = 4,
-    ["Base.CannedPotato2"] = 4,
-    ["Base.CannedSardines"] = 5,
-    ["Base.CannedTomato2"] = 4,
-    ["Base.CannedTuna"] = 5,
-    ["Base.TunaTin"] = 5,
-    ["Base.WaterBottle"] = 4,
-    ["Base.Pop"] = 3,
-    ["Base.PopBottle"] = 5,
-    ["Base.BeerCan"] = 4,
-    ["Base.BeerBottle"] = 4,
-    ["Base.WhiskeyFull"] = 10,
-    ["Base.Wine"] = 8,
-    ["Base.Wine2"] = 8,
-    ["Base.Cereal"] = 6,
-    ["Base.Chocolate"] = 5,
-    ["Base.Chips"] = 4,
-    ["Base.PeanutButter"] = 6,
-    ["Base.BeefJerky"] = 7,
-    ["Base.GranolaBar"] = 5,
-    ["Base.Rice"] = 7,
-    ["Base.Pasta"] = 7,
-    ["Base.OatsRaw"] = 5,
-    ["Base.Flour"] = 6,
-    ["Base.Sugar"] = 5,
-    ["Base.Yeast"] = 4,
-    ["Base.Coffee2"] = 8,
-    ["Base.Teabag2"] = 6,
-    ["Base.Apple"] = 2,
-    ["Base.Banana"] = 2,
-    ["Base.Orange"] = 2,
-    ["Base.Lemon"] = 1,
-    ["Base.Watermelon"] = 4,
-
-    -- Medical
-    ["Base.Bandage"] = 4,
-    ["Base.AlcoholBandage"] = 5,
-    ["Base.RippedSheets"] = 1,
-    ["Base.AlcoholRippedSheets"] = 2,
-    ["Base.Bandaid"] = 2,
-    ["Base.AlcoholWipes"] = 5,
-    ["Base.Disinfectant"] = 14,
-    ["Base.CottonBalls"] = 3,
-    ["Base.SutureNeedle"] = 8,
-    ["Base.SutureNeedleHolder"] = 10,
-    ["Base.Tweezers"] = 6,
-    ["Base.Scalpel"] = 8,
-    ["Base.FirstAidKit"] = 18,
-    ["Base.PillsVitamins"] = 10,
-    ["Base.Pills"] = 10,
-    ["Base.PillsBeta"] = 12,
-    ["Base.PillsAntiDep"] = 12,
-    ["Base.PillsSleepingTablets"] = 10,
-    ["Base.Antibiotics"] = 28,
-    ["Base.Splint"] = 6,
-    ["Base.WildGarlic"] = 4,
-
-    -- Tools and crafting materials
-    ["Base.Hammer"] = 20,
-    ["Base.BallPeenHammer"] = 18,
-    ["Base.ClubHammer"] = 22,
-    ["Base.Saw"] = 24,
-    ["Base.GardenSaw"] = 20,
-    ["Base.Screwdriver"] = 12,
-    ["Base.NailsBox"] = 18,
-    ["Base.ScrewsBox"] = 16,
-    ["Base.Plank"] = 2,
-    ["Base.Log"] = 3,
-    ["Base.Garbagebag"] = 3,
-    ["Base.DuctTape"] = 8,
-    ["Base.Glue"] = 5,
-    ["Base.Woodglue"] = 8,
-    ["Base.Twine"] = 5,
-    ["Base.Rope"] = 8,
-    ["Base.Thread"] = 2,
-    ["Base.Needle"] = 4,
-    ["Base.Sheet"] = 3,
-    ["Base.LeatherStrips"] = 2,
-    ["Base.DenimStrips"] = 1,
-    ["Base.Wire"] = 5,
-    ["Base.ElectronicsScrap"] = 4,
-    ["Base.ScrapMetal"] = 4,
-    ["Base.SheetMetal"] = 10,
-    ["Base.SmallSheetMetal"] = 6,
-    ["Base.MetalPipe"] = 12,
-    ["Base.MetalBar"] = 10,
-    ["Base.BlowTorch"] = 30,
-    ["Base.WeldingMask"] = 20,
-    ["Base.PropaneTank"] = 35,
-    ["Base.EmptySandbag"] = 5,
-    ["Base.Tarp"] = 8,
-
-    -- Weapons
-    ["Base.Axe"] = 45,
-    ["Base.HandAxe"] = 28,
-    ["Base.WoodAxe"] = 55,
-    ["Base.PickAxe"] = 50,
-    ["Base.Sledgehammer"] = 100,
-    ["Base.Sledgehammer2"] = 100,
-    ["Base.Crowbar"] = 30,
-    ["Base.BaseballBat"] = 24,
-    ["Base.BaseballBatNails"] = 28,
-    ["Base.Nightstick"] = 35,
-    ["Base.Machete"] = 65,
-    ["Base.Katana"] = 120,
-    ["Base.HuntingKnife"] = 18,
-    ["Base.KitchenKnife"] = 7,
-    ["Base.BreadKnife"] = 6,
-    ["Base.MeatCleaver"] = 14,
-    ["Base.LeadPipe"] = 12,
-    ["Base.GardenFork"] = 35,
-    ["Base.SpearCrafted"] = 3,
-    ["Base.Shotgun"] = 70,
-    ["Base.DoubleBarrelShotgun"] = 85,
-    ["Base.Pistol"] = 70,
-    ["Base.Pistol2"] = 80,
-    ["Base.Pistol3"] = 90,
-    ["Base.Revolver_Short"] = 65,
-    ["Base.Revolver"] = 80,
-    ["Base.Revolver_Long"] = 95,
-    ["Base.VarmintRifle"] = 95,
-    ["Base.HuntingRifle"] = 120,
-    ["Base.AssaultRifle"] = 150,
-
-    -- Ammo and magazines. Loose rounds are later divided in batches.
-    ["Base.Bullets9mm"] = 1,
-    ["Base.Bullets38"] = 1,
-    ["Base.Bullets44"] = 1,
-    ["Base.Bullets45"] = 1,
-    ["Base.Bullets223"] = 1,
-    ["Base.Bullets308"] = 1,
-    ["Base.ShotgunShells"] = 1,
-    ["Base.Bullets9mmBox"] = 5,
-    ["Base.Bullets38Box"] = 4,
-    ["Base.Bullets44Box"] = 5,
-    ["Base.Bullets45Box"] = 5,
-    ["Base.Bullets223Box"] = 6,
-    ["Base.Bullets308Box"] = 6,
-    ["Base.ShotgunShellsBox"] = 6,
-    ["Base.9mmClip"] = 3,
-    ["Base.45Clip"] = 4,
-    ["Base.44Clip"] = 4,
-    ["Base.223Clip"] = 5,
-    ["Base.308Clip"] = 5,
-    ["Base.M14Clip"] = 7,
-
-    -- Small stackable units
-    ["Base.Nails"] = 1,
-    ["Base.Screws"] = 1,
-
-    -- Farming, fishing, and survival
-    ["Base.HandShovel"] = 22,
-    ["Base.Shovel"] = 24,
-    ["Base.SnowShovel"] = 18,
-    ["Base.Trowel"] = 12,
-    ["Base.WateredCan"] = 24,
-    ["Base.WateringCan"] = 24,
-    ["Base.PetrolCan"] = 28,
-    ["Base.EmptyPetrolCan"] = 10,
-    ["Base.FishingRod"] = 18,
-    ["Base.FishingNet"] = 12,
-    ["Base.FishingLine"] = 5,
-    ["Base.FishingTackle"] = 5,
-    ["farming.CarrotBagSeed"] = 6,
-    ["farming.BroccoliBagSeed"] = 6,
-    ["farming.CabbageBagSeed"] = 6,
-    ["farming.PotatoBagSeed"] = 7,
-    ["farming.RadishBagSeed"] = 5,
-    ["farming.StrewberrieBagSeed"] = 7,
-    ["farming.StrawberryBagSeed"] = 7,
-    ["farming.TomatoBagSeed"] = 7,
-
-    -- Vehicle and power items
-    ["Base.LugWrench"] = 24,
-    ["Base.Jack"] = 30,
-    ["Base.Wrench"] = 22,
-    ["Base.PipeWrench"] = 24,
-    ["Base.TirePump"] = 18,
-    ["Base.EngineParts"] = 12,
-    ["Base.CarBattery1"] = 18,
-    ["Base.CarBattery2"] = 24,
-    ["Base.CarBattery3"] = 30,
-    ["Base.OldTire1"] = 16,
-    ["Base.NormalTire1"] = 22,
-    ["Base.ModernTire1"] = 28,
-    ["Base.Generator"] = 90,
-    ["Base.ElectronicsMag4"] = 40,
-
-    -- Literature and special everyday loot
-    ["Base.Book"] = 2,
-    ["Base.Magazine"] = 2,
-    ["Base.Newspaper"] = 1,
-    ["Base.Notebook"] = 2,
-    ["Base.HottieZ"] = 8,
-    ["Base.Bag_Schoolbag"] = 8,
-    ["Base.Bag_DuffelBag"] = 12,
-    ["Base.Bag_NormalHikingBag"] = 18,
-    ["Base.Bag_BigHikingBag"] = 24,
-    ["Base.BulletproofVest"] = 28,
-    ["Base.LeatherJacket"] = 10,
-}
-
-GodSystemConfig.RecycleCategoryValues = {
-    Food = 2,
-    Weapon = 4,
-    Ammo = 1,
-    Clothing = 1,
-    Literature = 2,
-    Drainable = 3,
-    Normal = 1,
 }
 
 GodSystemConfig.TaskTemplates = {

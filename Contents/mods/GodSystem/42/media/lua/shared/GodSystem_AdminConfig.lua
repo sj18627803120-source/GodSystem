@@ -53,6 +53,8 @@ local SETTING_META = {
     { key = "LotteryPriceWeapon", group = "economy", type = "integer", default = 400, min = 1, max = 100000, labelKey = "AdminSetting_LotteryPriceWeapon", descKey = "AdminSetting_LotteryPriceWeapon_Desc" },
     { key = "AutoShopListOnlyCostRatio", group = "economy", type = "number", default = Config.AutoShopListOnlyCostRatio or 0.5, min = 0, max = 100, target = "AutoShopListOnlyCostRatio", labelKey = "AdminSetting_AutoShopListOnlyCostRatio", descKey = "AdminSetting_AutoShopListOnlyCostRatio_Desc" },
     { key = "AutoShopListOnlyMinCost", group = "economy", type = "integer", default = Config.AutoShopListOnlyMinCost or 50, min = 0, max = 100000000, target = "AutoShopListOnlyMinCost", labelKey = "AdminSetting_AutoShopListOnlyMinCost", descKey = "AdminSetting_AutoShopListOnlyMinCost_Desc" },
+    { key = "EconomyConversionSafetyMargin", group = "economy", type = "number", default = Config.EconomyConversionSafetyMargin or 0.10, min = 0, max = 10, target = "EconomyConversionSafetyMargin", labelKey = "AdminSetting_EconomySafetyMargin", descKey = "AdminSetting_EconomySafetyMargin_Desc" },
+    { key = "EconomyUnknownDynamicOutputCount", group = "economy", type = "integer", default = Config.EconomyUnknownDynamicOutputCount or 500, min = 1, max = 1000000, target = "EconomyUnknownDynamicOutputCount", labelKey = "AdminSetting_EconomyUnknownOutput", descKey = "AdminSetting_EconomyUnknownOutput_Desc" },
     { key = "BankLoanBaseCredit", group = "economy", type = "integer", default = Config.BankLoanBaseCredit or 2000, min = 0, max = 100000000, target = "BankLoanBaseCredit", labelKey = "AdminSetting_BankLoanBaseCredit", descKey = "AdminSetting_BankLoanBaseCredit_Desc" },
     { key = "BankLoanCreditSpendStep", group = "economy", type = "integer", default = Config.BankLoanCreditSpendStep or 100, min = 1, max = 1000000, target = "BankLoanCreditSpendStep", labelKey = "AdminSetting_BankLoanCreditSpendStep", descKey = "AdminSetting_BankLoanCreditSpendStep_Desc" },
     { key = "BankLoanCreditPerStep", group = "economy", type = "integer", default = Config.BankLoanCreditPerStep or 5, min = 0, max = 1000000, target = "BankLoanCreditPerStep", labelKey = "AdminSetting_BankLoanCreditPerStep", descKey = "AdminSetting_BankLoanCreditPerStep_Desc" },
@@ -232,9 +234,15 @@ function GodSystemAdminConfig.sanitizeItemOverride(input)
             result.category = category
         end
     end
-    if input.shopEnabled ~= nil then
-        result.shopEnabled = boolValue(input.shopEnabled, true)
+    local shopMode = tostring(input.shopMode or ""):lower()
+    if shopMode ~= "auto" and shopMode ~= "forced" and shopMode ~= "disabled" then
+        if input.shopEnabled == false or tostring(input.shopEnabled):lower() == "false" or tostring(input.shopEnabled) == "0" then
+            shopMode = "disabled"
+        else
+            shopMode = "auto"
+        end
     end
+    result.shopMode = shopMode
     if input.recycleEnabled ~= nil then
         result.recycleEnabled = boolValue(input.recycleEnabled, true)
     end
@@ -261,6 +269,27 @@ local function sanitizeItemOverrides(input)
         if key ~= "" and clean then
             result[key] = clean
         end
+    end
+    return result
+end
+
+function GodSystemAdminConfig.sanitizeShopVariantOverride(input)
+    if type(input) ~= "table" then return nil end
+    local fullType = sanitizeText(input.fullType, 120)
+    local worldSprite = sanitizeText(input.worldSprite, 180)
+    local shopMode = tostring(input.shopMode or "auto"):lower()
+    if shopMode ~= "auto" and shopMode ~= "forced" and shopMode ~= "disabled" then shopMode = "auto" end
+    if fullType == "" or worldSprite == "" then return nil end
+    return { fullType = fullType, worldSprite = worldSprite, shopMode = shopMode }
+end
+
+local function sanitizeShopVariantOverrides(input)
+    local result = {}
+    if type(input) ~= "table" then return result end
+    for variantKey, override in pairs(input) do
+        local key = sanitizeText(variantKey, 320)
+        local clean = GodSystemAdminConfig.sanitizeShopVariantOverride(override)
+        if key ~= "" and clean then result[key] = clean end
     end
     return result
 end
@@ -309,7 +338,7 @@ local function applyBankInvestmentSettings(settings)
     end
 end
 
-function GodSystemAdminConfig.applyRuntime(settings, itemOverrides)
+function GodSystemAdminConfig.applyRuntime(settings, itemOverrides, shopVariantOverrides, economyRevision)
     local cleanSettings = GodSystemAdminConfig.sanitizeSettings(settings)
     local staticOverrides = sanitizeItemOverrides(Config.ItemOverrides or {})
     local runtimeOverrides = sanitizeItemOverrides(itemOverrides or {})
@@ -319,6 +348,7 @@ function GodSystemAdminConfig.applyRuntime(settings, itemOverrides)
 
     Config.AdminRuntimeSettings = cleanSettings
     Config.AdminRuntimeItemOverrides = staticOverrides
+    Config.AdminRuntimeShopVariantOverrides = sanitizeShopVariantOverrides(shopVariantOverrides or Config.AdminRuntimeShopVariantOverrides or {})
 
     for i = 1, #SETTING_META do
         local meta = SETTING_META[i]
@@ -338,7 +368,14 @@ function GodSystemAdminConfig.applyRuntime(settings, itemOverrides)
     applyLotteryCategoryPrices(cleanSettings)
     applyBankInvestmentSettings(cleanSettings)
 
-    return cleanSettings, staticOverrides
+    local incomingRevision = math.max(1, math.floor(tonumber(economyRevision) or tonumber(Config.AdminRuntimeEconomyRevision) or 1))
+    local revisionChanged = incomingRevision ~= tonumber(Config.AdminRuntimeEconomyRevision)
+    Config.AdminRuntimeEconomyRevision = incomingRevision
+    if revisionChanged and GodSystemEconomyPolicy and GodSystemEconomyPolicy.invalidate then
+        GodSystemEconomyPolicy.invalidate("admin_config")
+    end
+
+    return cleanSettings, staticOverrides, Config.AdminRuntimeShopVariantOverrides
 end
 
 function GodSystemAdminConfig.getSetting(key, fallback)
@@ -408,11 +445,32 @@ function GodSystemAdminConfig.applyCategory(fullType, category)
 end
 
 function GodSystemAdminConfig.isShopItemEnabled(fullType, fallback)
-    local override = GodSystemAdminConfig.getItemOverride(fullType)
-    if override and override.shopEnabled ~= nil then
-        return override.shopEnabled == true
-    end
+    local mode = GodSystemAdminConfig.getShopMode(fullType)
+    if mode == "disabled" then return false end
     return fallback ~= false
+end
+
+function GodSystemAdminConfig.getShopMode(fullType)
+    local override = GodSystemAdminConfig.getItemOverride(fullType)
+    local mode = override and tostring(override.shopMode or "auto"):lower() or "auto"
+    if mode ~= "forced" and mode ~= "disabled" then return "auto" end
+    return mode
+end
+
+function GodSystemAdminConfig.getShopVariantOverride(variantKey)
+    if not variantKey then return nil end
+    local overrides = Config.AdminRuntimeShopVariantOverrides or {}
+    return overrides[tostring(variantKey)]
+end
+
+function GodSystemAdminConfig.getShopVariantOverrides()
+    return copyTable(Config.AdminRuntimeShopVariantOverrides or {})
+end
+
+function GodSystemAdminConfig.getShopVariantMode(variantKey, fullType)
+    local override = GodSystemAdminConfig.getShopVariantOverride(variantKey)
+    if override and override.shopMode then return override.shopMode end
+    return GodSystemAdminConfig.getShopMode(fullType)
 end
 
 function GodSystemAdminConfig.isRecycleItemEnabled(fullType, fallback)
@@ -437,8 +495,10 @@ function GodSystemAdminConfig.buildSnapshot()
     return {
         settings = settings,
         itemOverrides = overrides,
+        shopVariantOverrides = GodSystemAdminConfig.getShopVariantOverrides(),
+        economyRevision = math.max(1, math.floor(tonumber(Config.AdminRuntimeEconomyRevision) or 1)),
         meta = GodSystemAdminConfig.getMeta(),
     }
 end
 
-GodSystemAdminConfig.applyRuntime(Config.AdminRuntimeSettings or nil, Config.AdminRuntimeItemOverrides or nil)
+GodSystemAdminConfig.applyRuntime(Config.AdminRuntimeSettings or nil, Config.AdminRuntimeItemOverrides or nil, Config.AdminRuntimeShopVariantOverrides or nil, Config.AdminRuntimeEconomyRevision or 1)

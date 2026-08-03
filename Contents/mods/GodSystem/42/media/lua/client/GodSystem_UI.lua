@@ -1,6 +1,7 @@
 require "GodSystem_Config"
 require "GodSystem_Core"
 require "GodSystem_UITheme"
+require "GodSystem_ItemEconomyUI"
 require "GodSystem_CompanionConfig"
 require "GodSystem_StorageContext"
 require "GodSystem_FloatingButtonLifecycle"
@@ -3614,6 +3615,7 @@ function GodSystemWindow:populateShop()
     gsSetButtonTitle(self.sixthButton, GodSystem.text("Btn_ShopHiddenManager", "Hidden manager"))
     self.sixthButton:setVisible(true)
     local shopItems = {}
+    local seenShopKeys = {}
     local categoryMap = {}
     local categories = {}
     for i = 1, #GodSystemConfig.ShopItems do
@@ -3623,12 +3625,22 @@ function GodSystemWindow:populateShop()
             or GodSystemAdminConfig.isFeatureEnabled(item.featureKey) ~= false
         if featureEnabled and available and (not missingItems or #missingItems == 0) then
             table.insert(shopItems, item)
+            local one = item.items and item.items[1]
+            if one and #(item.items or {}) == 1 and math.max(1, math.floor(tonumber(one.count) or 1)) == 1 then
+                seenShopKeys[GodSystemShopVariants.getKey(one.fullType, one.worldSprite)] = true
+            end
         end
     end
 
     local unlocked = GodSystem.getUnlockedShopItemsList()
     for i = 1, #unlocked do
-        table.insert(shopItems, unlocked[i])
+        local key = unlocked[i].variantKey or GodSystemShopVariants.getKey(unlocked[i].fullType, unlocked[i].worldSprite)
+        if not seenShopKeys[key] then table.insert(shopItems, unlocked[i]); seenShopKeys[key] = true end
+    end
+    local forced = GodSystem.getForcedShopItemsList and GodSystem.getForcedShopItemsList() or {}
+    for i = 1, #forced do
+        local key = forced[i].variantKey or GodSystemShopVariants.getKey(forced[i].fullType, forced[i].worldSprite)
+        if not seenShopKeys[key] then table.insert(shopItems, forced[i]); seenShopKeys[key] = true end
     end
 
     for i = 1, #shopItems do
@@ -3762,12 +3774,7 @@ function GodSystemWindow:populateRecycle()
             local text = string.format("%s x%d", group.label, group.count)
             local buyRef = GodSystem.getShopBuyReference(group.fullType)
             local buyText = buyRef and (GodSystem.text("Price_Buy", "Buy ") .. tostring(buyRef.price) .. GodSystem.text("Unit_CoinShort", "c") .. "/" .. tostring(buyRef.label)) or GodSystem.text("Price_BuyNone", "Buy none")
-            local sellText = ""
-            if (group.unitDivisor or 1) > 1 then
-                sellText = string.format("%s %d%s/%d%s", GodSystem.text("Price_Sell", "Sell"), group.totalValue or 0, GodSystem.text("Unit_CoinShort", "c"), group.count or 0, GodSystem.text("Unit_ItemShort", "items"))
-            else
-                sellText = string.format("%s %d%s", GodSystem.text("Price_Sell", "Sell"), group.valueEach, GodSystem.text("Unit_CoinEach", "c each"))
-            end
+            local sellText = string.format("%s %d%s", GodSystem.text("Price_Sell", "Sell"), group.valueEach, GodSystem.text("Unit_CoinEach", "c each"))
             local detail = string.format("%s | %s", sellText, buyText)
             self:addListItem(text, { kind = "recycle", data = group, detail = detail })
         end
@@ -3889,12 +3896,7 @@ function GodSystemWindow:populateLegacyWaistSpace()
         local checked = self.waistSelected and self.waistSelected[group.fullType] == true
         local mark = checked and "[x] " or "[ ] "
         local text = string.format("%s%s x%d", mark, group.label, group.count)
-        local detail = ""
-        if (group.unitDivisor or 1) > 1 then
-            detail = string.format("%d%s / %d%s", group.totalValue or 0, GodSystem.text("Unit_CoinShort", "c"), group.count or 0, GodSystem.text("Unit_ItemShort", "items"))
-        else
-            detail = string.format("%d%s/%s", group.valueEach or 0, GodSystem.text("Unit_CoinShort", "c"), GodSystem.text("Unit_ItemShort", "item"))
-        end
+        local detail = string.format("%d%s/%s", group.valueEach or 0, GodSystem.text("Unit_CoinShort", "c"), GodSystem.text("Unit_ItemShort", "item"))
         self:addListItem(text, { kind = "waist", data = group, detail = detail })
     end
     for fullType, _ in pairs(self.waistSelected or {}) do
@@ -3933,9 +3935,7 @@ function GodSystemWindow:populateTerminalItemsSection()
         seen[group.fullType] = true
         local checked = self.waistSelected and self.waistSelected[group.fullType] == true
         local text = string.format("%s%s x%d", checked and "[x] " or "[ ] ", group.label, group.count)
-        local detail = (group.unitDivisor or 1) > 1
-            and string.format("%d%s / %d%s", group.totalValue or 0, GodSystem.text("Unit_CoinShort", "c"), group.count or 0, GodSystem.text("Unit_ItemShort", "items"))
-            or string.format("%d%s/%s", group.valueEach or 0, GodSystem.text("Unit_CoinShort", "c"), GodSystem.text("Unit_ItemShort", "item"))
+        local detail = string.format("%d%s/%s", group.valueEach or 0, GodSystem.text("Unit_CoinShort", "c"), GodSystem.text("Unit_ItemShort", "item"))
         self:addListItem(text, { kind = "waist", data = group, detail = detail })
     end
     for fullType in pairs(self.waistSelected or {}) do
@@ -4871,7 +4871,7 @@ local function gsAdminOverrideText(fullType, override)
     if override.buyPrice ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Buy", "buy") .. "=" .. tostring(override.buyPrice) end
     if override.sellPrice ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Sell", "sell") .. "=" .. tostring(override.sellPrice) end
     if override.category ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Category", "cat") .. "=" .. tostring(override.category) end
-    if override.shopEnabled ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Shop", "shop") .. "=" .. gsAdminBoolText(override.shopEnabled) end
+    if override.shopMode ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Shop", "shop") .. "=" .. tostring(override.shopMode) end
     if override.recycleEnabled ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Recycle", "recycle") .. "=" .. gsAdminBoolText(override.recycleEnabled) end
     if override.lotteryEnabled ~= nil then parts[#parts + 1] = GodSystem.text("AdminOverride_Lottery", "lottery") .. "=" .. gsAdminBoolText(override.lotteryEnabled) end
     if #parts == 0 then parts[#parts + 1] = GodSystem.text("AdminOverride_Default", "default") end
@@ -4884,12 +4884,12 @@ function gsAdminOverrideDetailText(fullType, override)
         gsAdminOverrideText(fullType, override),
         "",
         GodSystem.text("Admin_Example", "Example") .. ":",
-        "Base.Axe|buy=500,sell=25,cat=weapon,shop=1,recycle=1,lottery=1",
+        "Base.Axe|buy=500,sell=25,cat=weapon,shop=auto,recycle=1,lottery=1",
         "",
         GodSystem.text("AdminOverride_Buy", "buy") .. " buy = 500",
         GodSystem.text("AdminOverride_Sell", "sell") .. " sell = 25",
         GodSystem.text("AdminOverride_Category", "category") .. " cat = weapon",
-        GodSystem.text("AdminOverride_Shop", "shop") .. " shop = 1/0",
+        GodSystem.text("AdminOverride_Shop", "shop") .. " shop = auto/forced/disabled",
         GodSystem.text("AdminOverride_Recycle", "recycle") .. " recycle = 1/0",
         GodSystem.text("AdminOverride_Lottery", "lottery") .. " lottery = 1/0",
     }
@@ -4914,6 +4914,7 @@ function GodSystemWindow:populateAdmin()
     local snapshot = GodSystem.getAdminConfigSnapshot()
     local settings = snapshot.settings or {}
     local meta = snapshot.meta or GodSystemAdminConfig.getMeta()
+    self:addAdminListItem(GodSystem.text("EconomyAdmin_Open", "Item economy configuration"), { kind = "adminEconomy", detail = GodSystem.text("EconomyAdmin_OpenDetail", "Browse loaded items, inspect safe prices and edit economy rules.") })
     self:addAdminListItem(GodSystem.text("Admin_AddItem", "+ Item override"), { kind = "adminAddItem", detail = GodSystem.text("Admin_AddItemDetail", "Add or replace one item override.") })
     for i = 1, #meta do
         local row = meta[i]
@@ -5144,7 +5145,10 @@ function GodSystemWindow:updateDetail()
     end
     if payload.kind == "shop" then
         local item = payload.data
-        self:setDetailText(tostring(GodSystem.getShopDescription(item)) .. " " .. GodSystem.text("Detail_Content", "Content: ") .. GodSystem.getShopRewardText(item))
+        local fullType = GodSystem.getShopPrimaryFullType(item)
+        local quoteText = fullType and GodSystem.getEconomyQuoteDetail(fullType, nil, false) or ""
+        self:setDetailText(tostring(GodSystem.getShopDescription(item)) .. " " .. GodSystem.text("Detail_Content", "Content: ") .. GodSystem.getShopRewardText(item)
+            .. (quoteText ~= "" and ("\n\n" .. quoteText) or ""))
     elseif payload.kind == "lotteryCandidate" then
         local item = payload.data or {}
         self:setDetailText(tostring(item.label or item.fullType) .. "\n" ..
@@ -5160,22 +5164,13 @@ function GodSystemWindow:updateDetail()
         local group = payload.data
         local buyRef = GodSystem.getShopBuyReference(group.fullType)
         local buyText = buyRef and (GodSystem.text("Detail_BuyRef", "Buy ref: ") .. tostring(buyRef.label) .. " " .. tostring(buyRef.price) .. GodSystem.text("Unit_CoinShort", "c")) or GodSystem.text("Detail_BuyRefNone", "Buy ref: none")
-        local priceText = ""
-        if (group.unitDivisor or 1) > 1 then
-            priceText = GodSystem.text("Price_BatchValue", "Batch value ") .. tostring(group.totalValue or 0) .. GodSystem.text("Unit_CoinShort", "c") .. "/" .. tostring(group.count or 0) .. GodSystem.text("Unit_ItemShort", " items") .. " (" .. tostring(group.unitDivisor) .. GodSystem.text("Unit_ItemToCoin", " items = 1c") .. ")"
-        else
-            priceText = GodSystem.text("Price_Sell", "Sell") .. " " .. tostring(group.valueEach) .. GodSystem.text("Unit_CoinEach", "c each")
-        end
-        self:setDetailText(GodSystem.text("Detail_Sell", "Sell: ") .. group.label .. " | " .. priceText .. ", " .. GodSystem.text("Detail_Count", "count ") .. tostring(group.count) .. " | " .. buyText)
+        local priceText = GodSystem.text("Price_Sell", "Sell") .. " " .. tostring(group.valueEach) .. GodSystem.text("Unit_CoinEach", "c each")
+        local quoteText = GodSystem.getEconomyQuoteDetail(group.fullType, group.items and group.items[1] or nil, false)
+        self:setDetailText(GodSystem.text("Detail_Sell", "Sell: ") .. group.label .. " | " .. priceText .. ", " .. GodSystem.text("Detail_Count", "count ") .. tostring(group.count) .. " | " .. buyText .. "\n\n" .. quoteText)
     elseif payload.kind == "waist" then
         local group = payload.data
         local selected = self.waistSelected and self.waistSelected[group.fullType] == true
-        local priceText = ""
-        if (group.unitDivisor or 1) > 1 then
-            priceText = GodSystem.text("Price_BatchValue", "Batch value ") .. tostring(group.totalValue or 0) .. GodSystem.text("Unit_CoinShort", "c") .. "/" .. tostring(group.count or 0) .. GodSystem.text("Unit_ItemShort", " items") .. " (" .. tostring(group.unitDivisor) .. GodSystem.text("Unit_ItemToCoin", " items = 1c") .. ")"
-        else
-            priceText = GodSystem.text("Price_Sell", "Sell") .. " " .. tostring(group.valueEach) .. GodSystem.text("Unit_CoinEach", "c each")
-        end
+        local priceText = GodSystem.text("Price_Sell", "Sell") .. " " .. tostring(group.valueEach) .. GodSystem.text("Unit_CoinEach", "c each")
         local selectedText = selected and GodSystem.text("Waist_Selected", "Selected") or GodSystem.text("Waist_Unselected", "Not selected")
         self:setDetailText(selectedText .. " | " .. GodSystem.text("Detail_Sell", "Sell: ") .. group.label .. " | " .. priceText .. ", " .. GodSystem.text("Detail_Count", "count ") .. tostring(group.count))
     elseif payload.kind == "attribute" then
@@ -5295,7 +5290,7 @@ function GodSystemWindow:updateDetail()
         end
         self:setDetailText(table.concat(lines, "\n"))
     elseif payload.kind == "adminAddItem" then
-        self:setDetailText(GodSystem.text("Admin_FormatHint", "Format: Base.Axe|buy=500,sell=25,cat=weapon,shop=1,recycle=1,lottery=1"))
+        self:setDetailText(GodSystem.text("Admin_FormatHint", "Format: Base.Axe|buy=500,sell=25,cat=weapon,shop=auto,recycle=1,lottery=1"))
     elseif payload.kind == "adminItemOverride" then
         self:setDetailText(gsAdminOverrideDetailText(payload.fullType, payload.data))
     elseif payload.kind == "empty" then
@@ -5728,8 +5723,11 @@ local function gsParseAdminOverrideText(text)
                 override.sellPrice = tonumber(value)
             elseif key == "cat" or key == "category" then
                 override.category = value
-            elseif key == "shop" then
-                override.shopEnabled = gsParseAdminBool(value)
+            elseif key == "shop" or key == "shopmode" then
+                local mode = tostring(value or ""):lower()
+                if mode == "1" or mode == "true" then mode = "auto" end
+                if mode == "0" or mode == "false" then mode = "disabled" end
+                override.shopMode = mode
             elseif key == "recycle" then
                 override.recycleEnabled = gsParseAdminBool(value)
             elseif key == "lottery" then
@@ -5747,14 +5745,14 @@ function GodSystemWindow:showAdminItemDialog(payload)
     local w, h = 620, 160
     local x = math.max(80, (getCore():getScreenWidth() / 2) - (w / 2))
     local y = math.max(80, (getCore():getScreenHeight() / 2) - (h / 2))
-    local value = "Base.Axe|buy=500,sell=25,cat=weapon,shop=1,recycle=1,lottery=1"
+    local value = "Base.Axe|buy=500,sell=25,cat=weapon,shop=auto,recycle=1,lottery=1"
     if payload.kind == "adminItemOverride" then
         local override = payload.data or {}
         local parts = {}
         if override.buyPrice ~= nil then parts[#parts + 1] = "buy=" .. tostring(override.buyPrice) end
         if override.sellPrice ~= nil then parts[#parts + 1] = "sell=" .. tostring(override.sellPrice) end
         if override.category ~= nil then parts[#parts + 1] = "cat=" .. tostring(override.category) end
-        if override.shopEnabled ~= nil then parts[#parts + 1] = "shop=" .. (override.shopEnabled and "1" or "0") end
+        if override.shopMode ~= nil then parts[#parts + 1] = "shop=" .. tostring(override.shopMode) end
         if override.recycleEnabled ~= nil then parts[#parts + 1] = "recycle=" .. (override.recycleEnabled and "1" or "0") end
         if override.lotteryEnabled ~= nil then parts[#parts + 1] = "lottery=" .. (override.lotteryEnabled and "1" or "0") end
         value = tostring(payload.fullType or "") .. "|" .. table.concat(parts, ",")
@@ -5762,7 +5760,7 @@ function GodSystemWindow:showAdminItemDialog(payload)
     local dialog = GodSystemAdminTextDialog:new(x, y, w, h, self, {
         kind = "item",
         title = GodSystem.text("Admin_ItemDialogTitle", "GodSystem Item Override"),
-        message = GodSystem.text("Admin_FormatHint", "fullType|buy=500,sell=25,cat=weapon,shop=1,recycle=1,lottery=1"),
+        message = GodSystem.text("Admin_FormatHint", "fullType|buy=500,sell=25,cat=weapon,shop=auto,recycle=1,lottery=1"),
         value = value,
     })
     dialog:initialise()
@@ -5872,7 +5870,9 @@ function GodSystemWindow:onPrimaryAction()
             GodSystem.notify(GodSystem.text("Admin_SelectItemOrSetting", "Select a setting or item override"))
             return
         end
-        if payload.kind == "adminSetting" then
+        if payload.kind == "adminEconomy" then
+            GodSystemItemEconomyUI.open(self)
+        elseif payload.kind == "adminSetting" then
             self:showAdminSettingDialog(payload)
         elseif payload.kind == "adminAddItem" or payload.kind == "adminItemOverride" then
             self:showAdminItemDialog(payload)
@@ -6536,6 +6536,7 @@ function GodSystemWindow:close()
         GodSystemPanelKey.cancelCapture("windowClosed")
     end
     if GodSystemUI.shopHiddenWindow then GodSystemUI.shopHiddenWindow:close() end
+    if GodSystemItemEconomyUI and GodSystemItemEconomyUI.window then GodSystemItemEconomyUI.window:close() end
     local data = GodSystem.getData()
     data.ui.windowX = math.floor(self.x or 0)
     data.ui.windowY = math.floor(self.y or 0)

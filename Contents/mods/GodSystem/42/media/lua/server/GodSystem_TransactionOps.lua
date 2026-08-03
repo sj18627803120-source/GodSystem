@@ -39,6 +39,20 @@ function GodSystemTransactionOps.fingerprint(kind, args)
     if kind == "terminalFreshnessService" then
         return "freshnessService|d:" .. tostring(math.max(0, math.floor(tonumber(args.days) or 0)))
     end
+    if kind == "buyShop" then
+        return table.concat({
+            "buyShop",
+            tostring(args.id or ""),
+            "q:" .. tostring(math.max(1, math.floor(tonumber(args.quantity) or 1))),
+        }, "|")
+    end
+    if kind == "listOnlyAutoShop" then
+        return table.concat({
+            "listOnly",
+            tostring(args.fullType or ""),
+            tostring(args.itemId or ""),
+        }, "|")
+    end
     if kind == "recycleSelectedItems" then
         local parts = {
             "recycle",

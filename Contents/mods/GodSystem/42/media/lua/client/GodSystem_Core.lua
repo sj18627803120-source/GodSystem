@@ -4,6 +4,7 @@ require "GodSystem_ItemEligibility"
 require "GodSystem_Localization"
 require "GodSystem_Localization_Override"
 require "GodSystem_AdminConfig"
+require "GodSystem_EconomyPolicy"
 require "GodSystem_CompanionConfig"
 require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
@@ -441,8 +442,10 @@ function GodSystem.getData()
         data.adminConfig.settings = GodSystemAdminConfig.sanitizeSettings(data.adminConfig.settings)
     end
     data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
+    data.adminConfig.shopVariantOverrides = data.adminConfig.shopVariantOverrides or {}
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1))
     if not (isClient and isClient()) then
-        GodSystemAdminConfig.applyRuntime(data.adminConfig.settings, data.adminConfig.itemOverrides)
+        GodSystemAdminConfig.applyRuntime(data.adminConfig.settings, data.adminConfig.itemOverrides, data.adminConfig.shopVariantOverrides, data.adminConfig.economyRevision)
     end
 
     if previousVersion and previousVersion ~= GodSystemConfig.Version then
@@ -462,10 +465,12 @@ function GodSystem.applyAdminConfigSnapshot(snapshot)
     if type(snapshot) ~= "table" then
         return false
     end
-    local settings, itemOverrides = GodSystemAdminConfig.applyRuntime(snapshot.settings or {}, snapshot.itemOverrides or {})
+    local settings, itemOverrides, shopVariantOverrides = GodSystemAdminConfig.applyRuntime(snapshot.settings or {}, snapshot.itemOverrides or {}, snapshot.shopVariantOverrides or {}, snapshot.economyRevision)
     GodSystem.adminConfigSnapshot = {
         settings = settings,
         itemOverrides = itemOverrides,
+        shopVariantOverrides = shopVariantOverrides,
+        economyRevision = math.max(1, math.floor(tonumber(snapshot.economyRevision) or 1)),
         meta = snapshot.meta or GodSystemAdminConfig.getMeta(),
     }
     return true
@@ -479,9 +484,13 @@ function GodSystem.getAdminConfigSnapshot()
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.settings = GodSystemAdminConfig.sanitizeSettings(data.adminConfig.settings or {})
     data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
+    data.adminConfig.shopVariantOverrides = data.adminConfig.shopVariantOverrides or {}
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1))
     local snapshot = {
         settings = data.adminConfig.settings,
         itemOverrides = data.adminConfig.itemOverrides,
+        shopVariantOverrides = data.adminConfig.shopVariantOverrides,
+        economyRevision = data.adminConfig.economyRevision,
         meta = GodSystemAdminConfig.getMeta(),
     }
     GodSystem.applyAdminConfigSnapshot(snapshot)
@@ -507,6 +516,7 @@ function GodSystem.saveAdminSettings(settings)
     local data = GodSystem.getData()
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.settings = settings
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
     GodSystem.applyAdminConfigSnapshot(data.adminConfig)
     if GodSystem.refreshAutoRecyclerContainers then
         GodSystem.refreshAutoRecyclerContainers(true)
@@ -527,6 +537,7 @@ function GodSystem.saveItemOverride(fullType, override)
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
     data.adminConfig.itemOverrides[fullType] = clean
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
     GodSystem.applyAdminConfigSnapshot(data.adminConfig)
     GodSystem.save()
     return true
@@ -542,6 +553,91 @@ function GodSystem.clearItemOverride(fullType)
     data.adminConfig = data.adminConfig or {}
     data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
     data.adminConfig.itemOverrides[fullType] = nil
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
+    GodSystem.applyAdminConfigSnapshot(data.adminConfig)
+    GodSystem.save()
+    return true
+end
+
+function GodSystem.saveShopVariantOverride(variantKey, override)
+    variantKey = tostring(variantKey or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local clean = GodSystemAdminConfig.sanitizeShopVariantOverride(override or {})
+    if variantKey == "" or not clean then return false end
+    if isClient and isClient() then
+        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminShopVariantOverrideSet", { variantKey = variantKey, override = clean })
+    end
+    local data = GodSystem.getData()
+    data.adminConfig = data.adminConfig or {}
+    data.adminConfig.shopVariantOverrides = data.adminConfig.shopVariantOverrides or {}
+    data.adminConfig.shopVariantOverrides[variantKey] = clean
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
+    GodSystem.applyAdminConfigSnapshot(data.adminConfig)
+    GodSystem.save()
+    return true
+end
+
+function GodSystem.clearShopVariantOverride(variantKey)
+    variantKey = tostring(variantKey or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if variantKey == "" then return false end
+    if isClient and isClient() then
+        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminShopVariantOverrideClear", { variantKey = variantKey })
+    end
+    local data = GodSystem.getData()
+    data.adminConfig = data.adminConfig or {}
+    data.adminConfig.shopVariantOverrides = data.adminConfig.shopVariantOverrides or {}
+    data.adminConfig.shopVariantOverrides[variantKey] = nil
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
+    GodSystem.applyAdminConfigSnapshot(data.adminConfig)
+    GodSystem.save()
+    return true
+end
+
+function GodSystem.saveEconomyOverride(fullType, override, variantKey, worldSprite, shopMode)
+    fullType = tostring(fullType or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local clean = GodSystemAdminConfig.sanitizeItemOverride(override or {})
+    if fullType == "" or not clean then return false end
+    local variant = nil
+    if variantKey and worldSprite then
+        variant = GodSystemAdminConfig.sanitizeShopVariantOverride({
+            fullType = fullType,
+            worldSprite = worldSprite,
+            shopMode = shopMode,
+        })
+        if not variant then return false end
+    end
+    if isClient and isClient() then
+        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminEconomyOverrideSet", {
+            fullType = fullType,
+            override = clean,
+            variantKey = variantKey,
+            variantOverride = variant,
+        })
+    end
+    local data = GodSystem.getData()
+    data.adminConfig = data.adminConfig or {}
+    data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
+    data.adminConfig.shopVariantOverrides = data.adminConfig.shopVariantOverrides or {}
+    data.adminConfig.itemOverrides[fullType] = clean
+    if variant and variantKey then data.adminConfig.shopVariantOverrides[variantKey] = variant end
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
+    GodSystem.applyAdminConfigSnapshot(data.adminConfig)
+    GodSystem.save()
+    return true
+end
+
+function GodSystem.clearEconomyOverride(fullType, variantKey)
+    fullType = tostring(fullType or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if fullType == "" then return false end
+    if isClient and isClient() then
+        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("adminEconomyOverrideClear", { fullType = fullType, variantKey = variantKey })
+    end
+    local data = GodSystem.getData()
+    data.adminConfig = data.adminConfig or {}
+    data.adminConfig.itemOverrides = data.adminConfig.itemOverrides or {}
+    data.adminConfig.shopVariantOverrides = data.adminConfig.shopVariantOverrides or {}
+    data.adminConfig.itemOverrides[fullType] = nil
+    if variantKey then data.adminConfig.shopVariantOverrides[variantKey] = nil end
+    data.adminConfig.economyRevision = math.max(1, math.floor(tonumber(data.adminConfig.economyRevision) or 1)) + 1
     GodSystem.applyAdminConfigSnapshot(data.adminConfig)
     GodSystem.save()
     return true
@@ -2442,7 +2538,9 @@ function GodSystem.shopItemIsAvailable(shopItem)
     local availableItems = {}
     local missingItems = {}
     for i = 1, #items do
-        if not GodSystem.itemExists(items[i].fullType) then
+        if GodSystemAdminConfig.isShopItemEnabled(items[i].fullType, true) == false then
+            return false, GodSystem.text("Error_ShopItemDisabled", "Shop item disabled"), {}, {}
+        elseif not GodSystem.itemExists(items[i].fullType) then
             table.insert(missingItems, tostring(items[i].fullType))
         else
             table.insert(availableItems, { fullType = items[i].fullType, worldSprite = items[i].worldSprite, count = items[i].count or 1 })
@@ -4088,13 +4186,6 @@ function GodSystem.getConfiguredShopPriceForFullType(fullType)
     return best
 end
 
-function GodSystem.getAutoShopBuyPrice(sellValue)
-    sellValue = math.max(1, math.floor(tonumber(sellValue) or 1))
-    local multiplied = sellValue * (GodSystemConfig.AutoShopBuyMultiplier or 3)
-    local marked = sellValue + (GodSystemConfig.AutoShopMinMarkup or 10)
-    return math.max(multiplied, marked)
-end
-
 function GodSystem.getScriptItemCategory(fullType)
     local scriptItem = getScriptManager and getScriptManager() and getScriptManager():FindItem(fullType) or nil
     if not scriptItem then
@@ -4257,70 +4348,17 @@ function GodSystem.getShopCategoryLabel(categoryKey)
 end
 
 function GodSystem.getPricingCategoryKey(fullType, item)
-    if fullType and GodSystemConfig.VanillaItemPriceCategories and GodSystemConfig.VanillaItemPriceCategories[fullType] then
-        return GodSystemAdminConfig.applyCategory(fullType, GodSystemConfig.VanillaItemPriceCategories[fullType])
-    end
-    local raw = fullType and GodSystem.getScriptItemDisplayCategory(fullType) or ""
-    if raw == "" and item and item.getCategory then
-        local ok, value = pcall(function() return item:getCategory() end)
-        if ok and value then
-            raw = tostring(value)
-        end
-    end
-    local key = select(1, gsShopCategoryFromRaw(raw))
-    key = tostring(key or "normal"):lower():gsub("[^a-z0-9_]+", "_")
-    if key == "" or key == "unlocked" then
-        key = "normal"
-    end
-    return GodSystemAdminConfig.applyCategory(fullType, key)
-end
-
-function GodSystem.getCategoryFallbackBuyPrice(categoryKey, fullType)
-    local prices = GodSystemConfig.ModCategoryBuyPrices or {}
-    local key = tostring(categoryKey or "normal")
-    local price = prices[key] or prices.normal or 120
-    local moduleName = gsGetModuleName(fullType)
-    if moduleName and not (GodSystemConfig.RecycleDefaultAllowedModules or {})[moduleName] then
-        if key == "weapon" then
-            price = math.max(price, GodSystemConfig.AutoShopModWeaponMinBuy or price)
-        elseif key == "ammo" then
-            price = math.max(price, GodSystemConfig.AutoShopModAmmoMinBuy or price)
-        elseif key == "clothing" then
-            price = math.max(price, GodSystemConfig.AutoShopModClothingMinBuy or price)
-        else
-            price = math.max(price, GodSystemConfig.AutoShopModMinBuy or price)
-        end
-    end
-    return math.max(1, math.floor(tonumber(price) or 1))
+    return GodSystemEconomyPolicy.quote(fullType, item, { kind = "category" }).category
 end
 
 function GodSystem.getItemPriceInfo(fullType, item)
-    if not fullType then
-        return { buyPrice = 0, sellPrice = 0, category = "normal", source = "missing" }
-    end
-    local categoryKey = GodSystem.getPricingCategoryKey(fullType, item)
-    local buyPrice = nil
-    local source = "fallback"
-    if GodSystemConfig.VanillaItemBuyPrices and GodSystemConfig.VanillaItemBuyPrices[fullType] then
-        buyPrice = GodSystemConfig.VanillaItemBuyPrices[fullType]
-        source = "vanilla"
-    else
-        buyPrice = GodSystem.getCategoryFallbackBuyPrice(categoryKey, fullType)
-    end
-    buyPrice = math.max(1, math.floor(tonumber(buyPrice) or 1))
-    local baseBuyPrice = buyPrice
-    local moduleName = gsGetModuleName(fullType)
-    local ratio = GodSystemConfig.RecycleSellRatio or 0.05
-    if moduleName and not (GodSystemConfig.RecycleDefaultAllowedModules or {})[moduleName] then
-        ratio = GodSystemConfig.ModItemSellRatio or ratio
-    end
-    buyPrice = GodSystemAdminConfig.applyShopBuyPrice(fullType, baseBuyPrice)
-    local sellPrice = GodSystemAdminConfig.applySellPrice(fullType, math.max(1, math.floor(baseBuyPrice * ratio)))
+    local quote = GodSystemEconomyPolicy.quote(fullType, item, { kind = "economy" })
     return {
-        buyPrice = buyPrice,
-        sellPrice = sellPrice,
-        category = categoryKey,
-        source = source,
+        buyPrice = quote.finalBuy,
+        sellPrice = quote.recycleValue,
+        category = quote.category,
+        source = quote.priceSource,
+        quote = quote,
     }
 end
 
@@ -4355,123 +4393,62 @@ function GodSystem.getShopItemUnitPrice(shopItem)
 end
 
 function GodSystem.getAutoShopBuyPriceForItem(fullType, sellValue)
-    if fullType then
-        local info = GodSystem.getItemPriceInfo(fullType)
-        if info and (info.buyPrice or 0) > 0 then
-            return info.buyPrice
-        end
-    end
-    local price = GodSystem.getAutoShopBuyPrice(sellValue)
-    local moduleName = gsGetModuleName(fullType)
-    if moduleName and not (GodSystemConfig.RecycleDefaultAllowedModules or {})[moduleName] then
-        local minPrice = GodSystemConfig.AutoShopModMinBuy or 200
-        local category = GodSystem.getScriptItemCategory(fullType)
-        if category == "Weapon" or string.find(category, "Weapon", 1, true) then
-            minPrice = GodSystemConfig.AutoShopModWeaponMinBuy or minPrice
-        elseif category == "Ammo" or string.find(category, "Ammo", 1, true) then
-            minPrice = GodSystemConfig.AutoShopModAmmoMinBuy or minPrice
-        elseif category == "Clothing" or string.find(category, "Clothing", 1, true) then
-            minPrice = GodSystemConfig.AutoShopModClothingMinBuy or minPrice
-        end
-        price = math.max(price, minPrice)
-    end
-    local configuredPrice = GodSystem.getConfiguredShopPriceForFullType(fullType)
-    if configuredPrice then
-        price = math.max(price, configuredPrice)
-    end
-    return GodSystemAdminConfig.applyShopBuyPrice(fullType, price)
+    return GodSystemEconomyPolicy.quote(fullType, nil, { kind = "shop" }).finalBuy
 end
 
 function GodSystem.getAutoShopListOnlyCost(fullType, sellValue)
-    local baseSell = math.max(1, math.floor(tonumber(sellValue) or 1))
-    local buyPrice = math.max(1, math.floor(tonumber(GodSystem.getAutoShopBuyPriceForItem(fullType, baseSell)) or 1))
-    local ratio = tonumber(GodSystemConfig.AutoShopListOnlyCostRatio) or 0.5
-    local minCost = math.max(0, math.floor(tonumber(GodSystemConfig.AutoShopListOnlyMinCost) or 50))
-    local cost = math.ceil(buyPrice * math.max(0, ratio))
-    return math.max(minCost, cost), buyPrice
+    return GodSystemEconomyPolicy.listingCost(fullType, nil)
 end
 
-function GodSystem.isLooseAmmoRecycleItem(fullType, item)
-    if not fullType then
-        return false
-    end
-    local text = tostring(fullType)
-    if string.find(text, "Box", 1, true)
-        or string.find(text, "Carton", 1, true)
-        or string.find(text, "Clip", 1, true)
-        or string.find(text, "Magazine", 1, true)
-        or string.find(text, "AmmoBox", 1, true)
-        or string.find(text, "Strap", 1, true)
-        or string.find(text, "Case", 1, true)
-        or string.find(text, "Bag_", 1, true) then
-        return false
-    end
-    local lowerText = string.lower(text)
-    local looksLikeLooseAmmoName = string.find(lowerText, "bullet", 1, true)
-        or string.find(lowerText, "shell", 1, true)
-        or string.find(lowerText, "ammo", 1, true)
-        or string.find(lowerText, "round", 1, true)
-        or string.find(lowerText, "cartridge", 1, true)
-        or string.find(lowerText, "caliber", 1, true)
-        or string.find(lowerText, "9mm", 1, true)
-        or string.find(lowerText, "308", 1, true)
-        or string.find(lowerText, "556", 1, true)
-        or string.find(lowerText, "3030", 1, true)
-    if not looksLikeLooseAmmoName then
-        return false
-    end
-    local category = item and item.getCategory and item:getCategory() or nil
-    if category == "Ammo" then
-        return true
-    end
-    local configuredCategory = GodSystemConfig.VanillaItemPriceCategories and GodSystemConfig.VanillaItemPriceCategories[fullType] or nil
-    if configuredCategory == "ammo" then
-        return true
-    end
-    if GodSystem.getPricingCategoryKey and GodSystem.getPricingCategoryKey(fullType, item) == "ammo" then
-        return true
-    end
-    if string.find(text, "Bullets", 1, true) or string.find(text, "ShotgunShells", 1, true) then
-        return true
-    end
-    return false
+function GodSystem.getEconomyQuote(fullType, item, context)
+    return GodSystemEconomyPolicy.quote(fullType, item, context or { kind = "display" })
 end
 
-function GodSystem.getRecycleUnitDivisor(fullType, item)
-    if not fullType then
-        return 1
+function GodSystem.getEconomyQuoteDetail(fullType, item, adminDetail)
+    local quote = GodSystem.getEconomyQuote(fullType, item, { kind = "display" })
+    local statusLabels = {
+        verified = GodSystem.text("EconomyValue_Verified", "Verified"),
+        unverified = GodSystem.text("EconomyValue_Unverified", "Unverified"),
+        not_applicable = GodSystem.text("EconomyValue_NotApplicable", "No conversion"),
+        invalid = GodSystem.text("EconomyValue_Excluded", "Excluded"),
+    }
+    local sourceLabels = {
+        price_table = GodSystem.text("EconomySource_PriceTable", "Reference price table"),
+        category_fallback = GodSystem.text("EconomySource_Category", "Category fallback"),
+        unknown_mod = GodSystem.text("EconomySource_UnknownMod", "Unknown Mod fallback"),
+    }
+    local lines = {
+        GodSystem.text("EconomyDetail_Buy", "Shop price") .. ": " .. tostring(quote.finalBuy or 0),
+        GodSystem.text("EconomyDetail_Recycle", "Recycle value") .. ": " .. tostring(quote.recycleValue or 0),
+    }
+    if (quote.conversionValue or 0) > 0 then
+        lines[#lines + 1] = GodSystem.text("EconomyDetail_Conversion", "Unpack recycle total") .. ": " .. tostring(quote.conversionValue)
+            .. " | " .. GodSystem.text("EconomyDetail_SafeMinimum", "safe minimum") .. ": " .. tostring(quote.safeMinimum or 0)
+    elseif quote.verificationStatus == "unverified" then
+        lines[#lines + 1] = GodSystem.text("EconomyDetail_Unverified", "Dynamic output is not verifiable; a conservative shop floor is applied.")
     end
-    if GodSystem.isLooseAmmoRecycleItem(fullType, item) then
-        return 1
+    if adminDetail == true then
+        lines[#lines + 1] = "fullType: " .. tostring(fullType or "")
+        lines[#lines + 1] = GodSystem.text("EconomyDetail_Reference", "Reference") .. ": " .. tostring(quote.referenceBuy or 0)
+            .. " | " .. GodSystem.text("EconomyDetail_Category", "Category") .. ": " .. tostring(GodSystem.getShopCategoryLabel(quote.category or "normal"))
+            .. " | " .. GodSystem.text("EconomyDetail_Source", "Source") .. ": " .. tostring(sourceLabels[quote.priceSource] or quote.priceSource or "")
+        lines[#lines + 1] = GodSystem.text("EconomyDetail_Status", "Verification") .. ": " .. tostring(statusLabels[quote.verificationStatus] or quote.verificationStatus or "")
     end
-    local text = tostring(fullType)
-    if string.find(text, "ShotgunShells", 1, true) and not string.find(text, "Box", 1, true) then
-        return GodSystemConfig.LooseShellRecycleDivisor or 5
+    for i = 1, #(quote.warnings or {}) do
+        if quote.warnings[i] == "admin_below_safe_minimum" then
+            lines[#lines + 1] = GodSystem.text("EconomyWarning_Arbitrage", "Warning: administrator price is below the safe minimum and may allow repeated profit.")
+        elseif adminDetail == true then
+            local warningKey = "EconomyWarning_" .. tostring(quote.warnings[i]):gsub("[^A-Za-z0-9]+", "_")
+            lines[#lines + 1] = GodSystem.text("EconomyDetail_Warning", "Warning") .. ": " .. GodSystem.text(warningKey, tostring(quote.warnings[i]))
+        end
     end
-    if string.find(text, "Bullets", 1, true) and not string.find(text, "Box", 1, true) then
-        return GodSystemConfig.LooseAmmoRecycleDivisor or 10
-    end
-    if string.find(text, "Nails", 1, true) and not string.find(text, "Box", 1, true) then
-        return GodSystemConfig.SmallUnitRecycleDivisor or 10
-    end
-    if string.find(text, "Screws", 1, true) and not string.find(text, "Box", 1, true) then
-        return GodSystemConfig.SmallUnitRecycleDivisor or 10
-    end
-    local category = item and item.getCategory and item:getCategory() or nil
-    if category == "Ammo" then
-        return GodSystemConfig.LooseAmmoRecycleDivisor or 10
-    end
-    return 1
+    return table.concat(lines, "\n"), quote
 end
 
 function GodSystem.calculateRecyclePayout(fullType, rawValue, removedCount)
     rawValue = math.floor(tonumber(rawValue) or 0)
     if rawValue <= 0 then
         return 0
-    end
-    local divisor = GodSystem.getRecycleUnitDivisor(fullType)
-    if divisor > 1 then
-        return math.floor(rawValue / divisor)
     end
     return rawValue
 end
@@ -4598,7 +4575,53 @@ function GodSystem.isAutoShopUnlockAllowed(fullType)
 end
 
 function GodSystem.getConfiguredShopKeySet()
-    return GodSystem.configuredShopKeySet or {}
+    local result = {}
+    for key, value in pairs(GodSystem.configuredShopKeySet or {}) do result[key] = value end
+    for fullType, override in pairs(GodSystemAdminConfig.getItemOverrides() or {}) do
+        if override.shopMode == "forced" and fullType ~= "Moveables.Moveable" then
+            result[GodSystemShopVariants.getKey(fullType)] = true
+        end
+    end
+    for variantKey, override in pairs(GodSystemAdminConfig.getShopVariantOverrides() or {}) do
+        if override.shopMode == "forced" then result[variantKey] = true end
+    end
+    return result
+end
+
+function GodSystem.getForcedShopItemsList()
+    local result = {}
+    for fullType, override in pairs(GodSystemAdminConfig.getItemOverrides() or {}) do
+        if override.shopMode == "forced" and GodSystem.itemExists(fullType)
+            and fullType ~= "Moveables.Moveable"
+            and GodSystem.isEconomicItemAllowed(fullType, "shop") then
+            result[#result + 1] = {
+                id = "admin:" .. fullType,
+                fullType = fullType,
+                variantKey = fullType,
+                label = GodSystem.getItemDisplayName(fullType),
+                group = "admin",
+                items = { { fullType = fullType, count = 1 } },
+                adminForced = true,
+            }
+        end
+    end
+    for variantKey, override in pairs(GodSystemAdminConfig.getShopVariantOverrides() or {}) do
+        if override.shopMode == "forced" and GodSystem.itemExists(override.fullType)
+            and GodSystem.isEconomicItemAllowed(override.fullType, "shop") then
+            result[#result + 1] = {
+                id = "admin:" .. variantKey,
+                fullType = override.fullType,
+                worldSprite = override.worldSprite,
+                variantKey = variantKey,
+                label = GodSystem.getItemDisplayName(override.fullType),
+                group = "admin",
+                items = { { fullType = override.fullType, worldSprite = override.worldSprite, count = 1 } },
+                adminForced = true,
+            }
+        end
+    end
+    table.sort(result, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    return result
 end
 
 function GodSystem.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
@@ -4711,7 +4734,8 @@ function GodSystem.getUnlockedShopItemsList(includeHidden)
         local item = rows[i]
         local variantKey = item.variantKey or GodSystemShopVariants.getKey(item.fullType, item.worldSprite)
         local fullType = item.fullType or variantKey
-        if GodSystem.itemExists(fullType) then
+        local mode = GodSystemAdminConfig.getShopVariantMode(variantKey, fullType)
+        if mode ~= "disabled" and mode ~= "forced" and GodSystem.itemExists(fullType) then
             table.insert(result, {
                 id = "unlocked_" .. variantKey,
                 fullType = fullType,
@@ -4742,6 +4766,8 @@ function GodSystem.setShopItemHidden(variantKey, hidden)
         return false
     end
     local data = GodSystem.getData()
+    local stored = data.unlockedShopItems and data.unlockedShopItems[variantKey] or nil
+    if GodSystemAdminConfig.getShopVariantMode(variantKey, stored and stored.fullType or variantKey) == "forced" then return false end
     local ok, changed, item = GodSystemShopVariants.setHidden(data, variantKey, hidden)
     if not ok or not item then
         GodSystem.notify(GodSystem.text("Notify_SelectUnlocked", "Select an unlocked shop item"))
@@ -4787,7 +4813,10 @@ function GodSystem.setShopItemsHidden(variantKeys, hidden)
     local data = GodSystem.getData()
     local changedKeys, skippedKeys = {}, {}
     for i = 1, #keys do
-        local found, changed = GodSystemShopVariants.setHidden(data, keys[i], hidden == true)
+        local stored = data.unlockedShopItems and data.unlockedShopItems[keys[i]] or nil
+        local forced = GodSystemAdminConfig.getShopVariantMode(keys[i], stored and stored.fullType or keys[i]) == "forced"
+        local found, changed = false, false
+        if not forced then found, changed = GodSystemShopVariants.setHidden(data, keys[i], hidden == true) end
         if found and changed then changedKeys[#changedKeys + 1] = keys[i]
         else skippedKeys[#skippedKeys + 1] = keys[i] end
     end
@@ -4814,6 +4843,8 @@ function GodSystem.deleteShopItem(variantKey)
         return false
     end
     local data = GodSystem.getData()
+    local stored = data.unlockedShopItems and data.unlockedShopItems[variantKey] or nil
+    if GodSystemAdminConfig.getShopVariantMode(variantKey, stored and stored.fullType or variantKey) == "forced" then return false end
     local ok, item = GodSystemShopVariants.deleteUnlocked(data, variantKey)
     if not ok or not item then
         GodSystem.notify(GodSystem.text("Notify_ShopItemMissing", "The player-listed item no longer exists."))
@@ -5945,18 +5976,9 @@ local function gsGetRecycleValue(item, allowContainers)
     if allowContainers ~= true and GodSystemConfig.AllowRecycleContainers ~= true and gsItemHasInventory(item) then
         return 0
     end
-    if GodSystem.isLooseAmmoRecycleItem(fullType, item) then
-        return 1
-    end
-    local value = GodSystem.getItemSellPrice(fullType, item)
-    if gsSafeIsBroken(item) then
-        value = math.floor(value * 0.5)
-    end
-    local usedDelta = gsSafeUsedDelta(item)
-    if usedDelta then
-        value = math.floor(value * usedDelta)
-    end
-    return math.max(1, value)
+    local quote = GodSystemEconomyPolicy.quote(fullType, item, { kind = "recycle" })
+    if quote.eligible ~= true then return 0 end
+    return math.max(1, math.floor(tonumber(quote.recycleValue) or 1))
 end
 
 function GodSystem.getRecycleValue(item)
@@ -6075,11 +6097,7 @@ function GodSystem.processAutoRecyclerContainer(container)
         local groupValue = GodSystem.calculateRecyclePayout(fullType, group.raw, group.count)
         if groupValue > 0 then
             rawValue = rawValue + groupValue
-            if GodSystem.getRecycleUnitDivisor(fullType, group.items[1]) > 1 then
-                diminishedUnits = diminishedUnits + groupValue
-            else
-                diminishedUnits = diminishedUnits + group.count
-            end
+            diminishedUnits = diminishedUnits + group.count
             for j = 1, #group.items do
                 table.insert(removedItems, group.items[j])
                 removedCount = removedCount + 1
@@ -6448,7 +6466,6 @@ function GodSystem.getWaistSpaceRecycleGroups()
                     valueEach = value,
                     rawTotalValue = 0,
                     totalValue = 0,
-                    unitDivisor = GodSystem.getRecycleUnitDivisor(fullType, item),
                     items = {},
                 }
                 table.insert(order, fullType)
@@ -6588,7 +6605,6 @@ function GodSystem.getInventoryRecycleGroups()
                         valueEach = value,
                         rawTotalValue = 0,
                         totalValue = 0,
-                        unitDivisor = GodSystem.getRecycleUnitDivisor(fullType, item),
                         itemIds = {},
                     }
                     table.insert(order, fullType)
@@ -6679,17 +6695,6 @@ function GodSystem.recycleInventoryItems(fullType, count)
     end
     count = math.max(1, math.floor(count or 1))
     count = math.min(count, #found)
-    local divisor = GodSystem.getRecycleUnitDivisor(fullType, found[1].item)
-    if divisor > 1 then
-        local previewRaw = 0
-        for i = 1, count do
-            previewRaw = previewRaw + GodSystem.getRecycleValue(found[i].item)
-        end
-        if GodSystem.calculateRecyclePayout(fullType, previewRaw, count) <= 0 then
-            GodSystem.notify(GodSystem.text("Notify_RecycleNeedMore", "Need more items for 1 coin: ") .. tostring(divisor))
-            return false
-        end
-    end
     local removed, totalValue, removedDetails = GodSystem.removeInventoryItems(fullType, count)
     if removed <= 0 then
         GodSystem.notify(GodSystem.text("Notify_NoRecycleItem", "No recyclable item"))
@@ -6697,7 +6702,7 @@ function GodSystem.recycleInventoryItems(fullType, count)
     end
     local rawValue = GodSystem.calculateRecyclePayout(fullType, totalValue, removed)
     if rawValue <= 0 then
-        GodSystem.notify(GodSystem.text("Notify_RecycleNeedMore", "Need more items for 1 coin: ") .. tostring(divisor))
+        GodSystem.notify(GodSystem.text("Notify_NoRecycleItem", "No recyclable item"))
         return false
     end
     local totalValue, diminished = GodSystem.applyRecycleDailyPayout(rawValue)

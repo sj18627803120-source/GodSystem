@@ -99,7 +99,10 @@ end
 function GodSystemShopVariants.getUnlockedRows(data, includeHidden)
     local result = {}
     for variantKey, row in pairs((type(data) == "table" and data.unlockedShopItems) or {}) do
-        if type(row) == "table" and (includeHidden == true or row.hidden ~= true) then
+        local fullType = type(row) == "table" and tostring(row.fullType or variantKey) or ""
+        local mode = GodSystemAdminConfig and GodSystemAdminConfig.getShopVariantMode
+            and GodSystemAdminConfig.getShopVariantMode(variantKey, fullType) or "auto"
+        if type(row) == "table" and mode ~= "forced" and (includeHidden == true or row.hidden ~= true) then
             row.variantKey = tostring(row.variantKey or variantKey)
             result[#result + 1] = row
         end

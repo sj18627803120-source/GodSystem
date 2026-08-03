@@ -497,6 +497,8 @@ local function transactionFingerprint(command, args)
     local upgradeCommand = (Protocol.C2S and Protocol.C2S.UpgradeSystem) or "upgradeSystem"
     local freshnessCommand = (Protocol.C2S and Protocol.C2S.TerminalFreshnessService) or "terminalFreshnessService"
     local recycleCommand = (Protocol.C2S and Protocol.C2S.Recycle) or "recycle"
+    local buyShopCommand = (Protocol.C2S and Protocol.C2S.BuyShop) or "buyShop"
+    local listOnlyCommand = (Protocol.C2S and Protocol.C2S.ListOnlyAutoShop) or "listOnlyAutoShop"
     if command == attributeCommand then
         return table.concat({
             "attribute",
@@ -510,6 +512,20 @@ local function transactionFingerprint(command, args)
     end
     if command == freshnessCommand then
         return "freshnessService|d:" .. tostring(math.max(0, math.floor(tonumber(args.days) or 0)))
+    end
+    if command == buyShopCommand then
+        return table.concat({
+            "buyShop",
+            tostring(args.id or ""),
+            "q:" .. tostring(math.max(1, math.floor(tonumber(args.quantity) or 1))),
+        }, "|")
+    end
+    if command == listOnlyCommand then
+        return table.concat({
+            "listOnly",
+            tostring(args.fullType or ""),
+            tostring(args.itemId or ""),
+        }, "|")
     end
     if command == recycleCommand and type(args.itemIds) == "table" then
         local parts = {
