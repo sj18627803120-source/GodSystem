@@ -136,7 +136,8 @@ def write_sandbox_files() -> None:
             output[f"Sandbox_GodSystem_{group.title()}"] = label
         for row in rows:
             output[f'Sandbox_GodSystem_{row["key"]}'] = source.get(row["labelKey"], row["key"])
-            output[f'Sandbox_GodSystem_{row["key"]}_tooltip'] = source.get(row["descKey"], row["key"])
+            tooltip = source.get(row["descKey"], row["key"])
+            output[f'Sandbox_GodSystem_{row["key"]}_tooltip'] = tooltip.replace("%", "%%")
         output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 

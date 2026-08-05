@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Root,
-    [string]$ExpectedVersion = "42.20.2.2"
+    [string]$ExpectedVersion = "42.20.2.3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +36,8 @@ $economyUi = Read-Utf8 (Join-Path $lua "client\GodSystem_ItemEconomyUI.lua")
 $server = Read-Utf8 (Join-Path $lua "server\GodSystem_Server.lua")
 $transactions = Read-Utf8 (Join-Path $lua "server\GodSystem_TransactionOps.lua")
 $localization = Read-Utf8 (Join-Path $Root "tools\localization\godsystem_v11645_localization.yml")
+$sandboxCn = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\42\media\lua\shared\Translate\CN\Sandbox.json")
+$sandboxCh = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\42\media\lua\shared\Translate\CH\Sandbox.json")
 $rootInfo = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\mod.info")
 $b42Info = Read-Utf8 (Join-Path $Root "Contents\mods\GodSystem\42\mod.info")
 $workshop = Read-Utf8 (Join-Path $Root "workshop.txt")
@@ -104,6 +106,11 @@ foreach ($key in @(
 )) {
     Require-Text $localization ("(?m)^" + [regex]::Escape($key) + ":") "Localization source contains: $key"
 }
+
+Require-Text $sandboxCn 'Sandbox_GodSystem_EconomyConversionSafetyMargin_tooltip[\s\S]*10%%' 'CN sandbox tooltip escapes literal percent for Java formatting'
+Require-Text $sandboxCh 'Sandbox_GodSystem_EconomyConversionSafetyMargin_tooltip[\s\S]*10%%' 'CH sandbox tooltip escapes literal percent for Java formatting'
+Reject-Text $sandboxCn '(?<!%)%(?!%)' 'CN sandbox tooltips contain no unescaped percent'
+Reject-Text $sandboxCh '(?<!%)%(?!%)' 'CH sandbox tooltips contain no unescaped percent'
 
 $versionPattern = [regex]::Escape($ExpectedVersion)
 Require-Text $rootInfo ("(?m)^modversion=" + $versionPattern + "\r?$") "Root mod.info version must be $ExpectedVersion"
