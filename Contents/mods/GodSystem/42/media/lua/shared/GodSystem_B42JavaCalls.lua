@@ -222,7 +222,15 @@ end
 function Bridge.try(target, methodName, ...)
     if not target or not methodName then return false, nil end
     local caller = CALLERS[methodName]
-    if caller then return pcall(caller, target, ...) end
+    if caller then
+        -- Java userdata exposes only methods implemented by the concrete item
+        -- class. Probe the member before invoking the explicit wrapper so an
+        -- optional method such as getUsedDelta falls back cleanly on ordinary
+        -- InventoryItem instances.
+        local available, method = pcall(function() return target[methodName] end)
+        if not available or method == nil then return false, nil end
+        return pcall(caller, target, ...)
+    end
     return callLuaTable(target, methodName, ...)
 end
 

@@ -21,6 +21,7 @@ local nestedContainer = {
     getContainingItem = function(self) return parentItem end,
 }
 expect(Bridge.getContainingItem(nestedContainer) == parentItem, "nested container ownership lookup failed")
+expect(Bridge.value({}, "getUsedDelta", 1) == 1, "missing optional userdata method did not use fallback")
 
 local dynamicTable = {
     customMethod = function(self, value) return value + 1 end,

@@ -67,6 +67,7 @@ Require-Text $server 'GodSystemB42JavaCalls\.getContainingItem\(container\)' 'Ne
 Require-Text $server 'GodSystemB42JavaCalls\.getCapacity\(item\)' 'Server terminal sync reads capacity explicitly'
 Require-Text $network 'GodSystemB42JavaCalls\.setCapacity' 'Client terminal sync writes capacity explicitly'
 Require-Text $upgrades 'GodSystemB42JavaCalls\.setWeightReduction' 'Terminal upgrades write reduction explicitly'
+Require-Text $bridge 'local available, method = pcall\(function\(\) return target\[methodName\] end\)' 'Bridge probes optional userdata methods before calling'
 Reject-Text ($server + $network + $upgrades) 'pcall\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\.(?:getContainingItem|getCapacity|setCapacity|getWeightReduction|setWeightReduction|getInventory|getItems|isFavorite|hasTag|setName|setCustomName|transmitModData)' 'Audited Java methods are not extracted into pcall'
 
 $capacityBlock = [regex]::Match($config, 'GodSystemConfig\.TerminalCapacityLevels\s*=\s*\{(?<body>[\s\S]*?)\n\}').Groups['body'].Value
