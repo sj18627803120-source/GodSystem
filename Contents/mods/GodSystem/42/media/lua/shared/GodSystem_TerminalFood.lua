@@ -1,4 +1,5 @@
 require "GodSystem_Config"
+require "GodSystem_B42JavaCalls"
 
 GodSystemTerminalFood = GodSystemTerminalFood or {}
 
@@ -23,9 +24,7 @@ local function terminalInventory(terminal)
 end
 
 local function getNumber(target, method)
-    if not target or not target[method] then return nil end
-    local ok, value = pcall(function() return target[method](target) end)
-    value = ok and tonumber(value) or nil
+    local value = tonumber(GodSystemB42JavaCalls.value(target, method, nil))
     return finite(value) and value or nil
 end
 

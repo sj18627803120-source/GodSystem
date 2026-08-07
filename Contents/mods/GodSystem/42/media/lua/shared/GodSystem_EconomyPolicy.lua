@@ -2,6 +2,7 @@ require "GodSystem_Config"
 require "GodSystem_Prices"
 require "GodSystem_ItemEligibility"
 require "GodSystem_AdminConfig"
+require "GodSystem_B42JavaCalls"
 
 GodSystemEconomyPolicy = GodSystemEconomyPolicy or {}
 
@@ -42,16 +43,7 @@ local function moduleName(fullType)
 end
 
 local function safeMethod(object, methodName, fallback, ...)
-    if not object or not methodName then return fallback end
-    local method = object[methodName]
-    if type(method) ~= "function" then return fallback end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    local ok, value = pcall(function()
-        return method(object, unpackFn(args))
-    end)
-    if ok and value ~= nil then return value end
-    return fallback
+    return GodSystemB42JavaCalls.value(object, methodName, fallback, ...)
 end
 
 local function listSize(list)

@@ -1,3 +1,5 @@
+require "GodSystem_B42JavaCalls"
+
 GodSystemMaintenance = GodSystemMaintenance or {}
 
 GodSystemMaintenance.RepairItemType = "GodSystem.SystemRepairKit"
@@ -46,14 +48,7 @@ function GodSystemMaintenance.vehicleDamageSummary(vehicle)
 end
 
 local function call(object, methodName, ...)
-    if not object then return false, nil end
-    local okMethod, method = pcall(function() return object[methodName] end)
-    if not okMethod or not method then return false, nil end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    return pcall(function()
-        return method(object, unpackFn(args))
-    end)
+    return GodSystemB42JavaCalls.try(object, methodName, ...)
 end
 
 local function syncVehiclePart(vehicle, part)

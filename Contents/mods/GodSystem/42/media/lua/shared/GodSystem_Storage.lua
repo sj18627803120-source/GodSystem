@@ -1,4 +1,5 @@
 require "GodSystem_Config"
+require "GodSystem_B42JavaCalls"
 
 GodSystemStorage = GodSystemStorage or {}
 
@@ -77,15 +78,7 @@ local function clamp(value, minimum, maximum)
 end
 
 local function safeCall(object, methodName, fallback, ...)
-    if not object or not methodName or not object[methodName] then return fallback end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    local ok, value = pcall(function()
-        if unpackFn then return object[methodName](object, unpackFn(args)) end
-        return object[methodName](object)
-    end)
-    if ok and value ~= nil then return value end
-    return fallback
+    return GodSystemB42JavaCalls.value(object, methodName, fallback, ...)
 end
 
 Storage.number = number

@@ -422,7 +422,7 @@ local function ensureLight(player, data)
     local cell = getCell and getCell() or nil
     if not cell or not IsoLightSource then return end
     local ok, light = pcall(IsoLightSource.new, ix, iy, iz, LIGHT_R, LIGHT_G, LIGHT_B, radius)
-    if ok and light and pcall(cell.addLamppost, cell, light) then
+    if ok and light and pcall(function() cell:addLamppost(light) end) then
         runtime.light = light
         runtime.lightCell = cell
         runtime.lightX, runtime.lightY, runtime.lightZ = ix, iy, iz

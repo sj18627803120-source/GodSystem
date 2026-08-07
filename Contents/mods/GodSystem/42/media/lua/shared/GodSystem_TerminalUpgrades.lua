@@ -1,6 +1,7 @@
 require "GodSystem_Config"
 require "GodSystem_TerminalRelief"
 require "GodSystem_TerminalFood"
+require "GodSystem_B42JavaCalls"
 
 GodSystemTerminalUpgrades = GodSystemTerminalUpgrades or {}
 
@@ -18,18 +19,29 @@ local function itemModData(item)
 end
 
 local function readNumberMethod(target, method)
-    if not target or not target[method] then return nil end
-    local ok, value = pcall(function() return target[method](target) end)
-    value = ok and tonumber(value) or nil
+    local value = nil
+    if method == "getCapacity" then
+        value = GodSystemB42JavaCalls.getCapacity(target)
+    elseif method == "getWeightReduction" then
+        value = GodSystemB42JavaCalls.getWeightReduction(target)
+    end
+    value = tonumber(value)
     return finite(value) and value or nil
 end
 
 local function writeNumberMethod(target, setter, getter, value)
-    if not target or not target[setter] or not target[getter] then return false, false, "unsupported" end
+    local writer = nil
+    if setter == "setCapacity" and getter == "getCapacity" then
+        writer = GodSystemB42JavaCalls.setCapacity
+    elseif setter == "setWeightReduction" and getter == "getWeightReduction" then
+        writer = GodSystemB42JavaCalls.setWeightReduction
+    else
+        return false, false, "unsupported"
+    end
     local before = readNumberMethod(target, getter)
     if before == nil then return false, false, "readFailed" end
     if math.abs(before - value) <= EPSILON then return true, false end
-    local ok = pcall(function() target[setter](target, value) end)
+    local ok = writer(target, value)
     if not ok then return false, false, "writeException" end
     local after = readNumberMethod(target, getter)
     if after == nil or math.abs(after - value) > EPSILON then return false, false, "verificationFailed" end

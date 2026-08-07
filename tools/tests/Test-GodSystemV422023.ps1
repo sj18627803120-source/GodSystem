@@ -26,6 +26,7 @@ Write-Output "=== Test-GodSystemV422023: Server Method Calls and Carry Cost Sett
 $mod = Join-Path $Root "Contents\mods\GodSystem"
 $lua = Join-Path $mod "42\media\lua"
 $server = Read-Utf8 (Join-Path $lua "server\GodSystem_Server.lua")
+$bridge = Read-Utf8 (Join-Path $lua "shared\GodSystem_B42JavaCalls.lua")
 $config = Read-Utf8 (Join-Path $lua "shared\GodSystem_Config.lua")
 $admin = Read-Utf8 (Join-Path $lua "shared\GodSystem_AdminConfig.lua")
 $carry = Read-Utf8 (Join-Path $lua "shared\GodSystem_CarryCapacity.lua")
@@ -37,9 +38,10 @@ $rootInfo = Read-Utf8 (Join-Path $mod "mod.info")
 $b42Info = Read-Utf8 (Join-Path $mod "42\mod.info")
 $workshop = Read-Utf8 (Join-Path $Root "workshop.txt")
 
-Require-Text $server 'local\s+SAFE_JAVA_CALLS\s*=' 'Server maps dynamic medical calls to explicit B42 object methods'
-Require-Text $server 'container:getContainingItem\(\)' 'Terminal ownership uses the B42 object-method call'
-Reject-Text $server 'safeCall\(container,\s*"getContainingItem"' 'Terminal ownership no longer routes getContainingItem through the dynamic helper'
+Require-Text $server 'require\s+"GodSystem_B42JavaCalls"' 'Server uses the shared explicit B42 method bridge'
+Require-Text $bridge 'getBodyDamage\s*=\s*function\(target[^\r\n]*target:getBodyDamage' 'Shared bridge maps medical calls to explicit B42 object methods'
+Require-Text $server 'GodSystemB42JavaCalls\.getContainingItem\(container\)' 'Terminal ownership uses the explicit B42 helper'
+Reject-Text $server 'safeCall\(container,\s*"getContainingItem"' 'Terminal ownership does not route getContainingItem through the generic helper'
 Reject-Text $server 'local\s+method\s*=\s*object\[methodName\]' 'Server does not extract Java methods before invocation'
 Reject-Text $server 'method\(object(?:,|\))' 'Server does not call extracted Java methods as Lua functions'
 

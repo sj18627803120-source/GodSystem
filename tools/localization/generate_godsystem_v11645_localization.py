@@ -207,7 +207,8 @@ def write_json(path: Path, entries: dict[str, str]) -> None:
 
 
 def fallback_line(key: str, value: str) -> str:
-    return f'GodSystemFallbackText.zh["{key}"] = "{lua_escape(value)}"'
+    runtime_value = value.replace("%%", "%")
+    return f'GodSystemFallbackText.zh["{key}"] = "{lua_escape(runtime_value)}"'
 
 
 def update_override(path: Path, entries: dict[str, str]) -> None:

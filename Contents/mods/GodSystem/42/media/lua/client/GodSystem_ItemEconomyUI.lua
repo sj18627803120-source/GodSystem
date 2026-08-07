@@ -3,6 +3,7 @@ require "GodSystem_EconomyPolicy"
 require "GodSystem_AdminConfig"
 require "GodSystem_ShopVariants"
 require "GodSystem_UITheme"
+require "GodSystem_B42JavaCalls"
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISButton"
 require "ISUI/ISLabel"
@@ -26,10 +27,7 @@ local function text(key, fallback)
 end
 
 local function safeMethod(object, methodName, fallback)
-    if not object or type(object[methodName]) ~= "function" then return fallback end
-    local ok, value = pcall(function() return object[methodName](object) end)
-    if ok and value ~= nil then return value end
-    return fallback
+    return GodSystemB42JavaCalls.value(object, methodName, fallback)
 end
 
 local function listSize(list)

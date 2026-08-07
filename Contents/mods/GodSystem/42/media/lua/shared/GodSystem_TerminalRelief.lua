@@ -1,5 +1,6 @@
 require "GodSystem_Config"
 require "GodSystem_AdminConfig"
+require "GodSystem_B42JavaCalls"
 
 GodSystemTerminalRelief = GodSystemTerminalRelief or {}
 
@@ -79,16 +80,13 @@ local function replaceTable(target, source)
 end
 
 local function readNumber(item, method)
-    if not item or not item[method] then return nil end
-    local ok, value = pcall(function() return item[method](item) end)
-    value = ok and tonumber(value) or nil
+    local value = tonumber(GodSystemB42JavaCalls.value(item, method, nil))
     if value == nil or value ~= value or value == math.huge or value == -math.huge then return nil end
     return value
 end
 
 local function readBoolean(item, method)
-    if not item or not item[method] then return nil end
-    local ok, value = pcall(function() return item[method](item) end)
+    local ok, value = GodSystemB42JavaCalls.try(item, method)
     if not ok then return nil end
     return value == true
 end

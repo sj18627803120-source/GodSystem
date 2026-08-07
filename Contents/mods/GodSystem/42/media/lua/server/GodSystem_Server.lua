@@ -14,6 +14,7 @@ require "GodSystem_TerminalUpgrades"
 require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
+require "GodSystem_B42JavaCalls"
 
 if not (isServer and isServer()) then return end
 
@@ -72,81 +73,8 @@ local function floor(v, fallback)
     return math.floor(n(v, fallback or 0))
 end
 
--- B42 Java userdata methods must be invoked with an explicit object-method
--- call.  Extracting object[methodName] and calling the result as a function
--- raises "Expected a method call but got a function call" in B42.20.2.
-local SAFE_JAVA_CALLS = {
-    getBodyDamage = function(object, ...) return object:getBodyDamage(...) end,
-    getBodyParts = function(object, ...) return object:getBodyParts(...) end,
-    getStats = function(object, ...) return object:getStats(...) end,
-    getHealth = function(object, ...) return object:getHealth(...) end,
-    getOverallBodyHealth = function(object, ...) return object:getOverallBodyHealth(...) end,
-    getInfectionTime = function(object, ...) return object:getInfectionTime(...) end,
-    getInfectionMortalityDuration = function(object, ...) return object:getInfectionMortalityDuration(...) end,
-    getInfectionLevel = function(object, ...) return object:getInfectionLevel(...) end,
-    getBleedingTime = function(object, ...) return object:getBleedingTime(...) end,
-    getDeepWoundTime = function(object, ...) return object:getDeepWoundTime(...) end,
-    getScratchTime = function(object, ...) return object:getScratchTime(...) end,
-    getCutTime = function(object, ...) return object:getCutTime(...) end,
-    getBiteTime = function(object, ...) return object:getBiteTime(...) end,
-    getBurnTime = function(object, ...) return object:getBurnTime(...) end,
-    getFractureTime = function(object, ...) return object:getFractureTime(...) end,
-    getWoundInfectionLevel = function(object, ...) return object:getWoundInfectionLevel(...) end,
-    getAdditionalPain = function(object, ...) return object:getAdditionalPain(...) end,
-    IsInfected = function(object, ...) return object:IsInfected(...) end,
-    isInfected = function(object, ...) return object:isInfected(...) end,
-    IsFakeInfected = function(object, ...) return object:IsFakeInfected(...) end,
-    isFakeInfected = function(object, ...) return object:isFakeInfected(...) end,
-    HasInjury = function(object, ...) return object:HasInjury(...) end,
-    hasInjury = function(object, ...) return object:hasInjury(...) end,
-    isBleeding = function(object, ...) return object:isBleeding(...) end,
-    IsBleeding = function(object, ...) return object:IsBleeding(...) end,
-    bleeding = function(object, ...) return object:bleeding(...) end,
-    isDeepWounded = function(object, ...) return object:isDeepWounded(...) end,
-    deepWounded = function(object, ...) return object:deepWounded(...) end,
-    haveBullet = function(object, ...) return object:haveBullet(...) end,
-    haveGlass = function(object, ...) return object:haveGlass(...) end,
-    isBurnt = function(object, ...) return object:isBurnt(...) end,
-    stitched = function(object, ...) return object:stitched(...) end,
-    setInfected = function(object, ...) return object:setInfected(...) end,
-    SetInfected = function(object, ...) return object:SetInfected(...) end,
-    setIsFakeInfected = function(object, ...) return object:setIsFakeInfected(...) end,
-    SetFakeInfected = function(object, ...) return object:SetFakeInfected(...) end,
-    setInfectionTime = function(object, ...) return object:setInfectionTime(...) end,
-    setInfectionMortalityDuration = function(object, ...) return object:setInfectionMortalityDuration(...) end,
-    setInfectionLevel = function(object, ...) return object:setInfectionLevel(...) end,
-    setInfectedWound = function(object, ...) return object:setInfectedWound(...) end,
-    setWoundInfectionLevel = function(object, ...) return object:setWoundInfectionLevel(...) end,
-    SetHealth = function(object, ...) return object:SetHealth(...) end,
-    setHealth = function(object, ...) return object:setHealth(...) end,
-    setBleedingTime = function(object, ...) return object:setBleedingTime(...) end,
-    setDeepWoundTime = function(object, ...) return object:setDeepWoundTime(...) end,
-    setScratchTime = function(object, ...) return object:setScratchTime(...) end,
-    setCutTime = function(object, ...) return object:setCutTime(...) end,
-    setBiteTime = function(object, ...) return object:setBiteTime(...) end,
-    setBurnTime = function(object, ...) return object:setBurnTime(...) end,
-    setFractureTime = function(object, ...) return object:setFractureTime(...) end,
-    setAdditionalPain = function(object, ...) return object:setAdditionalPain(...) end,
-    setHaveBullet = function(object, ...) return object:setHaveBullet(...) end,
-    setHaveGlass = function(object, ...) return object:setHaveGlass(...) end,
-    setStitched = function(object, ...) return object:setStitched(...) end,
-    setSplint = function(object, ...) return object:setSplint(...) end,
-    setBandaged = function(object, ...) return object:setBandaged(...) end,
-    setOverallBodyHealth = function(object, ...) return object:setOverallBodyHealth(...) end,
-}
-
 local function safeCall(object, methodName, fallback, ...)
-    if not object or not methodName then return fallback end
-    local caller = SAFE_JAVA_CALLS[methodName]
-    if not caller then return fallback end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    local ok, value = pcall(function()
-        if unpackFn then return caller(object, unpackFn(args)) end
-        return caller(object)
-    end)
-    if ok and value ~= nil then return value end
-    return fallback
+    return GodSystemB42JavaCalls.value(object, methodName, fallback, ...)
 end
 
 local function userKey(player)
@@ -215,12 +143,12 @@ local function isAdminPlayer(player)
     if player.isAccessLevel then
         local levels = { "Admin", "Moderator", "Overseer", "GM" }
         for i = 1, #levels do
-            local ok, allowed = pcall(player.isAccessLevel, player, levels[i])
+            local ok, allowed = GodSystemB42JavaCalls.try(player, "isAccessLevel", levels[i])
             if ok and allowed == true then return true end
         end
     end
     if player.getAccessLevel then
-        local ok, level = pcall(player.getAccessLevel, player)
+        local ok, level = GodSystemB42JavaCalls.try(player, "getAccessLevel")
         if ok and level then
             level = tostring(level):lower()
             return level == "admin" or level == "moderator" or level == "overseer" or level == "gm"
@@ -445,7 +373,7 @@ local function countContainerItems(container, fullType)
                 total = total + 1
             end
             if item.getInventory then
-                local ok, child = pcall(item.getInventory, item)
+                local ok, child = GodSystemB42JavaCalls.try(item, "getInventory")
                 if ok and child then
                     total = total + countContainerItems(child, fullType)
                 end
@@ -488,14 +416,14 @@ local function findInventoryItems(container, result, fullType, includeFavorite, 
             local equipped = item == primary or item == secondary
             local favorite = false
             if item.isFavorite then
-                local ok, value = pcall(item.isFavorite, item)
+                local ok, value = GodSystemB42JavaCalls.try(item, "isFavorite")
                 favorite = ok and value == true
             end
             if matches and (includeEquipped or not equipped) and (includeFavorite or not favorite) then
                 result[#result + 1] = { item = item, container = container }
             end
             if item.getInventory then
-                local ok, child = pcall(item.getInventory, item)
+                local ok, child = GodSystemB42JavaCalls.try(item, "getInventory")
                 if ok and child then
                     findInventoryItems(child, result, fullType, includeFavorite, includeEquipped, player)
                 end
@@ -1731,7 +1659,7 @@ end
 
 local function itemHasInventory(item)
     if not item or not item.getInventory then return false end
-    local ok, child = pcall(item.getInventory, item)
+    local ok, child = GodSystemB42JavaCalls.try(item, "getInventory")
     return ok and child ~= nil
 end
 
@@ -1764,9 +1692,9 @@ end
 
 local function itemInventoryCount(item)
     if not itemHasInventory(item) then return 0 end
-    local okInventory, inventory = pcall(item.getInventory, item)
+    local okInventory, inventory = GodSystemB42JavaCalls.try(item, "getInventory")
     if not okInventory or not inventory or not inventory.getItems then return 0 end
-    local okItems, items = pcall(inventory.getItems, inventory)
+    local okItems, items = GodSystemB42JavaCalls.try(inventory, "getItems")
     if not okItems or not items or not items.size then return 0 end
     return items:size()
 end
@@ -1775,11 +1703,11 @@ local function isKeyItem(item)
     if not item then return false end
     if instanceof and instanceof(item, "Key") then return true end
     if item.isItemType and ItemType and ItemType.KEY_RING then
-        local ok, value = pcall(item.isItemType, item, ItemType.KEY_RING)
+        local ok, value = GodSystemB42JavaCalls.try(item, "isItemType", ItemType.KEY_RING)
         if ok and value == true then return true end
     end
     if item.hasTag and ItemTag and ItemTag.KEY_RING then
-        local ok, value = pcall(item.hasTag, item, ItemTag.KEY_RING)
+        local ok, value = GodSystemB42JavaCalls.try(item, "hasTag", ItemTag.KEY_RING)
         if ok and value == true then return true end
     end
     return false
@@ -1820,7 +1748,7 @@ local function canRecycleItem(item, waistOnly)
     if isAutoRecyclerContainer(item) or GodSystemStorage.isProtected(item)
         or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return false end
     if item.isFavorite then
-        local ok, favorite = pcall(item.isFavorite, item)
+        local ok, favorite = GodSystemB42JavaCalls.try(item, "isFavorite")
         if ok and favorite then return false end
     end
     if waistOnly and itemHasInventory(item) then return false end
@@ -2024,11 +1952,11 @@ function GodSystemServer.syncTerminalApplyReport(item, report, forceSync)
     for changedItem in pairs(seen) do
         if changedItem.syncItemFields then pcall(function() changedItem:syncItemFields() end) end
         if sendItemStats then pcall(sendItemStats, changedItem) end
-        if changedItem.transmitModData then pcall(changedItem.transmitModData, changedItem) end
+        if changedItem.transmitModData then GodSystemB42JavaCalls.try(changedItem, "transmitModData") end
     end
     if report.terminalChanged == true or forceSync == true then
         if item and item.syncItemFields then pcall(function() item:syncItemFields() end) end
-        if item and item.transmitModData then pcall(item.transmitModData, item) end
+        if item and item.transmitModData then GodSystemB42JavaCalls.try(item, "transmitModData") end
         if item and sendItemStats then pcall(sendItemStats, item) end
     end
 end
@@ -2041,19 +1969,15 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
     local okInventory, inventory = pcall(function() return item:getInventory() end)
     if not okId or itemId == nil or not okInventory or not inventory then return nil end
 
-    local function readNumber(target, method)
-        if not target or not target[method] then return nil end
-        local ok, value = pcall(function() return target[method](target) end)
-        value = ok and tonumber(value) or nil
-        if value == nil or value ~= value or value == math.huge or value == -math.huge then return nil end
-        return value
+    local outerCapacity = tonumber(GodSystemB42JavaCalls.getCapacity(item))
+    local innerCapacity = tonumber(GodSystemB42JavaCalls.getCapacity(inventory))
+    local outerReduction = tonumber(GodSystemB42JavaCalls.getWeightReduction(item))
+    local innerReduction = tonumber(GodSystemB42JavaCalls.getWeightReduction(inventory))
+    local function validNumber(value)
+        return value ~= nil and value == value and value ~= math.huge and value ~= -math.huge
     end
-
-    local outerCapacity = readNumber(item, "getCapacity")
-    local innerCapacity = readNumber(inventory, "getCapacity")
-    local outerReduction = readNumber(item, "getWeightReduction")
-    local innerReduction = readNumber(inventory, "getWeightReduction")
-    if outerCapacity == nil or innerCapacity == nil or outerReduction == nil or innerReduction == nil then return nil end
+    if not validNumber(outerCapacity) or not validNumber(innerCapacity)
+        or not validNumber(outerReduction) or not validNumber(innerReduction) then return nil end
 
     local terminalData = item.getModData and item:getModData() or nil
     local reliefLevelKey = GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"
@@ -2119,9 +2043,9 @@ local function markAutoRecycler(data, item, player, preappliedReport, deferSync)
     end
     local expectedName = autoRecyclerDisplayName(level)
     if item.setName and item.getName and tostring(item:getName() or "") ~= expectedName then
-        local nameOk = pcall(item.setName, item, expectedName)
+        local nameOk = GodSystemB42JavaCalls.try(item, "setName", expectedName)
         terminalChanged = nameOk or terminalChanged
-        if nameOk and item.setCustomName then pcall(item.setCustomName, item, true) end
+        if nameOk and item.setCustomName then GodSystemB42JavaCalls.try(item, "setCustomName", true) end
     end
     report.terminalChanged = terminalChanged
     if deferSync ~= true then GodSystemServer.syncTerminalApplyReport(item, report) end
@@ -2136,12 +2060,12 @@ function GodSystemServer.giveConfiguredTerminal(player, data)
     if not item then return false, nil end
     local applied, report = markAutoRecycler(data, item, player, nil, true)
     if applied ~= true then
-        if inventory.Remove then pcall(inventory.Remove, inventory, item) end
+        if inventory.Remove then GodSystemB42JavaCalls.try(inventory, "Remove", item) end
         return false, nil
     end
     local synced = sendAddItemToContainer and pcall(sendAddItemToContainer, inventory, item)
     if not synced then
-        if inventory.Remove then pcall(inventory.Remove, inventory, item) end
+        if inventory.Remove then GodSystemB42JavaCalls.try(inventory, "Remove", item) end
         return false, nil
     end
     GodSystemServer.syncTerminalApplyReport(item, report, true)
@@ -2161,12 +2085,7 @@ function GodSystemServer.isTerminalOwnedByPlayer(player, item)
         local ok, container = pcall(function() return current:getContainer() end)
         if not ok or not container then return false end
         if container == root then return true end
-        local parent = nil
-        if container.getContainingItem then
-            local parentOk, value = pcall(function() return container:getContainingItem() end)
-            if parentOk then parent = value end
-        end
-        current = parent
+        current = GodSystemB42JavaCalls.getContainingItem(container)
     end
     return false
 end
@@ -2201,7 +2120,7 @@ end
 local function autoRecyclerInventory(data, player)
     local item = findAutoRecycler(data, player)
     if item and item.getInventory then
-        local ok, inv = pcall(item.getInventory, item)
+        local ok, inv = GodSystemB42JavaCalls.try(item, "getInventory")
         if ok then return inv, item end
     end
     return nil, item
@@ -4202,7 +4121,7 @@ end
 local function gridSquareAt(pos)
     local cell = getCell and getCell() or nil
     if not cell or not pos then return nil end
-    local ok, square = pcall(cell.getGridSquare, cell, math.floor(n(pos.x)), math.floor(n(pos.y)), math.floor(n(pos.z)))
+    local ok, square = GodSystemB42JavaCalls.try(cell, "getGridSquare", math.floor(n(pos.x)), math.floor(n(pos.y)), math.floor(n(pos.z)))
     if ok then return square end
     return nil
 end
@@ -4212,7 +4131,7 @@ local function squareSafe(square)
     if square.isSolid and square:isSolid() then return false end
     if square.isSolidTrans and square:isSolidTrans() then return false end
     if square.TreatAsSolidFloor then
-        local ok, hasFloor = pcall(square.TreatAsSolidFloor, square)
+        local ok, hasFloor = GodSystemB42JavaCalls.try(square, "TreatAsSolidFloor")
         if ok and hasFloor == false then return false end
     end
     return true
@@ -4598,18 +4517,18 @@ function Commands.trait(_, _, player, args)
     local token = traitTokenForType(traitType)
     local ok = false
     if action == "remove" then
-        if traits.remove then ok = pcall(traits.remove, traits, token) end
+        if traits.remove then ok = GodSystemB42JavaCalls.try(traits, "remove", token) end
     else
-        if traits.add then ok = pcall(traits.add, traits, token) end
+        if traits.add then ok = GodSystemB42JavaCalls.try(traits, "add", token) end
     end
     if not ok or playerHasTrait(player, traitType) ~= (action ~= "remove") then
         return finish(player, false, "天赋修改失败")
     end
     if not addPoints(player, -cost, data) then
         if action == "remove" then
-            if traits.add then pcall(traits.add, traits, token) end
+            if traits.add then GodSystemB42JavaCalls.try(traits, "add", token) end
         else
-            if traits.remove then pcall(traits.remove, traits, token) end
+            if traits.remove then GodSystemB42JavaCalls.try(traits, "remove", token) end
         end
         return finish(player, false, "系统币不足")
     end

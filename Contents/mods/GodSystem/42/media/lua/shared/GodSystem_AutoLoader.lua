@@ -1,5 +1,6 @@
 require "GodSystem_Config"
 require "GodSystem_AdminConfig"
+require "GodSystem_B42JavaCalls"
 
 GodSystemAutoLoader = GodSystemAutoLoader or {}
 
@@ -18,10 +19,7 @@ AutoLoader.SessionLifetimeMs = 60000
 AutoLoader.runtime = AutoLoader.runtime or { sessions = {}, sessionSequence = 0, normalizedOperations = {} }
 
 function AutoLoader.safeCall(target, methodName, fallback, ...)
-    if not target or not target[methodName] then return fallback end
-    local ok, value = pcall(target[methodName], target, ...)
-    if ok then return value end
-    return fallback
+    return GodSystemB42JavaCalls.value(target, methodName, fallback, ...)
 end
 
 function AutoLoader.itemId(item)
@@ -129,7 +127,7 @@ end
 
 function AutoLoader.isLooseAmmo(item)
     if not item or not item.hasTag or not ItemTag or not ItemTag.AMMO then return false end
-    local ok, value = pcall(item.hasTag, item, ItemTag.AMMO)
+    local ok, value = GodSystemB42JavaCalls.try(item, "hasTag", ItemTag.AMMO)
     return ok and value == true
 end
 
@@ -147,7 +145,7 @@ function AutoLoader.magazineAmmoFullType(item)
     local ammoType = AutoLoader.safeCall(item, "getAmmoType", nil)
     local maximum = tonumber(AutoLoader.safeCall(item, "getMaxAmmo", 0)) or 0
     if not ammoType or maximum <= 0 or not ammoType.getItemKey then return nil end
-    local ok, itemKey = pcall(ammoType.getItemKey, ammoType)
+    local ok, itemKey = GodSystemB42JavaCalls.try(ammoType, "getItemKey")
     if not ok or not itemKey or tostring(itemKey) == "" then return nil end
     return tostring(itemKey)
 end
@@ -217,7 +215,7 @@ function AutoLoader.scriptItem(fullType)
     if not getScriptManager then return nil end
     local okManager, manager = pcall(getScriptManager)
     if not okManager or not manager or not manager.FindItem then return nil end
-    local okItem, scriptItem = pcall(manager.FindItem, manager, tostring(fullType or ""))
+    local okItem, scriptItem = GodSystemB42JavaCalls.try(manager, "FindItem", tostring(fullType or ""))
     return okItem and scriptItem or nil
 end
 
@@ -328,7 +326,7 @@ function AutoLoader.settleDepositRecords(player, loader, records)
             stats.skipped = stats.skipped + 1
         else
             local source = row.container or AutoLoader.safeCall(item, "getContainer", nil)
-            local removed = source and source.Remove and pcall(source.Remove, source, item)
+            local removed = source and select(1, GodSystemB42JavaCalls.try(source, "Remove", item))
             if removed and not AutoLoader.containerContains(source, item) then
                 if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, source, item) end
                 AutoLoader.setBalance(loader, fullType, AutoLoader.getBalance(loader, fullType) + 1, record.displayName)
@@ -420,7 +418,7 @@ function AutoLoader.fillMagazines(player, loaders, magazineLimit)
                 end
             end
             if added > 0 then
-                local updated = pcall(magazine.setCurrentAmmoCount, magazine, current + added)
+                local updated = GodSystemB42JavaCalls.try(magazine, "setCurrentAmmoCount", current + added)
                 local verified = updated
                     and math.floor(tonumber(AutoLoader.safeCall(magazine, "getCurrentAmmoCount", -1)) or -1) == current + added
                 if verified then
@@ -454,7 +452,7 @@ function AutoLoader.withdrawAmmo(player, loader, fullType, count)
     local inventory = AutoLoader.safeCall(player, "getInventory", nil)
     if not inventory or not inventory.AddItem then stats.reason = "inventoryMissing" return stats end
     for _ = 1, targetCount do
-        local ok, created = pcall(inventory.AddItem, inventory, fullType)
+        local ok, created = GodSystemB42JavaCalls.try(inventory, "AddItem", fullType)
         if not ok or not created then break end
         stats.created = stats.created + 1
         if sendAddItemToContainer then pcall(sendAddItemToContainer, inventory, created) end

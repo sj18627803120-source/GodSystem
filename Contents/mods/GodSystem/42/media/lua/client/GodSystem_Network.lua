@@ -2,6 +2,7 @@ require "GodSystem_Config"
 require "GodSystem_Core"
 require "GodSystem_Protocol"
 require "GodSystem_Maintenance"
+require "GodSystem_B42JavaCalls"
 require "TimedActions/ISTimedActionQueue"
 require "ISUI/ISInventoryPane"
 
@@ -307,16 +308,21 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
         return value ~= nil and value == value and value ~= math.huge and value ~= -math.huge
     end
     local function writeNumber(target, setter, getter, value)
-        if not finite(value) or not target or not target[setter] or not target[getter] then return false end
+        if not finite(value) or not target then return false end
         value = tonumber(value)
-        local okBefore, before = pcall(function() return target[getter](target) end)
-        before = okBefore and tonumber(before) or nil
+        local reader = getter == "getCapacity" and GodSystemB42JavaCalls.getCapacity
+            or getter == "getWeightReduction" and GodSystemB42JavaCalls.getWeightReduction
+            or nil
+        local writer = setter == "setCapacity" and GodSystemB42JavaCalls.setCapacity
+            or setter == "setWeightReduction" and GodSystemB42JavaCalls.setWeightReduction
+            or nil
+        if not reader or not writer then return false end
+        local before = tonumber(reader(target))
         if before == nil then return false end
         if math.abs(before - value) <= 0.0001 then return true end
-        local okWrite = pcall(function() target[setter](target, value) end)
+        local okWrite = writer(target, value)
         if not okWrite then return false end
-        local okAfter, after = pcall(function() return target[getter](target) end)
-        after = okAfter and tonumber(after) or nil
+        local after = tonumber(reader(target))
         return after ~= nil and math.abs(after - value) <= 0.0001
     end
 
@@ -413,9 +419,9 @@ function GodSystemNetwork.updateTerminalWearDiagnostics(p)
             local slot = currentItem.canBeEquipped and currentItem:canBeEquipped() or nil
             local parentType = "none"
             if currentItem.getContainer then
-                local okContainer, container = pcall(currentItem.getContainer, currentItem)
+                local okContainer, container = GodSystemB42JavaCalls.try(currentItem, "getContainer")
                 if okContainer and container and container.getType then
-                    local okType, value = pcall(container.getType, container)
+                    local okType, value = GodSystemB42JavaCalls.try(container, "getType")
                     if okType then parentType = tostring(value or "none") end
                 end
             end
@@ -446,15 +452,15 @@ function GodSystemNetwork.updateTerminalWearDiagnostics(p)
     local slot = item and item.canBeEquipped and item:canBeEquipped() or nil
     local worn = false
     if slot and p.getWornItem then
-        local okWorn, wornItem = pcall(p.getWornItem, p, slot)
+        local okWorn, wornItem = GodSystemB42JavaCalls.try(p, "getWornItem", slot)
         worn = okWorn and wornItem == item
     end
     local expectedWorn = terminalWear.actionType == "ISWearClothing"
     local success = worn == expectedWorn
     terminalWearLog("finish", terminalWear, success, currentType)
     if not success then
-        if item and item.setJobDelta then pcall(item.setJobDelta, item, 0) end
-        if item and item.setJobType then pcall(item.setJobType, item, "") end
+        if item and item.setJobDelta then GodSystemB42JavaCalls.try(item, "setJobDelta", 0) end
+        if item and item.setJobType then GodSystemB42JavaCalls.try(item, "setJobType", "") end
         if terminalWear.action and terminalWear.action.stopSound then pcall(terminalWear.action.stopSound, terminalWear.action) end
         GodSystemNetwork.lastTerminalWearFailure = terminalWear.itemId
         notify(GodSystem.text("Notify_TerminalWearFailed", "The terminal equipment action did not finish. Try again and provide the log if it repeats."))

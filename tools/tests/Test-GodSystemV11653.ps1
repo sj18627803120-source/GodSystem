@@ -18,6 +18,7 @@ $Textures = Join-Path $Media 'textures'
 $ConfigPath = Join-Path $Lua 'shared\GodSystem_Config.lua'
 $AdminConfigPath = Join-Path $Lua 'shared\GodSystem_AdminConfig.lua'
 $AttributesPath = Join-Path $Lua 'shared\GodSystem_Attributes.lua'
+$B42JavaCallsPath = Join-Path $Lua 'shared\GodSystem_B42JavaCalls.lua'
 $ProtocolPath = Join-Path $Lua 'shared\GodSystem_Protocol.lua'
 $CompanionConfigPath = Join-Path $Lua 'shared\GodSystem_CompanionConfig.lua'
 $MaintenancePath = Join-Path $Lua 'shared\GodSystem_Maintenance.lua'
@@ -48,6 +49,7 @@ function Reject-Text([string]$Text, [string]$Pattern, [string]$Message) {
 $config = Read-Utf8 $ConfigPath
 $admin = Read-Utf8 $AdminConfigPath
 $attributes = Read-Utf8 $AttributesPath
+$b42JavaCalls = Read-Utf8 $B42JavaCallsPath
 $protocol = Read-Utf8 $ProtocolPath
 $companionConfig = Read-Utf8 $CompanionConfigPath
 $maintenance = Read-Utf8 $MaintenancePath
@@ -153,7 +155,8 @@ Require-Text $server 'function\s+Commands\.attribute[\s\S]*spendCurrency\([^\r\n
 Require-Text $core 'function\s+GodSystem\.getAttributePerks\b' 'Attribute enumeration helper missing'
 Require-Text $attributes 'Perks\.getMaxIndex\s*\(' 'Attribute enumeration must use Perks.getMaxIndex'
 Require-Text $attributes 'getTotalXpForLevel' 'Attribute target-level XP calculation missing'
-Require-Text $attributes 'if\s+#args\s*==\s*0\s+then[\s\S]*object\[methodName\]\(object\)' 'Shared attribute safeCall must not pass a synthetic nil argument'
+Require-Text $attributes 'GodSystemB42JavaCalls\.value\(object,\s*methodName,\s*fallback,\s*\.\.\.\)' 'Shared attribute safeCall delegates the original varargs unchanged'
+Require-Text $b42JavaCalls 'Bridge\.try\(target,\s*methodName,\s*\.\.\.\)' 'B42 bridge does not add a synthetic nil argument'
 Require-Text $ui '\{\s*id\s*=\s*"attribute"' 'Attribute navigation tab missing'
 Require-Text $ui 'populateAttributes|populateAttribute' 'Attribute page population missing'
 Require-Text $ui 'function\s+GodSystemWindow:showAttributeAmountDialog\b' 'Attribute amount dialog helper missing'

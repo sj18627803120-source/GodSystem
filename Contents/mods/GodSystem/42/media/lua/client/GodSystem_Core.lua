@@ -13,6 +13,7 @@ require "GodSystem_TerminalFood"
 require "GodSystem_ShopVariants"
 require "GodSystem_Storage"
 require "GodSystem_TaskOrder"
+require "GodSystem_B42JavaCalls"
 
 GodSystem = GodSystem or {}
 GodSystem.data = nil
@@ -2661,27 +2662,7 @@ local function gsSafeGetText(key)
 end
 
 local function gsSafeCall(object, methodName, fallback, ...)
-    if not object or not methodName then
-        return fallback
-    end
-    local method = object[methodName]
-    if type(method) ~= "function" then
-        return fallback
-    end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    local ok, value = pcall(function()
-        if unpackFn then
-            return method(object, unpackFn(args))
-        end
-        return method(object)
-    end)
-    if ok and value ~= nil then
-        return value
-    elseif ok then
-        return fallback
-    end
-    return fallback
+    return GodSystemB42JavaCalls.value(object, methodName, fallback, ...)
 end
 
 local function gsArrayFromList(list)
@@ -4193,13 +4174,8 @@ function GodSystem.getScriptItemCategory(fullType)
     end
     local methods = { "getTypeString", "getDisplayCategory", "getType", "getCategory" }
     for i = 1, #methods do
-        local methodName = methods[i]
-        if scriptItem[methodName] then
-            local ok, value = pcall(function() return scriptItem[methodName](scriptItem) end)
-            if ok and value then
-                return tostring(value)
-            end
-        end
+        local value = GodSystemB42JavaCalls.value(scriptItem, methods[i], nil)
+        if value then return tostring(value) end
     end
     return ""
 end
@@ -4211,13 +4187,8 @@ function GodSystem.getScriptItemDisplayCategory(fullType)
     end
     local methods = { "getDisplayCategory", "getTypeString", "getType", "getCategory" }
     for i = 1, #methods do
-        local methodName = methods[i]
-        if scriptItem[methodName] then
-            local ok, value = pcall(function() return scriptItem[methodName](scriptItem) end)
-            if ok and value and tostring(value) ~= "" then
-                return tostring(value)
-            end
-        end
+        local value = GodSystemB42JavaCalls.value(scriptItem, methods[i], nil)
+        if value and tostring(value) ~= "" then return tostring(value) end
     end
     return ""
 end
@@ -5200,10 +5171,7 @@ function GodSystem.formatPosition(pos)
 end
 
 local function gsSafeBoolCall(object, methodName)
-    if not object or not methodName or not object[methodName] then
-        return false
-    end
-    local ok, value = pcall(function() return object[methodName](object) end)
+    local ok, value = GodSystemB42JavaCalls.try(object, methodName)
     return ok and value == true
 end
 
