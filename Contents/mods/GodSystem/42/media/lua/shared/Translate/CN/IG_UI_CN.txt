@@ -1281,7 +1281,7 @@ IGUI_CN = {
     IGUI_GodSystem_Notify_TerminalReliefApplyFailed = "空间减载应用失败，本次未扣费",
     IGUI_GodSystem_NotifyMP_TerminalReliefApplyFailed = "空间减载应用失败，本次未扣费",
     IGUI_GodSystem_AdminSetting_TerminalReliefUpgradeCost = "空间减载每次费用",
-    IGUI_GodSystem_AdminSetting_TerminalReliefUpgradeCost_Desc = "每次升级空间减载需要花费的系统币。沙盒值只初始化新世界；进入世界后以系统管理页为准。",
+    IGUI_GodSystem_AdminSetting_TerminalReliefUpgradeCost_Desc = "空间终端每次升级减载能力需要花费的系统币。只影响空间减载，不影响人物负重能力；沙盒值只初始化新世界，进入世界后以系统管理页为准。",
     IGUI_GodSystem_AdminSetting_TerminalReliefPerLevel = "空间减载每级增量",
     IGUI_GodSystem_AdminSetting_TerminalReliefPerLevel_Desc = "每购买一级空间减载所增加的减载点数。修改后保留等级，并按新参数重新计算当前减载。",
     IGUI_GodSystem_AdminSetting_TerminalReliefMaxOffset = "空间减载最大值",
@@ -1719,4 +1719,9 @@ IGUI_CN = {
     IGUI_GodSystem_NotifyMP_ListOnlySuccess = "已上架 {1}，花费 {2} 系统币，商城售价 {3}",
 
     IGUI_GodSystem_EconomyDetail_UnverifiedExact = "动态产出无法可靠验证；该物品已有明确价格，因此保留明确价格，不套用通用风险底价。",
+
+    IGUI_GodSystem_AdminSetting_CarryCapacityBaseCost = "人物负重首次升级费用",
+    IGUI_GodSystem_AdminSetting_CarryCapacityBaseCost_Desc = "人物负重能力第1级升级所需的系统币。只影响人物负重，不影响空间终端减载；沙盒值只初始化新世界，进入世界后以系统管理页为准。",
+    IGUI_GodSystem_AdminSetting_CarryCapacityCostMultiplier = "人物负重每级费用倍率",
+    IGUI_GodSystem_AdminSetting_CarryCapacityCostMultiplier_Desc = "人物负重每次升级价格相对上一级的倍率。只影响人物负重，不影响空间终端减载；沙盒值只初始化新世界，进入世界后以系统管理页为准。",
 }

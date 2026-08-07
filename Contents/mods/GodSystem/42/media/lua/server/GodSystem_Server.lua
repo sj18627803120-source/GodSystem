@@ -72,32 +72,80 @@ local function floor(v, fallback)
     return math.floor(n(v, fallback or 0))
 end
 
+-- B42 Java userdata methods must be invoked with an explicit object-method
+-- call.  Extracting object[methodName] and calling the result as a function
+-- raises "Expected a method call but got a function call" in B42.20.2.
+local SAFE_JAVA_CALLS = {
+    getBodyDamage = function(object, ...) return object:getBodyDamage(...) end,
+    getBodyParts = function(object, ...) return object:getBodyParts(...) end,
+    getStats = function(object, ...) return object:getStats(...) end,
+    getHealth = function(object, ...) return object:getHealth(...) end,
+    getOverallBodyHealth = function(object, ...) return object:getOverallBodyHealth(...) end,
+    getInfectionTime = function(object, ...) return object:getInfectionTime(...) end,
+    getInfectionMortalityDuration = function(object, ...) return object:getInfectionMortalityDuration(...) end,
+    getInfectionLevel = function(object, ...) return object:getInfectionLevel(...) end,
+    getBleedingTime = function(object, ...) return object:getBleedingTime(...) end,
+    getDeepWoundTime = function(object, ...) return object:getDeepWoundTime(...) end,
+    getScratchTime = function(object, ...) return object:getScratchTime(...) end,
+    getCutTime = function(object, ...) return object:getCutTime(...) end,
+    getBiteTime = function(object, ...) return object:getBiteTime(...) end,
+    getBurnTime = function(object, ...) return object:getBurnTime(...) end,
+    getFractureTime = function(object, ...) return object:getFractureTime(...) end,
+    getWoundInfectionLevel = function(object, ...) return object:getWoundInfectionLevel(...) end,
+    getAdditionalPain = function(object, ...) return object:getAdditionalPain(...) end,
+    IsInfected = function(object, ...) return object:IsInfected(...) end,
+    isInfected = function(object, ...) return object:isInfected(...) end,
+    IsFakeInfected = function(object, ...) return object:IsFakeInfected(...) end,
+    isFakeInfected = function(object, ...) return object:isFakeInfected(...) end,
+    HasInjury = function(object, ...) return object:HasInjury(...) end,
+    hasInjury = function(object, ...) return object:hasInjury(...) end,
+    isBleeding = function(object, ...) return object:isBleeding(...) end,
+    IsBleeding = function(object, ...) return object:IsBleeding(...) end,
+    bleeding = function(object, ...) return object:bleeding(...) end,
+    isDeepWounded = function(object, ...) return object:isDeepWounded(...) end,
+    deepWounded = function(object, ...) return object:deepWounded(...) end,
+    haveBullet = function(object, ...) return object:haveBullet(...) end,
+    haveGlass = function(object, ...) return object:haveGlass(...) end,
+    isBurnt = function(object, ...) return object:isBurnt(...) end,
+    stitched = function(object, ...) return object:stitched(...) end,
+    setInfected = function(object, ...) return object:setInfected(...) end,
+    SetInfected = function(object, ...) return object:SetInfected(...) end,
+    setIsFakeInfected = function(object, ...) return object:setIsFakeInfected(...) end,
+    SetFakeInfected = function(object, ...) return object:SetFakeInfected(...) end,
+    setInfectionTime = function(object, ...) return object:setInfectionTime(...) end,
+    setInfectionMortalityDuration = function(object, ...) return object:setInfectionMortalityDuration(...) end,
+    setInfectionLevel = function(object, ...) return object:setInfectionLevel(...) end,
+    setInfectedWound = function(object, ...) return object:setInfectedWound(...) end,
+    setWoundInfectionLevel = function(object, ...) return object:setWoundInfectionLevel(...) end,
+    SetHealth = function(object, ...) return object:SetHealth(...) end,
+    setHealth = function(object, ...) return object:setHealth(...) end,
+    setBleedingTime = function(object, ...) return object:setBleedingTime(...) end,
+    setDeepWoundTime = function(object, ...) return object:setDeepWoundTime(...) end,
+    setScratchTime = function(object, ...) return object:setScratchTime(...) end,
+    setCutTime = function(object, ...) return object:setCutTime(...) end,
+    setBiteTime = function(object, ...) return object:setBiteTime(...) end,
+    setBurnTime = function(object, ...) return object:setBurnTime(...) end,
+    setFractureTime = function(object, ...) return object:setFractureTime(...) end,
+    setAdditionalPain = function(object, ...) return object:setAdditionalPain(...) end,
+    setHaveBullet = function(object, ...) return object:setHaveBullet(...) end,
+    setHaveGlass = function(object, ...) return object:setHaveGlass(...) end,
+    setStitched = function(object, ...) return object:setStitched(...) end,
+    setSplint = function(object, ...) return object:setSplint(...) end,
+    setBandaged = function(object, ...) return object:setBandaged(...) end,
+    setOverallBodyHealth = function(object, ...) return object:setOverallBodyHealth(...) end,
+}
+
 local function safeCall(object, methodName, fallback, ...)
-    if not object or not methodName then
-        return fallback
-    end
+    if not object or not methodName then return fallback end
+    local caller = SAFE_JAVA_CALLS[methodName]
+    if not caller then return fallback end
     local args = { ... }
     local unpackFn = unpack or (table and table.unpack)
     local ok, value = pcall(function()
-        local method = object[methodName]
-        if unpackFn then
-            return method(object, unpackFn(args))
-        end
-        return method(object)
+        if unpackFn then return caller(object, unpackFn(args)) end
+        return caller(object)
     end)
-    if ok and value ~= nil then
-        return value
-    end
-    ok, value = pcall(function()
-        local method = object[methodName]
-        if unpackFn then
-            return method(unpackFn(args))
-        end
-        return method()
-    end)
-    if ok and value ~= nil then
-        return value
-    end
+    if ok and value ~= nil then return value end
     return fallback
 end
 
@@ -2113,7 +2161,11 @@ function GodSystemServer.isTerminalOwnedByPlayer(player, item)
         local ok, container = pcall(function() return current:getContainer() end)
         if not ok or not container then return false end
         if container == root then return true end
-        local parent = container.getContainingItem and safeCall(container, "getContainingItem", nil) or nil
+        local parent = nil
+        if container.getContainingItem then
+            local parentOk, value = pcall(function() return container:getContainingItem() end)
+            if parentOk then parent = value end
+        end
         current = parent
     end
     return false

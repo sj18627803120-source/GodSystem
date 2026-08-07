@@ -93,8 +93,8 @@ def parse_admin_meta() -> list[dict[str, str]]:
             continue
         fields["key"] = key
         rows.append(fields)
-    if len(rows) != 75:
-        raise ValueError(f"Expected 75 admin settings, found {len(rows)}")
+    if len(rows) != 77:
+        raise ValueError(f"Expected 77 admin settings, found {len(rows)}")
     return rows
 
 
