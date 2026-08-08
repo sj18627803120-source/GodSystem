@@ -127,7 +127,6 @@ local CALLERS = {
     Remove = function(target, ...) return target:Remove(...) end,
     setAdditionalPain = function(target, ...) return target:setAdditionalPain(...) end,
     setAge = function(target, ...) return target:setAge(...) end,
-    setBandaged = function(target, ...) return target:setBandaged(...) end,
     setBiteTime = function(target, ...) return target:setBiteTime(...) end,
     setBleedingTime = function(target, ...) return target:setBleedingTime(...) end,
     setBurnTime = function(target, ...) return target:setBurnTime(...) end,

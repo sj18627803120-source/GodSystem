@@ -2931,7 +2931,6 @@ local function gsMedicalHealPart(part)
     gsSafeCall(part, "setHaveGlass", nil, false)
     gsSafeCall(part, "setStitched", nil, false)
     gsSafeCall(part, "setSplint", nil, false, 0)
-    gsSafeCall(part, "setBandaged", nil, false, 0, false, "", nil)
 end
 
 local function gsMedicalHealInjuries(targetPlayer, body)

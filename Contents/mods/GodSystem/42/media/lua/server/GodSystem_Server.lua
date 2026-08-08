@@ -3594,7 +3594,6 @@ local function medicalHealPart(part)
     safeCall(part, "setHaveGlass", nil, false)
     safeCall(part, "setStitched", nil, false)
     safeCall(part, "setSplint", nil, false, 0)
-    safeCall(part, "setBandaged", nil, false, 0, false, "", nil)
 end
 
 local function medicalHealInjuries(player, body)

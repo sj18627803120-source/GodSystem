@@ -28,6 +28,7 @@ $lua = Join-Path $mod '42\media\lua'
 $shared = Join-Path $lua 'shared'
 $bridge = Read-Utf8 (Join-Path $shared 'GodSystem_B42JavaCalls.lua')
 $server = Read-Utf8 (Join-Path $lua 'server\GodSystem_Server.lua')
+$core = Read-Utf8 (Join-Path $lua 'client\GodSystem_Core.lua')
 $network = Read-Utf8 (Join-Path $lua 'client\GodSystem_Network.lua')
 $upgrades = Read-Utf8 (Join-Path $shared 'GodSystem_TerminalUpgrades.lua')
 $config = Read-Utf8 (Join-Path $shared 'GodSystem_Config.lua')
@@ -68,6 +69,7 @@ Require-Text $server 'GodSystemB42JavaCalls\.getCapacity\(item\)' 'Server termin
 Require-Text $network 'GodSystemB42JavaCalls\.setCapacity' 'Client terminal sync writes capacity explicitly'
 Require-Text $upgrades 'GodSystemB42JavaCalls\.setWeightReduction' 'Terminal upgrades write reduction explicitly'
 Require-Text $bridge 'local available, method = pcall\(function\(\) return target\[methodName\] end\)' 'Bridge probes optional userdata methods before calling'
+Reject-Text ($core + $server) 'setBandaged' 'Medical healing does not call the unverified BodyPart setBandaged overload'
 Reject-Text ($server + $network + $upgrades) 'pcall\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\.(?:getContainingItem|getCapacity|setCapacity|getWeightReduction|setWeightReduction|getInventory|getItems|isFavorite|hasTag|setName|setCustomName|transmitModData)' 'Audited Java methods are not extracted into pcall'
 
 $capacityBlock = [regex]::Match($config, 'GodSystemConfig\.TerminalCapacityLevels\s*=\s*\{(?<body>[\s\S]*?)\n\}').Groups['body'].Value
