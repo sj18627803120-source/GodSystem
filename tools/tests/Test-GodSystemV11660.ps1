@@ -46,12 +46,12 @@ Require-Text $b42Info ('(?m)^modversion=' + $versionPattern + '\r?$') ("B42 mod.
 Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') ("Workshop metadata must mention v" + $ExpectedVersion)
 
 Require-Text $config 'CarryCapacityPerLevel\s*=\s*2' 'Configured carry behavior must remain unchanged'
-Require-Text $carry 'local function capacityFromDelta' 'Carry result measurement helper is missing'
-Require-Text $carry 'local function detectDeltaModel' 'Carry delta model detection is missing'
-Require-Text $carry 'local desiredFactor\s*=\s*desiredBonus\s*/\s*maxWeightBase' 'Existing carry factor calculation must remain unchanged'
-Require-Text $carry 'local target\s*=\s*externalDelta\s*\+\s*desiredFactor' 'Existing carry target must remain unchanged'
-Require-Text $carry 'predictedFinal\s*=\s*capacityFromDelta' 'Upgrade result must be measured from the written delta'
-Require-Text $carry 'predictedIncrease\s*=\s*predictedFinal\s*and\s*\(predictedFinal\s*-\s*originalFinal\)' 'Upgrade result must compare before and estimated final capacity'
+Require-Text $carry 'function GodSystemCarryCapacity\.getVanillaCapacity' 'Carry result measurement helper is missing'
+Require-Text $carry 'math\.floor\(maxWeightBase\s*\*\s*weightMod\s*\+\s*EPSILON\)\s*-\s*reducers' 'Carry measurement must follow the B42 vanilla capacity formula'
+Require-Text $carry 'local desiredFinal\s*=\s*nativeFinal\s*\+\s*desiredBonus' 'Carry target must add the configured bonus to the vanilla final'
+Require-Text $carry 'local target\s*=\s*desiredFinal\s*/\s*nativeCapacity' 'Carry target must preserve the native multiplier'
+Require-Text $carry 'predictedFinal\s*=\s*desiredFinal' 'Upgrade result must report the written final capacity'
+Require-Text $carry 'predictedIncrease\s*=\s*desiredFinal\s*-\s*originalFinal' 'Upgrade result must compare before and estimated final capacity'
 Require-Text $carry 'actualBonus\s*=\s*total\s*~=\s*nil\s*and\s*base\s*~=\s*nil\s*and\s*\(total\s*-\s*base\)' 'Displayed carry bonus must use actual final minus base'
 Reject-Text $carry 'TARGET_MARGIN|Events\.|OnPlayerUpdate|OnTick|EveryOneMinute' 'Carry measurement must not alter the target or register recurring work'
 

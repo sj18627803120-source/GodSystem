@@ -21,20 +21,20 @@
 - Modify: `tools/tests/Test-GodSystemV422024.ps1`
 - Modify: `tools/tests/Test-GodSystemV422024Runtime.lua`
 
-- [ ] Add assertions requiring a vanilla-capacity helper, native multiplier marker, and periodic carry recalibration call.
-- [ ] Add mock-player runtime cases for base 14 with neutral, Strong, Weak, and Hungry/Sick/Injured reducers; assert level bonus is applied to the vanilla final and repeated application does not stack.
-- [ ] Run the focused script and confirm RED because the current module lacks the new helper/behavior.
+- [x] Add assertions requiring a vanilla-capacity helper, native multiplier marker, and periodic carry recalibration call.
+- [x] Add mock-player runtime cases for base 14 with neutral, Strong, Weak, and Hungry/Sick/Injured reducers; assert level bonus is applied to the vanilla final and repeated application does not stack.
+- [x] Run the focused script and confirm RED because the current module lacks the new helper/behavior.
 
 ### Task 2: Implement Shared Formula and Status
 
 **Files:**
 - Modify: `Contents/mods/GodSystem/42/media/lua/shared/GodSystem_CarryCapacity.lua`
 
-- [ ] Implement exact Moodle reducer reads and `nativeCapacity = floor(base * weightMod) - reducers`.
-- [ ] Resolve native versus previous GodSystem multiplier from runtime state and existing ModData markers.
-- [ ] Apply `desiredFinal = nativeFinal + levelBonus`, write `targetDelta`, refresh the cache, persist only the migration markers, and report live `actualBonus`.
-- [ ] Preserve rollback when any write or read-back fails.
-- [ ] Run the focused runtime test and confirm GREEN.
+- [x] Implement exact Moodle reducer reads and `nativeCapacity = floor(base * weightMod) - reducers`.
+- [x] Resolve native versus previous GodSystem multiplier from runtime state and existing ModData markers.
+- [x] Apply `desiredFinal = nativeFinal + levelBonus`, write `targetDelta`, refresh the cache, persist only the migration markers, and report live `actualBonus`.
+- [x] Preserve rollback when any write or read-back fails.
+- [x] Run the focused runtime test and confirm GREEN.
 
 ### Task 3: Reuse Existing Player-Update Boundaries
 
@@ -43,10 +43,10 @@
 - Modify: `Contents/mods/GodSystem/42/media/lua/client/GodSystem_Network.lua`
 - Modify: `Contents/mods/GodSystem/42/media/lua/server/GodSystem_Server.lua`
 
-- [ ] At the existing 60-tick player-update boundary, call the shared carry apply/reconcile entry for the local SP player and the authoritative MP server player.
-- [ ] Keep MP client state application behind the existing server-state handshake and avoid a second business path.
-- [ ] Extend the lifecycle regression to require SP, MP client, and MP server recalibration hooks.
-- [ ] Run the focused test and the relevant history tests.
+- [x] At the existing 60-tick player-update boundary, call the shared carry apply/reconcile entry for the local SP player and the authoritative MP server player.
+- [x] Keep MP client state application behind the existing server-state handshake and avoid a second business path.
+- [x] Extend the lifecycle regression to require SP, MP client, and MP server recalibration hooks.
+- [x] Run the focused test and the relevant history tests.
 
 ### Task 4: Bump Version and Metadata
 
@@ -60,17 +60,17 @@
 - Modify: `tools/tests/Test-GodSystemV422024.ps1`
 - Create: `docs/GodSystem_DevHandoff_CN/89_42.20_2.5_负重公式与重连修复.md`
 
-- [ ] Change active version expectations and descriptions to `42.20_2.5` without changing Mod ID or Workshop ID.
-- [ ] Record the exact formula evidence, changed boundaries, test results, and pending SP/MP checks in the handoff.
-- [ ] Run focused version assertions before the full suite.
+- [x] Change active version expectations and descriptions to `42.20_2.5` without changing Mod ID or Workshop ID.
+- [x] Record the exact formula evidence, changed boundaries, test results, and pending SP/MP checks in the handoff.
+- [x] Run focused version assertions before the full suite.
 
 ### Task 5: Verify and Deploy
 
 **Files:**
 - Runtime mirror: `C:\Users\Admin\Zomboid\Workshop\GodSystem\Contents`
 
-- [ ] Run `Test-GodSystemV422024.ps1 -Root .` and `tools/Test-GodSystem.ps1`.
-- [ ] Run `git diff --check`, encoding checks, and inspect `git status`/diff.
+- [x] Run `Test-GodSystemV422024.ps1 -Root .` and `tools/Test-GodSystem.ps1`.
+- [x] Run `git diff --check`, encoding checks, and inspect `git status`/diff.
 - [ ] Mirror only `Contents` with `robocopy /MIR`.
 - [ ] SHA-256 compare the three handoff files plus carry module between worktree and Workshop.
 - [ ] Report automated results separately from pending B42.20.2 SP/MP behavior checks.

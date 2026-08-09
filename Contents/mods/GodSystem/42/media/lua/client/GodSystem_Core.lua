@@ -7432,6 +7432,9 @@ function GodSystem.onPlayerUpdate(player)
     if GodSystem.updateTicks % 60 ~= 0 then
         return
     end
+    if GodSystemCarryCapacity and GodSystemCarryCapacity.reconcile then
+        pcall(GodSystemCarryCapacity.reconcile, player, GodSystem.getCarryCapacityLevel())
+    end
     GodSystem.updateMoveDistance(player)
     GodSystem.generateDailyTasks(false)
     GodSystem.updateKillRewards()

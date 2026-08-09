@@ -4850,6 +4850,9 @@ local function onPlayerUpdate(player)
     observeTerminalFreshnessSession(state, nowHours())
     if state.ticks % 60 ~= 0 then return end
     local data = playerData(player)
+    if GodSystemCarryCapacity and GodSystemCarryCapacity.reconcile then
+        pcall(GodSystemCarryCapacity.reconcile, player, GodSystemCarryCapacity.getLevel(data))
+    end
     generateDailyTasks(data, false)
     updateHomeSafeZone(player)
     if state.terminalFreshnessNeedsSessionReset then

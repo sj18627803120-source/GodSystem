@@ -42,8 +42,9 @@ Require-Text $workshop ('(?m)^description=v' + $versionPattern + '\r?$') "Worksh
 
 Require-Text $carry 'local function writeFinal' 'Carry repair must refresh the cached final capacity'
 Require-Text $carry 'player:setMaxWeight\(value\)' 'Carry repair must use the instance final-capacity API'
-Require-Text $carry 'maxWeightBase\s*\*\s*\(1\s*\+\s*externalDelta\)' 'Carry baseline must preserve external delta contributions'
-Require-Text $carry 'local desiredFinal\s*=\s*writeBaseline\s*\+\s*desiredBonus' 'Carry final write must still add the configured bonus to the v1.16.59 baseline'
+Require-Text $carry 'function GodSystemCarryCapacity\.getVanillaCapacity' 'Carry baseline must use the B42 vanilla capacity helper'
+Require-Text $carry 'local desiredFinal\s*=\s*nativeFinal\s*\+\s*desiredBonus' 'Carry final write must add the configured bonus to the vanilla final'
+Require-Text $carry 'local target\s*=\s*desiredFinal\s*/\s*nativeCapacity' 'Carry final write must preserve the native multiplier'
 Require-Text $carry 'writeFinal\(player,\s*originalFinal\)' 'Carry application failure must restore the previous final value'
 Reject-Text $carry 'setMaxWeightBase' 'Carry repair must not overwrite maxWeightBase'
 

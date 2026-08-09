@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Root,
-    [string]$ExpectedVersion = '42.20_2.4'
+    [string]$ExpectedVersion = '42.20_2.5'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +30,7 @@ $bridge = Read-Utf8 (Join-Path $shared 'GodSystem_B42JavaCalls.lua')
 $server = Read-Utf8 (Join-Path $lua 'server\GodSystem_Server.lua')
 $core = Read-Utf8 (Join-Path $lua 'client\GodSystem_Core.lua')
 $network = Read-Utf8 (Join-Path $lua 'client\GodSystem_Network.lua')
+$carry = Read-Utf8 (Join-Path $shared 'GodSystem_CarryCapacity.lua')
 $upgrades = Read-Utf8 (Join-Path $shared 'GodSystem_TerminalUpgrades.lua')
 $config = Read-Utf8 (Join-Path $shared 'GodSystem_Config.lua')
 $rootInfo = Read-Utf8 (Join-Path $mod 'mod.info')
@@ -69,6 +70,14 @@ Require-Text $server 'GodSystemB42JavaCalls\.getCapacity\(item\)' 'Server termin
 Require-Text $network 'GodSystemB42JavaCalls\.setCapacity' 'Client terminal sync writes capacity explicitly'
 Require-Text $upgrades 'GodSystemB42JavaCalls\.setWeightReduction' 'Terminal upgrades write reduction explicitly'
 Require-Text $bridge 'local available, method = pcall\(function\(\) return target\[methodName\] end\)' 'Bridge probes optional userdata methods before calling'
+Require-Text $network 'function GodSystemNetwork\.resetSessionRuntime\(\)[\s\S]*sentHello\s*=\s*false[\s\S]*GodSystemNetwork\.hasServerState\s*=\s*false[\s\S]*GodSystemNetwork\.pendingState\s*=\s*true' 'MP reconnect resets the client session handshake state'
+Require-Text $network 'Events\.OnConnected\.Add\(GodSystemNetwork\.resetSessionRuntime\)' 'MP connect installs the session handshake reset'
+Require-Text $network 'Events\.OnDisconnect\.Add\(GodSystemNetwork\.resetSessionRuntime\)' 'MP disconnect installs the session handshake reset'
+Require-Text $carry 'GodSystemCarryCapacity\.getVanillaCapacity' 'Carry capacity exposes the B42 vanilla capacity measurement'
+Require-Text $carry 'GodSystemCarryCapacity\.reconcile' 'Carry capacity exposes a bounded recalibration entry'
+Require-Text $core 'GodSystemCarryCapacity\.reconcile' 'SP player updates recalibrate carry capacity'
+Require-Text $network 'GodSystemCarryCapacity\.reconcile' 'MP client player updates recalibrate carry capacity after state sync'
+Require-Text $server 'GodSystemCarryCapacity\.reconcile' 'MP server player updates recalibrate carry capacity authoritatively'
 Reject-Text ($core + $server) 'setBandaged' 'Medical healing does not call the unverified BodyPart setBandaged overload'
 Reject-Text ($server + $network + $upgrades) 'pcall\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\.(?:getContainingItem|getCapacity|setCapacity|getWeightReduction|setWeightReduction|getInventory|getItems|isFavorite|hasTag|setName|setCustomName|transmitModData)' 'Audited Java methods are not extracted into pcall'
 
@@ -105,9 +114,9 @@ if (-not $luaExe) {
     $localLua = Join-Path $env:LOCALAPPDATA 'Programs\Lua51\5.1.5\lua.exe'
     if (Test-Path -LiteralPath $localLua) { $luaExe = Get-Item -LiteralPath $localLua }
 }
-if (-not $luaExe) { throw 'Lua 5.1 runtime is required for 42.20_2.4 validation' }
+if (-not $luaExe) { throw 'Lua 5.1 runtime is required for 42.20_2.5 validation' }
 $luaPath = if ($luaExe.Source) { $luaExe.Source } else { $luaExe.FullName }
 & $luaPath (Join-Path $PSScriptRoot 'Test-GodSystemV422024Runtime.lua') $lua
-if ($LASTEXITCODE -ne 0) { throw '42.20_2.4 runtime validation failed' }
+if ($LASTEXITCODE -ne 0) { throw '42.20_2.5 runtime validation failed' }
 
 Write-Output "Test-GodSystemV422024 passed for $ExpectedVersion"

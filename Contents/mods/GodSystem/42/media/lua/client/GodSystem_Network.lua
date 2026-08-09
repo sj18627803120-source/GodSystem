@@ -68,6 +68,20 @@ function GodSystemNetwork.resetTerminalSyncRuntime()
     GodSystemNetwork.lastTerminalSync = nil
 end
 
+function GodSystemNetwork.resetSessionRuntime()
+    sentHello = false
+    pendingHelloTick = true
+    pendingRefresh = false
+    lastStateRequestMs = 0
+    nextBackgroundSyncMs = 0
+    GodSystemNetwork.hasServerState = false
+    GodSystemNetwork.pendingState = true
+    if Events and Events.OnTick then
+        Events.OnTick.Remove(GodSystemNetwork.helloRetryOnTick)
+        Events.OnTick.Add(GodSystemNetwork.helloRetryOnTick)
+    end
+end
+
 local function player()
     return getPlayer and getPlayer() or nil
 end
@@ -1107,6 +1121,10 @@ function GodSystemNetwork.onPlayerUpdate(p)
     GodSystemNetwork.updatePendingTerminalPageSync()
     playerUpdateTicks = (playerUpdateTicks or 0) + 1
     if playerUpdateTicks % 60 == 0 and GodSystem and GodSystem.updateMoveDistance then
+        if GodSystemNetwork.hasServerState and GodSystemCarryCapacity and GodSystemCarryCapacity.reconcile
+            and GodSystem.getCarryCapacityLevel then
+            pcall(GodSystemCarryCapacity.reconcile, p or player(), GodSystem.getCarryCapacityLevel())
+        end
         GodSystem.updateMoveDistance(p or player())
         GodSystemNetwork.syncExpiredTasks()
     end
@@ -1305,12 +1323,16 @@ if Events.OnPlayerDeath then
     Events.OnPlayerDeath.Add(GodSystemNetwork.onPlayerDeath)
 end
 if Events.OnConnected then
+    Events.OnConnected.Remove(GodSystemNetwork.resetSessionRuntime)
+    Events.OnConnected.Add(GodSystemNetwork.resetSessionRuntime)
     Events.OnConnected.Remove(GodSystemNetwork.resetInvestmentRuntime)
     Events.OnConnected.Add(GodSystemNetwork.resetInvestmentRuntime)
     Events.OnConnected.Remove(GodSystemNetwork.resetTerminalSyncRuntime)
     Events.OnConnected.Add(GodSystemNetwork.resetTerminalSyncRuntime)
 end
 if Events.OnDisconnect then
+    Events.OnDisconnect.Remove(GodSystemNetwork.resetSessionRuntime)
+    Events.OnDisconnect.Add(GodSystemNetwork.resetSessionRuntime)
     Events.OnDisconnect.Remove(GodSystemNetwork.resetInvestmentRuntime)
     Events.OnDisconnect.Add(GodSystemNetwork.resetInvestmentRuntime)
     Events.OnDisconnect.Remove(GodSystemNetwork.resetTerminalSyncRuntime)

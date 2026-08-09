@@ -3,6 +3,14 @@ package.path = luaRoot .. "/shared/?.lua;" .. package.path
 
 require "GodSystem_B42JavaCalls"
 require "GodSystem_Config"
+MoodleType = MoodleType or {
+    HUNGRY = "HUNGRY",
+    THIRST = "THIRST",
+    SICK = "SICK",
+    BLEEDING = "BLEEDING",
+    INJURED = "INJURED",
+}
+require "GodSystem_CarryCapacity"
 require "GodSystem_TerminalRelief"
 require "GodSystem_TerminalFood"
 require "GodSystem_TerminalUpgrades"
@@ -105,5 +113,86 @@ expect(GodSystemStorage.safeCall(itemList, "get", nil, 0) == magazine, "storage 
 
 local xp = { getXP = function(self, perk) return perk == "mock" and 123 or 0 end }
 expect(Bridge.value(xp, "getXP", nil, "mock") == 123, "attribute XP read failed")
+
+local function mockPlayer(weightMod, delta, moodles, final, modData)
+    local player = {
+        base = 14,
+        weightMod = weightMod,
+        delta = delta,
+        final = final,
+        moodles = moodles or {},
+        modData = modData or {},
+    }
+    local moodleState = {
+        getMoodleLevel = function(_, moodle) return player.moodles[moodle] or 0 end,
+    }
+    function player:getMaxWeightBase() return self.base end
+    function player:getWeightMod() return self.weightMod end
+    function player:getMaxWeightDelta() return self.delta end
+    function player:setMaxWeightDelta(value) self.delta = value end
+    function player:getMaxWeight() return self.final end
+    function player:setMaxWeight(value) self.final = math.floor(value + 0.0001) end
+    function player:getMoodles() return moodleState end
+    function player:getModData() return self.modData end
+    function player:updateVanilla()
+        local reducers = 0
+        local rules = {
+            { MoodleType.HUNGRY, { [2] = 1, [3] = 2, [4] = 2 } },
+            { MoodleType.THIRST, { [2] = 1, [3] = 2, [4] = 2 } },
+            { MoodleType.SICK, { [2] = 1, [3] = 2, [4] = 3 } },
+            { MoodleType.BLEEDING, { [2] = 1, [3] = 1, [4] = 1 } },
+            { MoodleType.INJURED, { [2] = 1, [3] = 2, [4] = 3 } },
+        }
+        local nativeCapacity = math.floor(self.base * self.weightMod)
+        for i = 1, #rules do
+            reducers = reducers + (rules[i][2][self.moodles[rules[i][1]] or 0] or 0)
+        end
+        nativeCapacity = math.max(0, nativeCapacity - reducers)
+        self.final = math.floor(nativeCapacity * self.delta)
+    end
+    return player
+end
+
+local neutral = mockPlayer(1.0, 1.0, {}, 14)
+local applied, status = GodSystemCarryCapacity.apply(neutral, 1)
+expect(applied == true, "neutral carry upgrade should apply")
+expect(status.total == 16 and status.base == 14 and status.actualBonus == 2, "neutral carry result must be native final plus two")
+neutral:updateVanilla()
+expect(neutral.final == 16, "neutral carry must survive the vanilla strength update")
+local repeated, repeatedStatus = GodSystemCarryCapacity.reconcile(neutral, 1)
+expect(repeated == true and repeatedStatus.total == 16, "repeated neutral carry recalibration must not stack")
+
+local strong = mockPlayer(1.0, 1.5, {}, 21)
+local strongApplied, strongStatus = GodSystemCarryCapacity.apply(strong, 1)
+expect(strongApplied == true and strongStatus.total == 23 and strongStatus.actualBonus == 2, "Strong carry must add two to the vanilla final")
+strong:updateVanilla()
+expect(strong.final == 23, "Strong carry must survive the vanilla strength update")
+
+local weak = mockPlayer(1.0, 0.75, {}, 10)
+local weakApplied, weakStatus = GodSystemCarryCapacity.apply(weak, 1)
+expect(weakApplied == true and weakStatus.total == 12 and weakStatus.actualBonus == 2, "Weak carry must add two after vanilla flooring")
+weak:updateVanilla()
+expect(weak.final == 12, "Weak carry must survive the vanilla strength update")
+
+local injured = mockPlayer(1.0, 1.0, {
+    [MoodleType.HUNGRY] = 2,
+    [MoodleType.SICK] = 2,
+    [MoodleType.INJURED] = 3,
+}, 10)
+local injuredApplied, injuredStatus = GodSystemCarryCapacity.apply(injured, 1)
+expect(injuredApplied == true and injuredStatus.base == 10 and injuredStatus.total == 12 and injuredStatus.actualBonus == 2, "Moodle reducers must be included before the carry bonus")
+injured:updateVanilla()
+expect(injured.final == 12, "Moodle-aware carry must survive the vanilla strength update")
+
+local legacy = mockPlayer(1.0, 1.142857142857, {}, 16, {
+    GodSystemCarryAppliedBonus = 2,
+    GodSystemCarryAppliedDelta = 1.142857142857,
+    GodSystemCarryAppliedFactor = 0.142857142857,
+    GodSystemCarryBaseline = 14,
+})
+local migrated, migratedStatus = GodSystemCarryCapacity.apply(legacy, 2)
+expect(migrated == true and migratedStatus.base == 14 and migratedStatus.total == 18 and migratedStatus.actualBonus == 4, "legacy carry markers must migrate without stacking the old factor")
+legacy:updateVanilla()
+expect(legacy.final == 18, "migrated carry must survive the vanilla strength update")
 
 print("Test-GodSystemV422024Runtime OK")
