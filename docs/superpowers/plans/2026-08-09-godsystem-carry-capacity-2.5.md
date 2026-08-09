@@ -71,6 +71,6 @@
 
 - [x] Run `Test-GodSystemV422024.ps1 -Root .` and `tools/Test-GodSystem.ps1`.
 - [x] Run `git diff --check`, encoding checks, and inspect `git status`/diff.
-- [ ] Mirror only `Contents` with `robocopy /MIR`.
-- [ ] SHA-256 compare the three handoff files plus carry module between worktree and Workshop.
-- [ ] Report automated results separately from pending B42.20.2 SP/MP behavior checks.
+- [x] Mirror only `Contents` with `robocopy /MIR`.
+- [x] SHA-256 compare the three handoff files plus carry module between worktree and Workshop.
+- [x] Report automated results separately from pending B42.20.2 SP/MP behavior checks.
