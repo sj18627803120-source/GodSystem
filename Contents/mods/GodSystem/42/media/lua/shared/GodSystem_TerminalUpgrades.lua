@@ -22,6 +22,8 @@ local function readNumberMethod(target, method)
     local value = nil
     if method == "getCapacity" then
         value = GodSystemB42JavaCalls.getCapacity(target)
+    elseif method == "getEffectiveCapacity" then
+        value = GodSystemB42JavaCalls.getEffectiveCapacity(target)
     elseif method == "getWeightReduction" then
         value = GodSystemB42JavaCalls.getWeightReduction(target)
     end
@@ -63,6 +65,7 @@ local function upgradeTypeKey(upgradeType)
     if upgradeType == "capacity" or upgradeType == "terminalCapacity" then return "capacity" end
     if upgradeType == "reduction" or upgradeType == "terminalReduction" then return "reduction" end
     if upgradeType == "relief" or upgradeType == "terminalRelief" then return "relief" end
+    if upgradeType == "phase2" or upgradeType == "terminalPhase2" then return "phase2" end
     if upgradeType == "freshness" or upgradeType == "terminalFreshness" then return "freshness" end
     return nil
 end
@@ -80,6 +83,7 @@ function GodSystemTerminalUpgrades.getField(upgradeType)
     if upgradeType == "capacity" then return "autoRecyclerCapacityLevel" end
     if upgradeType == "reduction" then return "autoRecyclerReductionLevel" end
     if upgradeType == "relief" then return "autoRecyclerReliefLevel" end
+    if upgradeType == "phase2" then return "autoRecyclerPhase2CapacityLevel" end
     return nil
 end
 
@@ -92,6 +96,7 @@ function GodSystemTerminalUpgrades.normalizeData(data)
     data.autoRecyclerCapacityLevel = normalizeLevel(data.autoRecyclerCapacityLevel, #capacityLevels)
     data.autoRecyclerReductionLevel = normalizeLevel(data.autoRecyclerReductionLevel, #reductionLevels)
     GodSystemTerminalRelief.getLevel(data)
+    GodSystemTerminalRelief.getPhase2Level(data)
     GodSystemTerminalFood.normalizeData(data)
     return data
 end
@@ -100,6 +105,7 @@ function GodSystemTerminalUpgrades.getLevel(data, upgradeType)
     GodSystemTerminalUpgrades.normalizeData(data)
     local key = upgradeTypeKey(upgradeType)
     if key == "relief" then return GodSystemTerminalRelief.getLevel(data) end
+    if key == "phase2" then return GodSystemTerminalRelief.getPhase2Level(data) end
     if key == "freshness" then return GodSystemTerminalFood.getFreshnessLevel(data) end
     local field = GodSystemTerminalUpgrades.getField(key)
     local levels = GodSystemTerminalUpgrades.getLevels(key)
@@ -110,6 +116,7 @@ function GodSystemTerminalUpgrades.setLevel(data, upgradeType, level)
     GodSystemTerminalUpgrades.normalizeData(data)
     local key = upgradeTypeKey(upgradeType)
     if key == "relief" then return GodSystemTerminalRelief.setLevel(data, level) end
+    if key == "phase2" then return GodSystemTerminalRelief.setPhase2Level(data, level) end
     if key == "freshness" then return GodSystemTerminalFood.setFreshnessLevel(data, level) end
     local field = GodSystemTerminalUpgrades.getField(key)
     local levels = GodSystemTerminalUpgrades.getLevels(key)
@@ -122,6 +129,10 @@ function GodSystemTerminalUpgrades.getLevelData(data, upgradeType, level)
     local key = upgradeTypeKey(upgradeType)
     if key == "relief" then
         local info = GodSystemTerminalRelief.getUpgradeInfo(data)
+        return { level = info.level, value = info.offset, upgradeCost = info.nextCost or 0 }
+    end
+    if key == "phase2" then
+        local info = GodSystemTerminalRelief.getPhase2UpgradeInfo(data)
         return { level = info.level, value = info.offset, upgradeCost = info.nextCost or 0 }
     end
     if key == "freshness" then
@@ -137,6 +148,7 @@ function GodSystemTerminalUpgrades.getUpgradeInfo(data, upgradeType)
     local key = upgradeTypeKey(upgradeType)
     if not key then return nil end
     if key == "relief" then return GodSystemTerminalRelief.getUpgradeInfo(data) end
+    if key == "phase2" then return GodSystemTerminalRelief.getPhase2UpgradeInfo(data) end
     if key == "freshness" then
         local info = GodSystemTerminalFood.getFreshnessInfo(data)
         return {
@@ -167,6 +179,11 @@ function GodSystemTerminalUpgrades.getRecoveryLevel(data)
         GodSystemTerminalUpgrades.getLevel(data, "capacity"),
         GodSystemTerminalUpgrades.getLevel(data, "reduction")
     )
+end
+
+function GodSystemTerminalUpgrades.isPhase2Unlocked(data)
+    local levels = GodSystemTerminalUpgrades.getLevels("capacity")
+    return #levels > 0 and GodSystemTerminalUpgrades.getLevel(data, "capacity") >= #levels
 end
 
 function GodSystemTerminalUpgrades.snapshotTerminal(terminal, player)
@@ -227,6 +244,7 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerCapacityLevelKey or "GodSystemTerminalCapacityLevel", GodSystemTerminalUpgrades.getLevel(data, "capacity")) or terminalDataChanged
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerReductionLevelKey or "GodSystemTerminalReductionLevel", GodSystemTerminalUpgrades.getLevel(data, "reduction")) or terminalDataChanged
         terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel", GodSystemTerminalRelief.getLevel(data)) or terminalDataChanged
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerPhase2CapacityLevelKey or "GodSystemTerminalPhase2CapacityLevel", GodSystemTerminalRelief.getPhase2Level(data)) or terminalDataChanged
     end
 
     local reliefOk, reliefReport = GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
@@ -237,6 +255,9 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
         reduction = reduction,
         reliefLevel = GodSystemTerminalRelief.getLevel(data),
         reliefOffset = GodSystemTerminalRelief.getOffset(data),
+        phase2Level = GodSystemTerminalRelief.getPhase2Level(data),
+        phase2Offset = GodSystemTerminalRelief.getPhase2Offset(data),
+        compensationOffset = GodSystemTerminalRelief.getTotalOffset(data),
         items = reliefReport.items or {},
         addedItems = reliefReport.addedItems or {},
         removedItems = reliefReport.removedItems or {},
@@ -248,6 +269,38 @@ function GodSystemTerminalUpgrades.applyTerminal(terminal, data, player)
     return true, report
 end
 
+function GodSystemTerminalUpgrades.applyTerminalPhase2(terminal, data, player)
+    if not terminal or not terminal.getInventory then return false, { reason = "missing" } end
+    GodSystemTerminalUpgrades.normalizeData(data)
+    if not GodSystemTerminalUpgrades.isPhase2Unlocked(data) then return false, { reason = "locked" } end
+    local okInventory, inventory = pcall(function() return terminal:getInventory() end)
+    if not okInventory or not inventory then return false, { reason = "unsupported" } end
+
+    local terminalDataChanged = false
+    local terminalData = itemModData(terminal)
+    if terminalData then
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.AutoRecyclerPhase2CapacityLevelKey or "GodSystemTerminalPhase2CapacityLevel", GodSystemTerminalRelief.getPhase2Level(data)) or terminalDataChanged
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset", GodSystemTerminalRelief.getPhase2Offset(data)) or terminalDataChanged
+        terminalDataChanged = writeTableValue(terminalData, GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset", GodSystemTerminalRelief.getTotalOffset(data)) or terminalDataChanged
+    end
+
+    local reliefOk, reliefReport = GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
+    if not reliefOk then return false, { reason = "reliefApplyFailed", relief = reliefReport } end
+    return true, {
+        reliefLevel = GodSystemTerminalRelief.getLevel(data),
+        reliefOffset = GodSystemTerminalRelief.getOffset(data),
+        phase2Level = GodSystemTerminalRelief.getPhase2Level(data),
+        phase2Offset = GodSystemTerminalRelief.getPhase2Offset(data),
+        compensationOffset = GodSystemTerminalRelief.getTotalOffset(data),
+        items = reliefReport.items or {},
+        addedItems = reliefReport.addedItems or {},
+        removedItems = reliefReport.removedItems or {},
+        inventory = reliefReport.inventory or inventory,
+        terminalChanged = terminalDataChanged,
+        skipped = 0,
+    }
+end
+
 function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
     GodSystemTerminalUpgrades.normalizeData(data)
     local inventory = nil
@@ -257,25 +310,40 @@ function GodSystemTerminalUpgrades.getAppliedStatus(terminal, data, player)
     end
     local expectedCapacity = GodSystemTerminalUpgrades.getLevelData(data, "capacity").value or 10
     local expectedReduction = GodSystemTerminalUpgrades.getLevelData(data, "reduction").value or 50
-    local expectedRelief = GodSystemTerminalRelief.getOffset(data)
+    local expectedManualRelief = GodSystemTerminalRelief.getOffset(data)
+    local expectedPhase2 = GodSystemTerminalRelief.getPhase2Offset(data)
+    local expectedRelief = GodSystemTerminalRelief.getTotalOffset(data)
     local reliefSnapshot = GodSystemTerminalRelief.snapshot(terminal, player)
     local reliefStates = reliefSnapshot.items or {}
     local actualRelief = #reliefStates == 1 and -(tonumber(reliefStates[1].actualWeight) or 0) or 0
+    local reliefItemData = #reliefStates == 1 and reliefStates[1].modData or nil
+    local actualManualRelief = type(reliefItemData) == "table"
+        and math.max(0, tonumber(reliefItemData[GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"]) or 0)
+        or nil
+    local actualPhase2Offset = type(reliefItemData) == "table"
+        and math.max(0, tonumber(reliefItemData[GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"]) or 0)
+        or nil
     local outerCapacity = readNumberMethod(terminal, "getCapacity")
     local innerCapacity = readNumberMethod(inventory, "getCapacity")
+    local effectiveCapacity = readNumberMethod(inventory, "getEffectiveCapacity") or innerCapacity or outerCapacity
     local outerReduction = readNumberMethod(terminal, "getWeightReduction")
     local innerReduction = readNumberMethod(inventory, "getWeightReduction")
     return {
         expectedCapacity = expectedCapacity,
         expectedReduction = expectedReduction,
+        expectedManualRelief = expectedManualRelief,
+        expectedPhase2 = expectedPhase2,
         expectedRelief = expectedRelief,
         outerCapacity = outerCapacity,
         innerCapacity = innerCapacity,
         nativeOuterCapacity = outerCapacity,
         nativeInnerCapacity = innerCapacity,
+        effectiveCapacity = effectiveCapacity,
         outerReduction = outerReduction,
         innerReduction = innerReduction,
         actualRelief = actualRelief,
+        actualManualRelief = actualManualRelief,
+        actualPhase2Offset = actualPhase2Offset,
         reliefItemCount = #reliefStates,
         capacityApplied = outerCapacity ~= nil and innerCapacity ~= nil
             and math.abs(outerCapacity - expectedCapacity) <= EPSILON

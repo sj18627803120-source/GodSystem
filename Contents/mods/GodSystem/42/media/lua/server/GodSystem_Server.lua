@@ -1982,13 +1982,22 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
     local terminalData = item.getModData and item:getModData() or nil
     local reliefLevelKey = GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"
     local reliefOffsetKey = GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"
+    local phase2LevelKey = GodSystemConfig.TerminalPhase2LevelKey or "GodSystemTerminalPhase2Level"
+    local phase2OffsetKey = GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"
+    local compensationOffsetKey = GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset"
     local reliefLevel = math.max(0, math.floor(tonumber(terminalData and terminalData[reliefLevelKey]) or 0))
-    local reliefOffset = 0
+    local manualReliefOffset = math.max(0, tonumber(terminalData and terminalData[reliefOffsetKey]) or 0)
+    local phase2Level = math.max(0, math.floor(tonumber(terminalData and terminalData[phase2LevelKey]) or 0))
+    local phase2Offset = math.max(0, tonumber(terminalData and terminalData[phase2OffsetKey]) or 0)
+    local reliefOffset = math.max(0, tonumber(terminalData and terminalData[compensationOffsetKey]) or 0)
     local reliefSnapshot = GodSystemTerminalRelief.snapshot(item, player)
     local reliefState = reliefSnapshot and reliefSnapshot.items and reliefSnapshot.items[1] or nil
     if reliefState then
         reliefLevel = math.max(0, math.floor(tonumber(reliefState.modData and reliefState.modData[reliefLevelKey]) or reliefLevel))
-        reliefOffset = math.max(0, tonumber(reliefState.modData and reliefState.modData[reliefOffsetKey])
+        manualReliefOffset = math.max(0, tonumber(reliefState.modData and reliefState.modData[reliefOffsetKey]) or manualReliefOffset)
+        phase2Level = math.max(0, math.floor(tonumber(reliefState.modData and reliefState.modData[phase2LevelKey]) or phase2Level))
+        phase2Offset = math.max(0, tonumber(reliefState.modData and reliefState.modData[phase2OffsetKey]) or phase2Offset)
+        reliefOffset = math.max(0, tonumber(reliefState.modData and reliefState.modData[compensationOffsetKey])
             or -(tonumber(reliefState.actualWeight) or 0))
     end
 
@@ -2001,6 +2010,27 @@ function GodSystemServer.buildTerminalSyncPayload(item, player)
         innerReduction = innerReduction,
         reliefLevel = reliefLevel,
         reliefOffset = reliefOffset,
+        manualReliefOffset = manualReliefOffset,
+        phase2Level = phase2Level,
+        phase2Offset = phase2Offset,
+        compensationOffset = reliefOffset,
+    }
+end
+
+function GodSystemServer.buildTerminalExtensionSyncPayload(item, data, player)
+    if not item or not item.getID or not item.getInventory or not isAutoRecyclerContainer(item) then return nil end
+    local okId, itemId = pcall(function() return item:getID() end)
+    if not okId or itemId == nil then return nil end
+    local status = GodSystemTerminalUpgrades.getAppliedStatus(item, data, player)
+    return {
+        kind = "terminalExtensionSync",
+        itemId = itemId,
+        reliefLevel = GodSystemTerminalRelief.getLevel(data),
+        reliefOffset = GodSystemTerminalRelief.getOffset(data),
+        phase2Level = GodSystemTerminalRelief.getPhase2Level(data),
+        phase2Offset = GodSystemTerminalRelief.getPhase2Offset(data),
+        compensationOffset = GodSystemTerminalRelief.getTotalOffset(data),
+        actualCompensationOffset = status and status.actualRelief or nil,
     }
 end
 
@@ -2052,6 +2082,16 @@ local function markAutoRecycler(data, item, player, preappliedReport, deferSync)
     return true, report
 end
 
+function GodSystemServer.markAutoRecyclerPhase2(data, item, player, preappliedReport, deferSync)
+    if not item or not item.getFullType or not isAutoRecyclerFullType(item:getFullType()) then return false end
+    local applied, report = true, preappliedReport
+    if not report then applied, report = GodSystemTerminalUpgrades.applyTerminalPhase2(item, data, player) end
+    report = type(report) == "table" and report or {}
+    if applied ~= true then return false, report end
+    if deferSync ~= true then GodSystemServer.syncTerminalApplyReport(item, report) end
+    return true, report
+end
+
 function GodSystemServer.giveConfiguredTerminal(player, data)
     if not player or not player.getInventory then return false, nil end
     local inventory = player:getInventory()
@@ -2090,12 +2130,12 @@ function GodSystemServer.isTerminalOwnedByPlayer(player, item)
     return false
 end
 
-local function findAutoRecycler(data, player)
+local function findAutoRecycler(data, player, skipApply)
     local key = userKey(player)
     local cached = GodSystemServer.terminalCache[key]
     if cached and cached.item and isAutoRecyclerContainer(cached.item) and GodSystemServer.isTerminalOwnedByPlayer(player, cached.item) then
         GodSystemServer.cleanupEscapedRelief(player, cached.item)
-        markAutoRecycler(data, cached.item, player)
+        if skipApply ~= true then markAutoRecycler(data, cached.item, player) end
         return cached.item, cached.item.getContainer and cached.item:getContainer() or nil
     end
     GodSystemServer.terminalCache[key] = nil
@@ -2106,7 +2146,7 @@ local function findAutoRecycler(data, player)
             for i = 1, #candidates do
                 if isAutoRecyclerContainer(candidates[i].item) then
                     GodSystemServer.cleanupEscapedRelief(player, candidates[i].item)
-                    markAutoRecycler(data, candidates[i].item, player)
+                    if skipApply ~= true then markAutoRecycler(data, candidates[i].item, player) end
                     GodSystemServer.terminalCache[key] = { player = player, item = candidates[i].item }
                     return candidates[i].item, candidates[i].container
                 end
@@ -3855,12 +3895,16 @@ function Commands.upgradeSystem(_, _, player, args)
             terminalCapacity = "capacity",
             terminalReduction = "reduction",
             terminalRelief = "relief",
+            terminalPhase2 = "phase2",
             terminalFreshness = "freshness",
         }
         local terminalType = terminalTypes[t]
         if terminalType then
-            local item = findAutoRecycler(data, player)
+            local item = findAutoRecycler(data, player, terminalType == "phase2")
             if not item then return complete(false, "RecycleWaistMissing") end
+            if terminalType == "phase2" and not GodSystemTerminalUpgrades.isPhase2Unlocked(data) then
+                return complete(false, "TerminalPhase2Locked")
+            end
             local info = GodSystemTerminalUpgrades.getUpgradeInfo(data, terminalType)
             if not info or not info.nextCost then return complete(false, "SystemUpgradeMaxed") end
             local cost = info.nextCost
@@ -3868,36 +3912,68 @@ function Commands.upgradeSystem(_, _, player, args)
             local snapshot = GodSystemTerminalUpgrades.snapshotTerminal(item, player)
             local previousLevel = info.level
             GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel + 1)
-            local applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data, player)
+            local applied, report
+            if terminalType == "phase2" then
+                applied, report = GodSystemTerminalUpgrades.applyTerminalPhase2(item, data, player)
+            else
+                applied, report = GodSystemTerminalUpgrades.applyTerminal(item, data, player)
+            end
             if not applied then
                 GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel)
-                local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                local restoreReport = nil
+                if terminalType == "phase2" then
+                    local restored, phase2Report = GodSystemTerminalUpgrades.applyTerminalPhase2(item, data, player)
+                    if restored then
+                        restoreReport = phase2Report
+                    else
+                        local _, snapshotReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                        restoreReport = snapshotReport
+                    end
+                    GodSystemServer.markAutoRecyclerPhase2(data, item, player, restoreReport)
+                    return complete(false, "TerminalPhase2ApplyFailed")
+                end
+                local _, snapshotReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                restoreReport = snapshotReport
                 GodSystemServer.syncTerminalApplyReport(item, restoreReport)
                 markAutoRecycler(data, item, player)
                 return complete(false, terminalType == "relief" and "TerminalReliefApplyFailed" or "TerminalUpgradeApplyFailed")
             end
             if not addPoints(player, -cost, data) then
                 GodSystemTerminalUpgrades.setLevel(data, terminalType, previousLevel)
-                local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
-                GodSystemServer.syncTerminalApplyReport(item, restoreReport)
-                markAutoRecycler(data, item, player)
+                if terminalType == "phase2" then
+                    local restored, restoreReport = GodSystemTerminalUpgrades.applyTerminalPhase2(item, data, player)
+                    if not restored then
+                        local ignored, snapshotReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                        restoreReport = snapshotReport
+                    end
+                    GodSystemServer.markAutoRecyclerPhase2(data, item, player, restoreReport)
+                else
+                    local _, restoreReport = GodSystemTerminalUpgrades.restoreSnapshot(snapshot)
+                    GodSystemServer.syncTerminalApplyReport(item, restoreReport)
+                    markAutoRecycler(data, item, player)
+                end
                 return complete(false, "CurrencyNotEnough")
             end
-            markAutoRecycler(data, item, player, report)
+            if terminalType == "phase2" then
+                GodSystemServer.markAutoRecyclerPhase2(data, item, player, report)
+            else
+                markAutoRecycler(data, item, player, report)
+            end
             data.autoRecyclerClaimed = true
             data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
             appendHistory(data, historyEntry("upgrade", "TerminalUpgrade", { terminalType, previousLevel + 1, cost }))
-            return complete(true, "TerminalUpgradeSuccess", {
+            return complete(true, terminalType == "phase2" and "TerminalPhase2Success" or "TerminalUpgradeSuccess", {
                 terminalType,
                 previousLevel + 1,
                 cost,
                 report and report.skipped or 0,
             }, {
-                kind = "terminalUpgrade",
+                kind = terminalType == "phase2" and "terminalPhase2Upgrade" or "terminalUpgrade",
                 upgradeType = terminalType,
                 level = previousLevel + 1,
                 skipped = report and report.skipped or 0,
-                terminalSync = GodSystemServer.buildTerminalSyncPayload(item, player),
+                terminalSync = terminalType ~= "phase2" and GodSystemServer.buildTerminalSyncPayload(item, player) or nil,
+                terminalExtensionSync = terminalType == "phase2" and GodSystemServer.buildTerminalExtensionSyncPayload(item, data, player) or nil,
             })
         end
         local current, maxValue, nextValue, cost

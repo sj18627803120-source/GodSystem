@@ -5,7 +5,8 @@ require "GodSystem_B42JavaCalls"
 GodSystemTerminalRelief = GodSystemTerminalRelief or {}
 
 local DATA_FIELD = "autoRecyclerReliefLevel"
-local AUDIT_VERSION = 1
+local PHASE2_DATA_FIELD = "autoRecyclerPhase2CapacityLevel"
+local AUDIT_VERSION = 2
 local EPSILON = 0.05
 
 local function setting(key, fallback)
@@ -19,6 +20,16 @@ end
 local function integerSetting(key, fallback, minimum)
     local value = math.floor(tonumber(setting(key, fallback)) or fallback)
     return math.max(minimum or 0, value)
+end
+
+local function phase2Step()
+    return math.max(1, math.floor(tonumber(GodSystemConfig.TerminalPhase2CapacityPerLevel) or 10))
+end
+
+local function phase2Maximum()
+    local configured = integerSetting("TerminalPhase2CapacityMaxOffset", GodSystemConfig.TerminalPhase2CapacityMaxOffset or 5000, 0)
+    configured = math.min(5000, configured)
+    return math.floor(configured / phase2Step()) * phase2Step()
 end
 
 local function reliefFullType()
@@ -167,13 +178,13 @@ local function restoreItemState(item, state, player)
     return ok
 end
 
-local function configureItem(item, terminal, level, offset, player)
+local function configureItem(item, terminal, reliefLevel, reliefOffset, phase2Level, phase2Offset, totalOffset, player)
     if not item or not item.setHungChange or not item.getActualWeight then return false, false, "unsupported" end
     if not item.setFavorite or not item.setUnwanted then return false, false, "unprotected" end
     player = resolvePlayer(player)
     if not player then return false, false, "playerMissing" end
 
-    local desiredHungChange = offset / 100
+    local desiredHungChange = totalOffset / 100
     local beforeHung = readNumber(item, "getHungChange")
     local beforeActual = readNumber(item, "getActualWeight")
     local beforeFavorite = readBoolean(item, "isFavorite")
@@ -184,16 +195,22 @@ local function configureItem(item, terminal, level, offset, player)
     local ownerKey = GodSystemConfig.TerminalReliefOwnerKey or "GodSystemTerminalReliefOwner"
     local levelKey = GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"
     local offsetKey = GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"
+    local phase2LevelKey = GodSystemConfig.TerminalPhase2LevelKey or "GodSystemTerminalPhase2Level"
+    local phase2OffsetKey = GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"
+    local compensationOffsetKey = GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset"
     local versionKey = GodSystemConfig.TerminalReliefVersionKey or "GodSystemTerminalReliefVersion"
     local changed = math.abs((beforeHung or -999999) - desiredHungChange) > 0.000001
         or beforeActual == nil
-        or math.abs(beforeActual + offset) > math.max(EPSILON, offset * 0.0001)
+        or math.abs(beforeActual + totalOffset) > math.max(EPSILON, totalOffset * 0.0001)
         or beforeFavorite ~= true
         or beforeUnwanted ~= true
         or md[markerKey] ~= true
         or tostring(md[ownerKey] or "") ~= terminalId(terminal)
-        or tonumber(md[levelKey]) ~= level
-        or tonumber(md[offsetKey]) ~= offset
+        or tonumber(md[levelKey]) ~= reliefLevel
+        or tonumber(md[offsetKey]) ~= reliefOffset
+        or tonumber(md[phase2LevelKey]) ~= phase2Level
+        or tonumber(md[phase2OffsetKey]) ~= phase2Offset
+        or tonumber(md[compensationOffsetKey]) ~= totalOffset
         or tonumber(md[versionKey]) ~= AUDIT_VERSION
 
     if not changed then return true, false, nil end
@@ -205,12 +222,15 @@ local function configureItem(item, terminal, level, offset, player)
 
     md[markerKey] = true
     md[ownerKey] = terminalId(terminal)
-    md[levelKey] = level
-    md[offsetKey] = offset
+    md[levelKey] = reliefLevel
+    md[offsetKey] = reliefOffset
+    md[phase2LevelKey] = phase2Level
+    md[phase2OffsetKey] = phase2Offset
+    md[compensationOffsetKey] = totalOffset
     md[versionKey] = AUDIT_VERSION
 
     local actualWeight = readNumber(item, "getActualWeight")
-    if actualWeight == nil or math.abs(actualWeight + offset) > math.max(EPSILON, offset * 0.0001) then
+    if actualWeight == nil or math.abs(actualWeight + totalOffset) > math.max(EPSILON, totalOffset * 0.0001) then
         return false, changed, "weightVerificationFailed"
     end
     if readBoolean(item, "isFavorite") ~= true or readUnwanted(item, player) ~= true then
@@ -245,6 +265,56 @@ function GodSystemTerminalRelief.getOffset(data)
     local perLevel = integerSetting("TerminalReliefPerLevel", GodSystemConfig.TerminalReliefPerLevel or 5, 1)
     local maximum = integerSetting("TerminalReliefMaxOffset", GodSystemConfig.TerminalReliefMaxOffset or 2000, 0)
     return math.min(maximum, level * perLevel)
+end
+
+function GodSystemTerminalRelief.getPhase2MaxLevel()
+    local maximum = phase2Maximum()
+    if maximum <= 0 then return 0 end
+    return math.floor(maximum / phase2Step())
+end
+
+function GodSystemTerminalRelief.getPhase2Level(data)
+    if type(data) ~= "table" then return 0 end
+    local level = math.floor(tonumber(data[PHASE2_DATA_FIELD]) or 0)
+    level = math.max(0, math.min(level, GodSystemTerminalRelief.getPhase2MaxLevel()))
+    data[PHASE2_DATA_FIELD] = level
+    return level
+end
+
+function GodSystemTerminalRelief.setPhase2Level(data, level)
+    if type(data) ~= "table" then return false end
+    data[PHASE2_DATA_FIELD] = math.max(0, math.min(math.floor(tonumber(level) or 0), GodSystemTerminalRelief.getPhase2MaxLevel()))
+    return true
+end
+
+function GodSystemTerminalRelief.getPhase2Offset(data)
+    return math.min(phase2Maximum(), GodSystemTerminalRelief.getPhase2Level(data) * phase2Step())
+end
+
+function GodSystemTerminalRelief.getTotalOffset(data)
+    return GodSystemTerminalRelief.getOffset(data) + GodSystemTerminalRelief.getPhase2Offset(data)
+end
+
+function GodSystemTerminalRelief.getPhase2UpgradeInfo(data)
+    local level = GodSystemTerminalRelief.getPhase2Level(data)
+    local maxLevel = GodSystemTerminalRelief.getPhase2MaxLevel()
+    local offset = GodSystemTerminalRelief.getPhase2Offset(data)
+    local nextOffset = nil
+    local nextCost = nil
+    if level < maxLevel then
+        nextOffset = math.min(phase2Maximum(), (level + 1) * phase2Step())
+        nextCost = integerSetting("TerminalPhase2UpgradeCost", GodSystemConfig.TerminalPhase2UpgradeCost or 2000, 0)
+    end
+    return {
+        upgradeType = "phase2",
+        level = level,
+        maxLevel = maxLevel,
+        offset = offset,
+        value = offset,
+        nextOffset = nextOffset,
+        nextValue = nextOffset,
+        nextCost = nextCost,
+    }
 end
 
 function GodSystemTerminalRelief.getUpgradeInfo(data)
@@ -342,19 +412,32 @@ function GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
             inventory = inventory,
             level = GodSystemTerminalRelief.getLevel(data),
             maxLevel = GodSystemTerminalRelief.getMaxLevel(),
-            offset = GodSystemTerminalRelief.getOffset(data),
+            reliefLevel = GodSystemTerminalRelief.getLevel(data),
+            reliefOffset = GodSystemTerminalRelief.getOffset(data),
+            phase2Level = GodSystemTerminalRelief.getPhase2Level(data),
+            phase2MaxLevel = GodSystemTerminalRelief.getPhase2MaxLevel(),
+            phase2Offset = GodSystemTerminalRelief.getPhase2Offset(data),
+            offset = GodSystemTerminalRelief.getTotalOffset(data),
             addedItems = {}, removedItems = {}, items = {}, clientReadOnly = true,
         }
     end
 
     player = resolvePlayer(player)
     local before = GodSystemTerminalRelief.snapshot(terminal, player)
-    local level = GodSystemTerminalRelief.getLevel(data)
-    local offset = GodSystemTerminalRelief.getOffset(data)
+    local reliefLevel = GodSystemTerminalRelief.getLevel(data)
+    local reliefOffset = GodSystemTerminalRelief.getOffset(data)
+    local phase2Level = GodSystemTerminalRelief.getPhase2Level(data)
+    local phase2Offset = GodSystemTerminalRelief.getPhase2Offset(data)
+    local offset = GodSystemTerminalRelief.getTotalOffset(data)
     local report = {
         inventory = inventory,
-        level = level,
+        level = reliefLevel,
         maxLevel = GodSystemTerminalRelief.getMaxLevel(),
+        reliefLevel = reliefLevel,
+        reliefOffset = reliefOffset,
+        phase2Level = phase2Level,
+        phase2MaxLevel = GodSystemTerminalRelief.getPhase2MaxLevel(),
+        phase2Offset = phase2Offset,
         offset = offset,
         addedItems = {},
         removedItems = {},
@@ -393,7 +476,7 @@ function GodSystemTerminalRelief.ensureTerminal(terminal, data, player)
         report.removedDuplicates = report.removedDuplicates + 1
     end
 
-    local configured, changed, reason = configureItem(relief, terminal, level, offset, player)
+    local configured, changed, reason = configureItem(relief, terminal, reliefLevel, reliefOffset, phase2Level, phase2Offset, offset, player)
     if not configured then
         GodSystemTerminalRelief.restore(before)
         return false, { reason = reason or "configureFailed", offset = offset }

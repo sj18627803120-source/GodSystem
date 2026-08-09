@@ -59,7 +59,7 @@ Require-Text $carry 'GodSystemConfig\.CarryCapacityBaseCost' 'Carry quote reads 
 Require-Text $carry 'GodSystemConfig\.CarryCapacityCostMultiplier' 'Carry quote reads the configured multiplier'
 Require-Text $server 'GodSystemCarryCapacity\.getNextCost\(currentLevel\)' 'MP settlement reads the shared carry quote'
 $metaCount = ([regex]::Matches($admin, '\{\s*key\s*=\s*"')).Count
-if ($metaCount -ne 77) { throw "Expected 77 admin settings, found $metaCount" }
+if ($metaCount -ne 79) { throw "Expected 79 admin settings, found $metaCount" }
 Write-Output '  OK: Admin setting count includes both carry-cost settings'
 
 $versionPattern = [regex]::Escape($ExpectedVersion)

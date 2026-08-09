@@ -3816,7 +3816,12 @@ function GodSystemWindow:populateLegacyWaistSpace()
         if cost then return label .. " -" .. tostring(cost) .. GodSystem.text("Unit_CoinShort", "c") end
         return label .. " " .. GodSystem.text("Btn_WaistMaxLevel", "Max level")
     end
-    gsSetButtonTitle(self.thirdButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalCapacity", "Upgrade capacity"), info.capacityNextCost))
+    local usePhase2 = (info.capacityLevel or 0) >= (info.capacityMaxLevel or math.huge)
+    local capacityButtonLabel = usePhase2
+        and GodSystem.text("Btn_UpgradeTerminalPhase2", "Phase-two expansion")
+        or GodSystem.text("Btn_UpgradeTerminalCapacity", "Upgrade capacity")
+    local capacityButtonCost = usePhase2 and info.phase2NextCost or info.capacityNextCost
+    gsSetButtonTitle(self.thirdButton, terminalUpgradeTitle(capacityButtonLabel, capacityButtonCost))
     gsSetButtonTitle(self.fourthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalReduction", "Upgrade reduction"), info.reductionNextCost))
     gsSetButtonTitle(self.fifthButton, terminalUpgradeTitle(GodSystem.text("Btn_UpgradeTerminalRelief", "Upgrade relief"), info.reliefNextCost))
     self.fourthButton:setVisible(true)
@@ -3840,7 +3845,8 @@ function GodSystemWindow:populateLegacyWaistSpace()
     local burdenExample = 10 * (1 - actualReductionForExample / 100)
     local actualCapacityText = info.actualCapacity ~= nil and tostring(math.floor(tonumber(info.actualCapacity) or 0)) or "?"
     local actualReductionText = info.actualWeightReduction ~= nil and (tostring(math.floor(tonumber(info.actualWeightReduction) or 0)) .. "%") or "?"
-    local actualReliefText = info.actualRelief ~= nil and tostring(math.floor((tonumber(info.actualRelief) or 0) + 0.5)) or "?"
+    local actualReliefText = info.actualManualRelief ~= nil and tostring(math.floor((tonumber(info.actualManualRelief) or 0) + 0.5)) or "?"
+    local actualPhase2Text = info.actualPhase2Offset ~= nil and tostring(math.floor((tonumber(info.actualPhase2Offset) or 0) + 0.5)) or "?"
     local visibleContentsWeight = tonumber(info.visibleContentsWeight) or 0
     local effectiveCapacity = math.max(0, math.floor(tonumber(info.effectiveCapacity) or tonumber(info.capacity) or 0))
     local capacityStatus = string.format("%s | Lv.%d/%d | %s %d | %s %s | %s %.2f/%d",
@@ -3857,15 +3863,23 @@ function GodSystemWindow:populateLegacyWaistSpace()
         GodSystem.text("Waist_Target", "Target"), info.reliefOffset or 0,
         GodSystem.text("Waist_Actual", "Actual"), actualReliefText,
         GodSystem.text("Waist_EffectiveCapacity", "Effective space"), effectiveCapacity)
+    local phase2Status = string.format("%s | Lv.%d/%d | +%d | %s %s | %s %d",
+        GodSystem.text("Waist_Phase2", "Phase-two expansion"), info.phase2Level or 0, info.phase2MaxLevel or 0,
+        info.phase2Offset or 0,
+        GodSystem.text("Waist_Actual", "Actual"), actualPhase2Text,
+        GodSystem.text("Waist_EffectiveCapacity", "Effective space"), effectiveCapacity)
     local capacityRule = GodSystem.text("Waist_CapacityRule", "Native capacity remains capped at 49; space relief offsets terminal contents weight.")
     local reliefRule = GodSystem.text("Waist_ReliefRule", "Relief uses one hidden protected internal item. Cost, relief per level, and maximum relief are configurable in sandbox and system administration settings.")
+    local phase2Rule = GodSystem.text("Waist_Phase2Rule", "Phase-two expansion is available after native capacity reaches 49. It adds 10 usable space per level without writing native capacity, so vanilla traits remain independent.")
     local exampleStatus = string.format("%s | 10 -> %.2f",
         GodSystem.text("Waist_ExampleReduction", "Reduction example: original -> burden"), burdenExample)
     self:addListItem(capacityStatus, { kind = "info", data = capacityStatus, detail = "" })
     self:addListItem(reductionStatus, { kind = "info", data = reductionStatus, detail = "" })
     self:addListItem(reliefStatus, { kind = "info", data = reliefStatus, detail = "" })
+    self:addListItem(phase2Status, { kind = "info", data = phase2Status, detail = "" })
     self:addListItem(capacityRule, { kind = "info", data = capacityRule, detail = "" })
     self:addListItem(reliefRule, { kind = "info", data = reliefRule, detail = "" })
+    self:addListItem(phase2Rule, { kind = "info", data = phase2Rule, detail = "" })
     self:addListItem(exampleStatus, { kind = "info", data = exampleStatus, detail = "" })
 
     local autoState = GodSystem.text("Waist_AutoRecycleLocked", "Locked")
@@ -3960,7 +3974,18 @@ function GodSystemWindow:populateTerminalUpgradesSection()
     self.fifthButton:setVisible(false)
     self.sixthButton:setVisible(false)
     self.seventhButton:setVisible(false)
-    for _, upgradeType in ipairs({ "terminalCapacity", "terminalReduction", "terminalRelief", "terminalFreshness" }) do
+    local terminalInfo = GodSystem.getAutoRecyclerInfo()
+    local capacityUpgradeType = (terminalInfo.capacityLevel or 0) >= (terminalInfo.capacityMaxLevel or math.huge)
+        and "terminalPhase2" or "terminalCapacity"
+    local nativeCapacity = terminalInfo.actualCapacity ~= nil
+        and math.floor(tonumber(terminalInfo.actualCapacity) or 0) or "?"
+    local phase2Summary = string.format("%s %s | %s Lv.%d/%d +%d | %s +%d | %s %d",
+        GodSystem.text("Waist_Actual", "Actual"), tostring(nativeCapacity),
+        GodSystem.text("Waist_Phase2", "Phase-two expansion"), terminalInfo.phase2Level or 0, terminalInfo.phase2MaxLevel or 0, terminalInfo.phase2Offset or 0,
+        GodSystem.text("Waist_Relief", "Space relief"), terminalInfo.reliefOffset or 0,
+        GodSystem.text("Waist_EffectiveCapacity", "Effective space"), math.floor(tonumber(terminalInfo.effectiveCapacity) or 0))
+    self:addListItem(phase2Summary, { kind = "info", data = phase2Summary, detail = GodSystem.text("Waist_Phase2Rule", "Phase-two expansion is available after native capacity reaches 49. It adds 10 usable space per level without writing native capacity, so vanilla traits remain independent.") })
+    for _, upgradeType in ipairs({ capacityUpgradeType, "terminalReduction", "terminalRelief", "terminalFreshness" }) do
         local info = GodSystem.getSystemUpgradeInfo(upgradeType)
         if info then
             local costText = info.cost and (tostring(info.cost) .. GodSystem.text("Unit_CoinShort", "c"))
@@ -3969,6 +3994,9 @@ function GodSystemWindow:populateTerminalUpgradesSection()
             if info.terminalType == "freshness" and info.terminalInfo then
                 local restorePercent = math.floor((tonumber(info.terminalInfo.value) or 0) * 100 + 0.5)
                 detail = detail .. " | " .. tostring(restorePercent) .. "%/" .. GodSystem.text("Unit_Day", "d")
+            end
+            if info.terminalType == "phase2" and info.terminalInfo then
+                detail = detail .. " | +" .. tostring(info.terminalInfo.value or 0)
             end
             self:addListItem(info.label, { kind = "upgrade", data = info, detail = detail })
         end

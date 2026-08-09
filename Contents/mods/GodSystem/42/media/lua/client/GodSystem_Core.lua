@@ -1098,13 +1098,18 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             carryStatus = status,
         }
     end
-    if upgradeType == "terminalCapacity" or upgradeType == "terminalReduction" or upgradeType == "terminalRelief" or upgradeType == "terminalFreshness" then
+    if upgradeType == "terminalCapacity" or upgradeType == "terminalPhase2" or upgradeType == "terminalReduction" or upgradeType == "terminalRelief" or upgradeType == "terminalFreshness" then
         local terminalType = string.gsub(upgradeType, "^terminal", "")
         terminalType = string.lower(string.sub(terminalType, 1, 1)) .. string.sub(terminalType, 2)
         local terminalInfo = GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), terminalType)
         if not terminalInfo then return nil end
+        local terminalCost = terminalInfo.nextCost
+        if terminalType == "phase2" and not GodSystemTerminalUpgrades.isPhase2Unlocked(data) then
+            terminalCost = nil
+        end
         local labels = {
             capacity = GodSystem.text("Upgrade_TerminalCapacity", "Terminal capacity"),
+            phase2 = GodSystem.text("Upgrade_TerminalPhase2", "Phase-two expansion"),
             reduction = GodSystem.text("Upgrade_TerminalReduction", "Terminal reduction"),
             relief = GodSystem.text("Upgrade_TerminalRelief", "Space relief"),
             freshness = GodSystem.text("Upgrade_TerminalFreshness", "Freshness efficiency"),
@@ -1115,9 +1120,13 @@ function GodSystem.getSystemUpgradeInfo(upgradeType)
             current = terminalInfo.level,
             nextValue = terminalInfo.level + 1,
             maxValue = terminalInfo.maxLevel,
-            cost = terminalInfo.nextCost,
+            cost = terminalCost,
             label = labels[terminalType] or upgradeType,
-            desc = terminalType == "relief"
+            desc = terminalType == "phase2" and not GodSystemTerminalUpgrades.isPhase2Unlocked(data)
+                and GodSystem.text("Upgrade_TerminalPhase2LockedDesc", "Reach native capacity level 49 before phase-two expansion can be purchased.")
+                or terminalType == "phase2"
+                    and GodSystem.text("Upgrade_TerminalPhase2Desc", "Adds 10 usable terminal space per level through protected internal compensation; native capacity is not changed.")
+                or terminalType == "relief"
                 and GodSystem.text("Upgrade_TerminalReliefDesc", "Adds protected hidden relief inside the terminal without changing its native capacity.")
                 or terminalType == "freshness"
                     and GodSystem.text("Upgrade_TerminalFreshnessDesc", "Sets how much freshness service restores each online game day.")
@@ -6194,11 +6203,15 @@ function GodSystem.claimOrRecoverAutoRecycler()
 end
 
 function GodSystem.upgradeTerminal(upgradeType)
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "freshness" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "phase2" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "freshness" then return false end
     return GodSystem.upgradeSystem("terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2))
 end
 
 function GodSystem.upgradeAutoRecycler()
+    local capacityInfo = GodSystemTerminalUpgrades.getUpgradeInfo(GodSystem.getData(), "capacity")
+    if capacityInfo and capacityInfo.level >= capacityInfo.maxLevel then
+        return GodSystem.upgradeTerminal("phase2")
+    end
     return GodSystem.upgradeTerminal("capacity")
 end
 
@@ -6217,6 +6230,7 @@ end
 function GodSystem.getAutoRecyclerInfo()
     local data = GodSystem.getData()
     local capacityInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "capacity")
+    local phase2Info = GodSystemTerminalUpgrades.getUpgradeInfo(data, "phase2")
     local reductionInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "reduction")
     local reliefInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "relief")
     local freshnessUpgradeInfo = GodSystemTerminalUpgrades.getUpgradeInfo(data, "freshness")
@@ -6238,6 +6252,13 @@ function GodSystem.getAutoRecyclerInfo()
         if ok then contentsWeight = tonumber(value) end
     end
     local actualRelief = appliedStatus and tonumber(appliedStatus.actualRelief) or 0
+    local nativeCapacity = appliedStatus and tonumber(appliedStatus.effectiveCapacity)
+        or appliedStatus and tonumber(appliedStatus.nativeInnerCapacity)
+        or appliedStatus and tonumber(appliedStatus.nativeOuterCapacity)
+        or tonumber(capacityInfo.value) or 0
+    local manualReliefOffset = reliefInfo.offset or 0
+    local phase2Offset = phase2Info.offset or 0
+    local compensationOffset = manualReliefOffset + phase2Offset
     return {
         claimed = data.autoRecyclerClaimed == true,
         found = entry ~= nil,
@@ -6245,6 +6266,9 @@ function GodSystem.getAutoRecyclerInfo()
         maxLevel = capacityInfo.maxLevel,
         capacityLevel = capacityInfo.level,
         capacityMaxLevel = capacityInfo.maxLevel,
+        phase2Unlocked = GodSystemTerminalUpgrades.isPhase2Unlocked(data),
+        phase2Level = phase2Info.level,
+        phase2MaxLevel = phase2Info.maxLevel,
         reductionLevel = reductionInfo.level,
         reductionMaxLevel = reductionInfo.maxLevel,
         reliefLevel = reliefInfo.level,
@@ -6253,9 +6277,13 @@ function GodSystem.getAutoRecyclerInfo()
         freshnessMaxLevel = freshnessUpgradeInfo.maxLevel,
         capacity = capacityInfo.value or 0,
         weightReduction = reductionInfo.value or 0,
-        reliefOffset = reliefInfo.offset or 0,
+        reliefOffset = manualReliefOffset,
         reliefNextOffset = reliefInfo.nextOffset,
-        effectiveCapacity = (capacityInfo.value or 0) + (reliefInfo.offset or 0),
+        phase2Offset = phase2Offset,
+        phase2NextOffset = phase2Info.nextOffset,
+        compensationOffset = compensationOffset,
+        nativeCapacity = nativeCapacity,
+        effectiveCapacity = nativeCapacity + compensationOffset,
         visibleContentsWeight = math.max(0, (tonumber(contentsWeight) or 0) + actualRelief),
         actualCapacity = appliedStatus and appliedStatus.outerCapacity or nil,
         actualInnerCapacity = appliedStatus and appliedStatus.innerCapacity or nil,
@@ -6265,7 +6293,10 @@ function GodSystem.getAutoRecyclerInfo()
         reductionApplied = appliedStatus and appliedStatus.reductionApplied == true,
         reliefApplied = appliedStatus and appliedStatus.reliefApplied == true,
         actualRelief = appliedStatus and appliedStatus.actualRelief or nil,
+        actualManualRelief = appliedStatus and appliedStatus.actualManualRelief or nil,
+        actualPhase2Offset = appliedStatus and appliedStatus.actualPhase2Offset or nil,
         capacityNextCost = capacityInfo.nextCost,
+        phase2NextCost = phase2Info.nextCost,
         reductionNextCost = reductionInfo.nextCost,
         reliefNextCost = reliefInfo.nextCost,
         freshnessRestorePerDay = freshnessUpgradeInfo.value or 0,
@@ -6276,7 +6307,7 @@ function GodSystem.getAutoRecyclerInfo()
         freshnessMaxHours = freshnessInfo.maxHours,
         freshnessActive = freshnessInfo.active,
         freshnessExpired = freshnessInfo.expired,
-        nextCost = capacityInfo.nextCost,
+        nextCost = capacityInfo.level >= capacityInfo.maxLevel and phase2Info.nextCost or capacityInfo.nextCost,
         recoverCost = GodSystem.getAutoRecyclerRecoverCost(),
         itemCount = count,
         contentsWeight = contentsWeight,

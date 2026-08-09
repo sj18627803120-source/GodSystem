@@ -19,6 +19,7 @@ GodSystemNetwork.receivedStates = tonumber(GodSystemNetwork.receivedStates) or 0
 GodSystemNetwork.pendingShopLotteryResult = GodSystemNetwork.pendingShopLotteryResult or nil
 GodSystemNetwork.pendingLotteryResult = GodSystemNetwork.pendingLotteryResult or nil
 GodSystemNetwork.pendingTerminalSync = GodSystemNetwork.pendingTerminalSync or nil
+GodSystemNetwork.pendingTerminalExtensionSync = GodSystemNetwork.pendingTerminalExtensionSync or nil
 GodSystemNetwork.pendingTerminalPageSync = GodSystemNetwork.pendingTerminalPageSync == true
 GodSystemNetwork.TERMINAL_SYNC_EXPIRE_MS = 10000
 GodSystemNetwork.TERMINAL_SYNC_RETRY_MS = 250
@@ -64,8 +65,10 @@ end
 
 function GodSystemNetwork.resetTerminalSyncRuntime()
     GodSystemNetwork.pendingTerminalSync = nil
+    GodSystemNetwork.pendingTerminalExtensionSync = nil
     GodSystemNetwork.pendingTerminalPageSync = false
     GodSystemNetwork.lastTerminalSync = nil
+    GodSystemNetwork.lastTerminalExtensionSync = nil
 end
 
 function GodSystemNetwork.resetSessionRuntime()
@@ -268,6 +271,16 @@ function GodSystemNetwork.queueTerminalSync(payload)
     return true
 end
 
+function GodSystemNetwork.queueTerminalExtensionSync(payload)
+    if type(payload) ~= "table" or tostring(payload.kind or "") ~= "terminalExtensionSync" then return false end
+    GodSystemNetwork.pendingTerminalExtensionSync = {
+        payload = payload,
+        expiresAtMs = nowMs() + GodSystemNetwork.TERMINAL_SYNC_EXPIRE_MS,
+        nextAttemptAtMs = nowMs() + GodSystemNetwork.TERMINAL_SYNC_RETRY_MS,
+    }
+    return true
+end
+
 function GodSystemNetwork.refreshTerminalInventoryUI(item)
     local p = player()
     local containers = {}
@@ -349,8 +362,11 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
         return false
     end
 
-    local reliefOffset = math.max(0, tonumber(payload.reliefOffset) or 0)
+    local reliefOffset = math.max(0, tonumber(payload.compensationOffset) or tonumber(payload.reliefOffset) or 0)
+    local manualReliefOffset = math.max(0, tonumber(payload.manualReliefOffset) or tonumber(payload.reliefOffset) or 0)
     local reliefLevel = math.max(0, math.floor(tonumber(payload.reliefLevel) or 0))
+    local phase2Level = math.max(0, math.floor(tonumber(payload.phase2Level) or 0))
+    local phase2Offset = math.max(0, tonumber(payload.phase2Offset) or 0)
     local reliefItem = nil
     local okItems, items = pcall(function() return inventory:getItems() end)
     if okItems and items and items.size and items.get then
@@ -376,12 +392,18 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
         local reliefData = reliefItem.getModData and reliefItem:getModData() or nil
         if reliefData then
             reliefData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
-            reliefData[GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"] = reliefOffset
+            reliefData[GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"] = manualReliefOffset
+            reliefData[GodSystemConfig.TerminalPhase2LevelKey or "GodSystemTerminalPhase2Level"] = phase2Level
+            reliefData[GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"] = phase2Offset
+            reliefData[GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset"] = reliefOffset
         end
     end
     local terminalData = item.getModData and item:getModData() or nil
     if terminalData then
         terminalData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
+        terminalData[GodSystemConfig.AutoRecyclerPhase2CapacityLevelKey or "GodSystemTerminalPhase2CapacityLevel"] = phase2Level
+        terminalData[GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"] = phase2Offset
+        terminalData[GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset"] = reliefOffset
     end
 
     GodSystem.autoRecyclerCache = { item = item }
@@ -389,6 +411,77 @@ function GodSystemNetwork.applyAuthoritativeTerminalState(payload, pendingAttemp
     local pending = GodSystemNetwork.pendingTerminalSync
     if pending and pending.payload and tostring(pending.payload.itemId or "") == itemId then
         GodSystemNetwork.pendingTerminalSync = nil
+    end
+    GodSystemNetwork.refreshTerminalInventoryUI(item)
+    return true
+end
+
+function GodSystemNetwork.applyAuthoritativeTerminalExtensionState(payload, pendingAttempt)
+    if type(payload) ~= "table" or tostring(payload.kind or "") ~= "terminalExtensionSync" then return false end
+    local itemId = tostring(payload.itemId or "")
+    if itemId == "" then return false end
+    if GodSystemNetwork.isTimedActionBusy(player()) then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalExtensionSync(payload) end
+        return false
+    end
+    local item = GodSystemNetwork.findTerminalByItemId(itemId, player())
+    if not item then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalExtensionSync(payload) end
+        return false
+    end
+    local okInventory, inventory = pcall(function() return item:getInventory() end)
+    if not okInventory or not inventory then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalExtensionSync(payload) end
+        return false
+    end
+
+    local totalOffset = math.max(0, tonumber(payload.actualCompensationOffset) or tonumber(payload.compensationOffset) or 0)
+    local manualReliefOffset = math.max(0, tonumber(payload.reliefOffset) or 0)
+    local reliefLevel = math.max(0, math.floor(tonumber(payload.reliefLevel) or 0))
+    local phase2Level = math.max(0, math.floor(tonumber(payload.phase2Level) or 0))
+    local phase2Offset = math.max(0, tonumber(payload.phase2Offset) or 0)
+    local reliefItem = nil
+    local okItems, items = pcall(function() return inventory:getItems() end)
+    if okItems and items and items.size and items.get then
+        for i = 0, items:size() - 1 do
+            local candidate = items:get(i)
+            if GodSystemTerminalRelief and GodSystemTerminalRelief.isReliefItem
+                and GodSystemTerminalRelief.isReliefItem(candidate) then
+                reliefItem = candidate
+                break
+            end
+        end
+    end
+    if totalOffset > 0 and not reliefItem then
+        if pendingAttempt ~= true then GodSystemNetwork.queueTerminalExtensionSync(payload) end
+        return false
+    end
+    if reliefItem and reliefItem.setHungChange then
+        local okRelief = pcall(function() reliefItem:setHungChange(totalOffset / 100) end)
+        if not okRelief then
+            if pendingAttempt ~= true then GodSystemNetwork.queueTerminalExtensionSync(payload) end
+            return false
+        end
+        local reliefData = reliefItem.getModData and reliefItem:getModData() or nil
+        if reliefData then
+            reliefData[GodSystemConfig.TerminalReliefLevelKey or "GodSystemTerminalReliefLevel"] = reliefLevel
+            reliefData[GodSystemConfig.TerminalReliefOffsetKey or "GodSystemTerminalReliefOffset"] = manualReliefOffset
+            reliefData[GodSystemConfig.TerminalPhase2LevelKey or "GodSystemTerminalPhase2Level"] = phase2Level
+            reliefData[GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"] = phase2Offset
+            reliefData[GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset"] = totalOffset
+        end
+    end
+    local terminalData = item.getModData and item:getModData() or nil
+    if terminalData then
+        terminalData[GodSystemConfig.AutoRecyclerPhase2CapacityLevelKey or "GodSystemTerminalPhase2CapacityLevel"] = phase2Level
+        terminalData[GodSystemConfig.TerminalPhase2OffsetKey or "GodSystemTerminalPhase2Offset"] = phase2Offset
+        terminalData[GodSystemConfig.TerminalCompensationOffsetKey or "GodSystemTerminalCompensationOffset"] = totalOffset
+    end
+    GodSystem.autoRecyclerCache = { item = item }
+    GodSystemNetwork.lastTerminalExtensionSync = payload
+    local pending = GodSystemNetwork.pendingTerminalExtensionSync
+    if pending and pending.payload and tostring(pending.payload.itemId or "") == itemId then
+        GodSystemNetwork.pendingTerminalExtensionSync = nil
     end
     GodSystemNetwork.refreshTerminalInventoryUI(item)
     return true
@@ -406,6 +499,20 @@ function GodSystemNetwork.updatePendingTerminalSync()
     if currentMs < (tonumber(pending.nextAttemptAtMs) or 0) then return end
     pending.nextAttemptAtMs = currentMs + GodSystemNetwork.TERMINAL_SYNC_RETRY_MS
     GodSystemNetwork.applyAuthoritativeTerminalState(pending.payload, true)
+end
+
+function GodSystemNetwork.updatePendingTerminalExtensionSync()
+    local pending = GodSystemNetwork.pendingTerminalExtensionSync
+    if not pending or type(pending.payload) ~= "table" then return end
+    local currentMs = nowMs()
+    if currentMs >= (tonumber(pending.expiresAtMs) or 0) then
+        GodSystemNetwork.pendingTerminalExtensionSync = nil
+        GodSystemNetwork.lastTerminalExtensionSyncFailure = "expired"
+        return
+    end
+    if currentMs < (tonumber(pending.nextAttemptAtMs) or 0) then return end
+    pending.nextAttemptAtMs = currentMs + GodSystemNetwork.TERMINAL_SYNC_RETRY_MS
+    GodSystemNetwork.applyAuthoritativeTerminalExtensionState(pending.payload, true)
 end
 
 local function terminalWearLog(stage, state, success, currentType)
@@ -1044,6 +1151,9 @@ local function OnServerCommand(module, command, args)
         if args and args.terminalSync then
             GodSystemNetwork.applyAuthoritativeTerminalState(args.terminalSync)
         end
+        if args and args.terminalExtensionSync then
+            GodSystemNetwork.applyAuthoritativeTerminalExtensionState(args.terminalExtensionSync)
+        end
         GodSystem.serverAdmin = args and args.admin == true
         if args and args.adminConfig and GodSystem.applyAdminConfigSnapshot then
             GodSystem.applyAdminConfigSnapshot(args.adminConfig)
@@ -1086,8 +1196,12 @@ local function OnServerCommand(module, command, args)
         GodSystemNetwork.lastResultAtMs = nowMs()
         if args and args.payload and args.payload.terminalSync then
             GodSystemNetwork.applyAuthoritativeTerminalState(args.payload.terminalSync)
+        elseif args and args.payload and args.payload.terminalExtensionSync then
+            GodSystemNetwork.applyAuthoritativeTerminalExtensionState(args.payload.terminalExtensionSync)
         elseif args and args.payload and args.payload.kind == "terminalSync" then
             GodSystemNetwork.applyAuthoritativeTerminalState(args.payload)
+        elseif args and args.payload and args.payload.kind == "terminalExtensionSync" then
+            GodSystemNetwork.applyAuthoritativeTerminalExtensionState(args.payload)
         end
         if args and args.ok == true and args.payload and args.payload.kind == "shopLottery" then
             GodSystemNetwork.pendingShopLotteryResult = args.payload
@@ -1118,6 +1232,7 @@ function GodSystemNetwork.onPlayerUpdate(p)
     checkPendingTimeout()
     GodSystemNetwork.updateTerminalWearDiagnostics(p or player())
     GodSystemNetwork.updatePendingTerminalSync()
+    GodSystemNetwork.updatePendingTerminalExtensionSync()
     GodSystemNetwork.updatePendingTerminalPageSync()
     playerUpdateTicks = (playerUpdateTicks or 0) + 1
     if playerUpdateTicks % 60 == 0 and GodSystem and GodSystem.updateMoveDistance then
@@ -1458,7 +1573,7 @@ end)
 
 wrap("upgradeTerminal", function(upgradeType)
     upgradeType = tostring(upgradeType or "")
-    if upgradeType ~= "capacity" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "freshness" then return false end
+    if upgradeType ~= "capacity" and upgradeType ~= "phase2" and upgradeType ~= "reduction" and upgradeType ~= "relief" and upgradeType ~= "freshness" then return false end
     return send("upgradeSystem", { upgradeType = "terminal" .. string.upper(string.sub(upgradeType, 1, 1)) .. string.sub(upgradeType, 2) })
 end)
 

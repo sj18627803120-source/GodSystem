@@ -24,6 +24,7 @@ local CALLERS = {
     getBodyLocation = function(target, ...) return target:getBodyLocation(...) end,
     getBodyParts = function(target, ...) return target:getBodyParts(...) end,
     getCapacity = function(target, ...) return target:getCapacity(...) end,
+    getEffectiveCapacity = function(target, ...) return target:getEffectiveCapacity(...) end,
     getCategory = function(target, ...) return target:getCategory(...) end,
     getCondition = function(target, ...) return target:getCondition(...) end,
     getConditionMax = function(target, ...) return target:getConditionMax(...) end,
@@ -245,6 +246,10 @@ end
 
 function Bridge.getCapacity(target)
     return Bridge.value(target, "getCapacity", nil)
+end
+
+function Bridge.getEffectiveCapacity(target)
+    return Bridge.value(target, "getEffectiveCapacity", nil)
 end
 
 function Bridge.setCapacity(target, value)

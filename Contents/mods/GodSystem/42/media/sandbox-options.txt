@@ -230,6 +230,26 @@ option GodSystem.TerminalReliefMaxOffset
     translation = GodSystem_TerminalReliefMaxOffset,
 }
 
+option GodSystem.TerminalPhase2UpgradeCost
+{
+    type = integer,
+    min = 0,
+    max = 100000000,
+    default = 2000,
+    page = GodSystem_Base,
+    translation = GodSystem_TerminalPhase2UpgradeCost,
+}
+
+option GodSystem.TerminalPhase2CapacityMaxOffset
+{
+    type = integer,
+    min = 0,
+    max = 5000,
+    default = 5000,
+    page = GodSystem_Base,
+    translation = GodSystem_TerminalPhase2CapacityMaxOffset,
+}
+
 option GodSystem.AutoLoaderAmmoCapacity
 {
     type = integer,
