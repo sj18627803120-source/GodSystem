@@ -1,3 +1,4 @@
+require "GodSystem_App"
 require "GodSystem_Core"
 require "GodSystem_Maintenance"
 require "ISUI/ISModalDialog"
@@ -9,7 +10,7 @@ local Context = GodSystemVehicleRepairContext
 local ModuleType = "GodSystem.SystemVehicleRepairModule"
 
 local function text(key, fallback)
-    return GodSystem and GodSystem.text and GodSystem.text(key, fallback) or fallback or key
+    return GodSystemApp.services.runtime and GodSystemApp.services.runtime.text and GodSystemApp.services.runtime.text(key, fallback) or fallback or key
 end
 
 local function findModule(player)
@@ -47,10 +48,10 @@ function Context.onConfirm(target, button, payload)
     local player = getSpecificPlayer and getSpecificPlayer(payload.playerNum) or getPlayer()
     local module = findModule(player)
     if not module then
-        if GodSystem and GodSystem.notify then GodSystem.notify(text("Notify_MaintenanceConsumableMissing", "Repair module is missing")) end
+        if GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then GodSystemApp.services.runtime.notify(text("Notify_MaintenanceConsumableMissing", "Repair module is missing")) end
         return
     end
-    GodSystem.useMaintenanceItem("repairVehicle", module, payload.vehicleId)
+    GodSystemApp.services.runtime.useMaintenanceItem("repairVehicle", module, payload.vehicleId)
 end
 
 function Context.confirm(playerNum, vehicle)
@@ -59,7 +60,7 @@ function Context.confirm(playerNum, vehicle)
     if not player or not vehicle or not module then return end
     local summary = GodSystemMaintenance.vehicleDamageSummary(vehicle)
     if summary.damaged <= 0 then
-        if GodSystem and GodSystem.notify then GodSystem.notify(text("Notify_VehicleAlreadyFull", "This vehicle is already fully repaired")) end
+        if GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then GodSystemApp.services.runtime.notify(text("Notify_VehicleAlreadyFull", "This vehicle is already fully repaired")) end
         return
     end
     local message = text("Confirm_RepairVehicle", "Consume one vehicle repair module to fully repair this vehicle?") .. "\n" ..
@@ -75,6 +76,8 @@ function Context.confirm(playerNum, vehicle)
     })
     modal:initialise()
     modal:addToUIManager()
+    modal:setAlwaysOnTop(true)
+    modal:bringToTop()
 end
 
 function Context.fillWorldMenu(playerNum, context, worldobjects, test)

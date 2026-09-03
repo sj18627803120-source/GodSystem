@@ -1,9 +1,10 @@
+require "GodSystem_App"
 if (isClient and isClient()) or (isServer and isServer()) then return end
 
 require "GodSystem_CompanionConfig"
 require "GodSystem_CompanionVisual"
 
-GodSystem = GodSystem or {}
+GodSystemApp.services.runtime = GodSystemApp.services.runtime or {}
 GodSystemCompanion = GodSystemCompanion or {}
 
 local Companion = GodSystemCompanion
@@ -77,13 +78,13 @@ local function playerObject()
 end
 
 local function companionData()
-    if GodSystem and GodSystem.getCompanionData then return GodSystem.getCompanionData() end
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.getCompanionData then return GodSystemApp.services.runtime.getCompanionData() end
     return nil
 end
 
 local function notify(key, fallback)
-    if GodSystem and GodSystem.notify and GodSystem.text then
-        GodSystem.notify(GodSystem.text(key, fallback))
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify and GodSystemApp.services.runtime.text then
+        GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text(key, fallback))
     end
 end
 
@@ -94,7 +95,7 @@ local function saveSoon(force)
     if force or now - (runtime.lastSaveMs or 0) >= 5000 then
         runtime.lastSaveMs = now
         runtime.dirty = false
-        if GodSystem and GodSystem.save then GodSystem.save() end
+        if GodSystemApp.services.runtime and GodSystemApp.services.runtime.save then GodSystemApp.services.runtime.save() end
     end
 end
 
@@ -422,7 +423,7 @@ local function ensureLight(player, data)
     local cell = getCell and getCell() or nil
     if not cell or not IsoLightSource then return end
     local ok, light = pcall(IsoLightSource.new, ix, iy, iz, LIGHT_R, LIGHT_G, LIGHT_B, radius)
-    if ok and light and pcall(cell.addLamppost, cell, light) then
+    if ok and light and pcall(function() cell:addLamppost(light) end) then
         runtime.light = light
         runtime.lightCell = cell
         runtime.lightX, runtime.lightY, runtime.lightZ = ix, iy, iz
@@ -533,7 +534,7 @@ end
 
 local function findAttackTarget(player, data)
     local radius = attackRadius(data)
-    local candidates = collectZombies(player, radius, false, nil)
+    local candidates = collectZombies(player, radius, false, Config.getAttackSearchCandidateLimit())
     for i = 1, #candidates do
         local zombie = candidates[i].zombie
         if isAttackTargetValid(player, data, zombie) then return zombie end
@@ -806,7 +807,7 @@ local function updateAttackState(player, data, now)
     if now < (runtime.recoveryUntilMs or 0) then runtime.behaviorState = "recovery"; return end
     if data.combatMode == "ceasefire" or not data.unlocks.attack or data.cooldowns.attack > 0 then return end
     if now < (runtime.nextAttackSearchMs or 0) then return end
-    runtime.nextAttackSearchMs = now + Config.AttackSearchSeconds * 1000
+    runtime.nextAttackSearchMs = now + Config.getAttackSearchSeconds() * 1000
     local target = findAttackTarget(player, data)
     if target then beginAttack(player, target, now) end
 end
@@ -975,7 +976,7 @@ local function formatNumber(value)
 end
 
 local function localized(key, fallback)
-    if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.text then return GodSystemApp.services.runtime.text(key, fallback) end
     return fallback
 end
 
@@ -1093,7 +1094,7 @@ function GodSystemCompanion.shutdown()
     runtime.lastUpdateMs = nil
     runtime.vehicleSuspended = false
     runtime.pauseSuspended = false
-    if runtime.dirty and GodSystem and GodSystem.save then GodSystem.save() end
+    if runtime.dirty and GodSystemApp.services.runtime and GodSystemApp.services.runtime.save then GodSystemApp.services.runtime.save() end
     runtime.dirty = false
 end
 

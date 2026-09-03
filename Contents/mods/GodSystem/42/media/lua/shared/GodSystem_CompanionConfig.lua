@@ -34,7 +34,8 @@ Config.BlastRadius = 2
 Config.BlastTargetCap = 4
 Config.BlastDamageRatio = 0.25
 Config.ProjectileTravelSeconds = 0.35
-Config.AttackSearchSeconds = 0.2
+Config.AttackSearchSeconds = 0.5
+Config.AttackSearchCandidateLimit = 8
 Config.ProjectionRebuildDistance = 24
 Config.RobotFrameSeconds = 0.18
 Config.RobotOrbitRetargetMinSeconds = 2.5
@@ -179,17 +180,31 @@ function Config.ensureData(value)
 end
 
 function Config.isEnabled()
-    if GodSystemAdminConfig and GodSystemAdminConfig.getSetting then
-        return GodSystemAdminConfig.getSetting("EnableCompanion", true) == true
+    if GodSystemRuntimeConfig and GodSystemRuntimeConfig.get then
+        return GodSystemRuntimeConfig.get("EnableCompanion", true) == true
     end
     return true
 end
 
 function Config.getPriceMultiplier()
-    if GodSystemAdminConfig and GodSystemAdminConfig.getSetting then
-        return math.max(0.01, tonumber(GodSystemAdminConfig.getSetting("CompanionPriceMultiplier", 1)) or 1)
+    if GodSystemRuntimeConfig and GodSystemRuntimeConfig.get then
+        return math.max(0.01, tonumber(GodSystemRuntimeConfig.get("CompanionPriceMultiplier", 1)) or 1)
     end
     return 1
+end
+
+function Config.getAttackSearchSeconds()
+    if GodSystemRuntimeConfig and GodSystemRuntimeConfig.get then
+        return math.max(0.10, tonumber(GodSystemRuntimeConfig.get("CompanionAttackSearchSeconds", Config.AttackSearchSeconds)) or Config.AttackSearchSeconds)
+    end
+    return Config.AttackSearchSeconds
+end
+
+function Config.getAttackSearchCandidateLimit()
+    if GodSystemRuntimeConfig and GodSystemRuntimeConfig.get then
+        return math.max(1, math.floor(tonumber(GodSystemRuntimeConfig.get("CompanionAttackSearchCandidateLimit", Config.AttackSearchCandidateLimit)) or Config.AttackSearchCandidateLimit))
+    end
+    return Config.AttackSearchCandidateLimit
 end
 
 function Config.scaleCost(cost)

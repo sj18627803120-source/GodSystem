@@ -2,7 +2,6 @@ module GodSystem
 {
     item SystemCoin1
     {
-        DisplayName = God System Coin 1,
         DisplayCategory = Currency,
         ItemType = base:normal,
         Icon = Money,
@@ -12,7 +11,6 @@ module GodSystem
 
     item SystemCoin10
     {
-        DisplayName = God System Coin 10,
         DisplayCategory = Currency,
         ItemType = base:normal,
         Icon = Money,
@@ -22,7 +20,6 @@ module GodSystem
 
     item SystemCoin100
     {
-        DisplayName = God System Coin 100,
         DisplayCategory = Currency,
         ItemType = base:normal,
         Icon = Money,
@@ -30,9 +27,78 @@ module GodSystem
         Weight = 0.001,
     }
 
+    item LotteryTicketFood
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketFood,
+    }
+
+    item LotteryTicketMedical
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketMedical,
+    }
+
+    item LotteryTicketMaterial
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketMaterial,
+    }
+
+    item LotteryTicketTool
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketTool,
+    }
+
+    item LotteryTicketWeapon
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketWeapon,
+    }
+
+    item LotteryTicketRandom
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketRandom,
+    }
+
+    item LotteryTicketTenRandom
+    {
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Icon = ScratchTicket,
+        WorldStaticModel = ScratchTicket,
+        Weight = 0.1,
+        Tooltip = Tooltip_GodSystem_LotteryTicketTenRandom,
+    }
+
     item SystemRepairKit
     {
-        DisplayName = System Repair Kit,
         DisplayCategory = Tool,
         ItemType = base:normal,
         Icon = SystemRepairKit,
@@ -42,7 +108,6 @@ module GodSystem
 
     item DurabilityCore
     {
-        DisplayName = Durability Core,
         DisplayCategory = Tool,
         ItemType = base:normal,
         Icon = DurabilityCore,
@@ -52,7 +117,6 @@ module GodSystem
 
     item SystemVehicleRepairModule
     {
-        DisplayName = System Vehicle Repair Module,
         DisplayCategory = Tool,
         ItemType = base:normal,
         Icon = SystemVehicleRepairModule,
@@ -60,15 +124,14 @@ module GodSystem
         Tooltip = Tooltip_GodSystem_SystemVehicleRepairModule,
     }
 
-    item SystemSpaceTerminal
+    item StorageContainer
     {
-        DisplayName = System Space Terminal,
         DisplayCategory = Bag,
         ItemType = base:container,
         Icon = SystemSpaceTerminal,
         Weight = 0.1,
-        Capacity = 10,
-        WeightReduction = 50,
+        Capacity = 500,
+        WeightReduction = 99,
         BodyLocation = GodSystem:SystemSpaceTerminal,
         CanBeEquipped = GodSystem:SystemSpaceTerminal,
         ClothingItem = AthleticCup,
@@ -76,22 +139,35 @@ module GodSystem
         EquipSound = EquipFannyPack,
         OpenSound = OpenFannyPack,
         PutInSound = StoreItemInFannyPack,
-        Tooltip = Tooltip_GodSystem_SystemSpaceTerminal,
+        Tooltip = Tooltip_GodSystem_StorageContainer,
     }
 
-    item StorageController
+    item WeightStone
     {
-        DisplayName = System Storage Core,
-        DisplayCategory = Electronics,
-        ItemType = base:normal,
+        DisplayCategory = Hidden,
+        ItemType = base:food,
+        Icon = Money,
+        Weight = 1,
+        HungerChange = -1,
+        CantEat = true,
+        Hidden = true,
+    }
+
+    item SystemSpaceTerminal
+    {
+        DisplayCategory = Hidden,
+        ItemType = base:container,
         Icon = SystemSpaceTerminal,
-        Weight = 0.5,
-        Tooltip = Tooltip_GodSystem_StorageController,
+        Weight = 0.1,
+        Capacity = 10,
+        WeightReduction = 50,
+        BodyLocation = GodSystem:SystemSpaceTerminal,
+        CanBeEquipped = GodSystem:SystemSpaceTerminal,
+        Hidden = true,
     }
 
     item SystemAutoLoader
     {
-        DisplayName = System Auto Loader,
         DisplayCategory = Electronics,
         ItemType = base:normal,
         Icon = SystemAutoLoader,
@@ -101,7 +177,6 @@ module GodSystem
 
     item SystemTerminalRelief
     {
-        DisplayName = System Terminal Relief,
         DisplayCategory = Hidden,
         ItemType = base:food,
         Icon = Money,

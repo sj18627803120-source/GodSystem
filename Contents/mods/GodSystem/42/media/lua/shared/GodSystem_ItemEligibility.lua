@@ -1,6 +1,6 @@
 require "GodSystem_Config"
 
-GodSystem = GodSystem or {}
+GodSystemItemEligibility = GodSystemItemEligibility or {}
 
 local EXACT_BLACKLIST = {
     ["Base.TestHotDrink"] = true,
@@ -123,7 +123,7 @@ local function hasForbiddenBaseName(fullType)
     return false
 end
 
-function GodSystem.isEconomicItemAllowed(fullType, context)
+function GodSystemItemEligibility.isEconomicItemAllowed(fullType, context)
     fullType = tostring(fullType or "")
     if fullType == "" then
         return false
@@ -133,24 +133,17 @@ function GodSystem.isEconomicItemAllowed(fullType, context)
         return false
     end
 
-    local lotteryContext = tostring(context or "") == "lottery"
     local scriptItem = findScriptItem(fullType)
     if not scriptItem then
         return false
     end
 
     local obsolete = safeObsolete(scriptItem)
-    if obsolete == nil and lotteryContext then
-        return false
-    end
     if obsolete == true then
         return false
     end
 
     local hidden = safeHidden(scriptItem)
-    if hidden == nil and lotteryContext then
-        return false
-    end
     if hidden == true then
         return false
     end

@@ -1,0 +1,20 @@
+{
+  "GodSystem.SystemCoin1": "System Currency (1)",
+  "GodSystem.SystemCoin10": "System Currency (10)",
+  "GodSystem.SystemCoin100": "System Currency (100)",
+  "GodSystem.SystemRepairKit": "System Repair Kit",
+  "GodSystem.DurabilityCore": "Durability Core",
+  "GodSystem.StorageContainer": "Storage Container.500",
+  "GodSystem.SystemVehicleRepairModule": "System Vehicle Repair Module",
+  "GodSystem.SystemAutoLoader": "System Auto Loader",
+  "GodSystem.WeightStone": "Retired Weight Stone",
+  "GodSystem.SystemSpaceTerminal": "Legacy Carry Terminal",
+  "GodSystem.SystemTerminalRelief": "Legacy Relief Module",
+  "GodSystem.LotteryTicketFood": "Food Lottery Ticket",
+  "GodSystem.LotteryTicketMedical": "Medical Lottery Ticket",
+  "GodSystem.LotteryTicketMaterial": "Material Lottery Ticket",
+  "GodSystem.LotteryTicketTool": "Tool Lottery Ticket",
+  "GodSystem.LotteryTicketWeapon": "Weapon Lottery Ticket",
+  "GodSystem.LotteryTicketRandom": "Random Lottery Ticket",
+  "GodSystem.LotteryTicketTenRandom": "Ten-Draw Random Lottery Ticket"
+}

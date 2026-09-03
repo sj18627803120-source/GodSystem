@@ -1,3 +1,5 @@
+require "GodSystem_App"
+require "GodSystem_InventoryContext"
 require "GodSystem_AutoLoader"
 require "GodSystem_AutoLoaderClient"
 require "GodSystem_AutoLoaderUI"
@@ -9,7 +11,7 @@ local AutoLoader = GodSystemAutoLoader
 local Client = GodSystemAutoLoaderClient
 
 function Context.text(key, fallback)
-    if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.text then return GodSystemApp.services.runtime.text(key, fallback) end
     return fallback or key
 end
 
@@ -33,6 +35,17 @@ function Context.selectedLoader(items)
     return selected
 end
 
+function Context.selectedSnapshotLoader(snapshot)
+    local selected
+    for _, entry in ipairs(snapshot.entries or {}) do
+        if entry.isAutoLoader then
+            if selected and selected ~= entry.item then return nil end
+            selected = entry.item
+        end
+    end
+    return selected
+end
+
 function Context.open(loader, playerNum)
     GodSystemAutoLoaderUI.open(loader, playerNum)
     Client.requestState(loader, playerNum)
@@ -47,7 +60,9 @@ function Context.fill(loader, playerNum)
 end
 
 function Context.fillInventoryMenu(playerNum, context, items)
-    local loader = Context.selectedLoader(items)
+    local loader = items and items.__godSystemInventorySnapshot
+        and Context.selectedSnapshotLoader(items)
+        or Context.selectedLoader(items)
     if not loader then return end
     local parent = context:addOption(Context.text("AutoLoader_Context", "System auto-loader"))
     local submenu = ISContextMenu:getNew(context)
@@ -57,9 +72,6 @@ function Context.fillInventoryMenu(playerNum, context, items)
     submenu:addOption(Context.text("AutoLoader_FillAll", "Fill all magazines"), loader, Context.fill, playerNum)
 end
 
-if Events.OnFillInventoryObjectContextMenu then
-    Events.OnFillInventoryObjectContextMenu.Remove(Context.fillInventoryMenu)
-    Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)
-end
+GodSystemInventoryContext.register("autoLoader", Context.fillInventoryMenu)
 
 return Context

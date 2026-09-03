@@ -1,9 +1,12 @@
+require "GodSystem_B42JavaCalls"
+
 GodSystemMaintenance = GodSystemMaintenance or {}
 
 GodSystemMaintenance.RepairItemType = "GodSystem.SystemRepairKit"
 GodSystemMaintenance.ReinforceItemType = "GodSystem.DurabilityCore"
 GodSystemMaintenance.VehicleRepairItemType = "GodSystem.SystemVehicleRepairModule"
 GodSystemMaintenance.MaxSafeCondition = 2147483645
+GodSystemMaintenance.NonMaintainableItemTypes = {}
 
 local utilityTypes = {
     [GodSystemMaintenance.RepairItemType] = true,
@@ -46,14 +49,7 @@ function GodSystemMaintenance.vehicleDamageSummary(vehicle)
 end
 
 local function call(object, methodName, ...)
-    if not object then return false, nil end
-    local okMethod, method = pcall(function() return object[methodName] end)
-    if not okMethod or not method then return false, nil end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    return pcall(function()
-        return method(object, unpackFn(args))
-    end)
+    return GodSystemB42JavaCalls.try(object, methodName, ...)
 end
 
 local function syncVehiclePart(vehicle, part)
@@ -120,8 +116,13 @@ function GodSystemMaintenance.isUtilityItem(item)
     return ok and utilityTypes[tostring(fullType or "")] == true
 end
 
+function GodSystemMaintenance.isMaintainableItem(item)
+    local ok, fullType = call(item, "getFullType")
+    return ok and GodSystemMaintenance.NonMaintainableItemTypes[tostring(fullType or "")] ~= true
+end
+
 function GodSystemMaintenance.snapshot(item)
-    if not item or GodSystemMaintenance.isUtilityItem(item) then
+    if not item or GodSystemMaintenance.isUtilityItem(item) or not GodSystemMaintenance.isMaintainableItem(item) then
         return nil, "MaintenanceInvalidTarget"
     end
 
@@ -167,6 +168,71 @@ function GodSystemMaintenance.snapshot(item)
     local okBroken, broken = call(item, "isBroken")
     snapshot.broken = okBroken and broken == true
     return snapshot, nil
+end
+
+function GodSystemMaintenance.snapshotPayload(snapshot)
+    if type(snapshot) ~= "table" then return nil end
+    local payload = {
+        condition = number(snapshot.condition),
+        conditionMax = number(snapshot.conditionMax),
+        hasHead = snapshot.hasHead == true,
+        hasSharpness = snapshot.hasSharpness == true,
+        broken = snapshot.broken == true,
+    }
+    if not payload.condition or not payload.conditionMax or payload.conditionMax <= 0 then return nil end
+    if payload.hasHead then
+        payload.headCondition = number(snapshot.headCondition)
+        payload.headConditionMax = number(snapshot.headConditionMax)
+        if not payload.headCondition or not payload.headConditionMax or payload.headConditionMax <= 0 then
+            return nil
+        end
+    end
+    if payload.hasSharpness then
+        payload.sharpness = number(snapshot.sharpness)
+        if payload.sharpness == nil then return nil end
+    end
+    return payload
+end
+
+function GodSystemMaintenance.applySnapshot(item, payload)
+    if not item or type(payload) ~= "table" then return false end
+    local state = GodSystemMaintenance.snapshotPayload(payload)
+    if not state then return false end
+
+    local ok = call(item, "setConditionMax", state.conditionMax)
+    if not ok then return false end
+    ok = call(item, "setCondition", state.condition)
+    if not ok then return false end
+    if state.hasHead then
+        ok = call(item, "setHeadCondition", state.headCondition)
+        if not ok then return false end
+    end
+    if state.hasSharpness then
+        ok = call(item, "setSharpness", state.sharpness)
+        if not ok then return false end
+    end
+    local hasSetBroken, setBroken = pcall(function() return item.setBroken end)
+    if hasSetBroken and setBroken and state.broken ~= nil then
+        ok = call(item, "setBroken", state.broken == true)
+        if not ok then return false end
+    end
+
+    local after = GodSystemMaintenance.snapshot(item)
+    if not after then return false end
+    if not sameNumber(after.condition, state.condition)
+        or not sameNumber(after.conditionMax, state.conditionMax)
+        or after.broken ~= state.broken then
+        return false
+    end
+    if state.hasHead and (not after.hasHead
+        or not sameNumber(after.headCondition, state.headCondition)
+        or not sameNumber(after.headConditionMax, state.headConditionMax)) then
+        return false
+    end
+    if state.hasSharpness and (not after.hasSharpness or not sameNumber(after.sharpness, state.sharpness)) then
+        return false
+    end
+    return true
 end
 
 function GodSystemMaintenance.isFullyRepaired(snapshot)

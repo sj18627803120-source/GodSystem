@@ -18,10 +18,40 @@ local function sortedValues(values)
     return result
 end
 
+local function sortedUniqueNonEmptyValues(values)
+    local result, seen = {}, {}
+    for i = 1, #(values or {}) do
+        local value = tostring(values[i] or "")
+        if value ~= "" and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
+        end
+    end
+    table.sort(result)
+    return result
+end
+
 function GodSystemTransactionOps.fingerprint(kind, args)
     args = type(args) == "table" and args or {}
     if kind == "upgradeSystem" then
         return "upgrade|" .. tostring(args.upgradeType or "")
+    end
+    if kind == "buyShop" then
+        return table.concat({
+            "buyShop",
+            tostring(args.id or ""),
+            "q:" .. tostring(math.max(1, math.floor(tonumber(args.quantity) or 1))),
+        }, "|")
+    end
+    if kind == "useLotteryTicket" then
+        return "lottery|" .. tostring(args.itemId or "")
+    end
+    if kind == "listOnlyAutoShop" then
+        return table.concat({
+            "listOnly",
+            tostring(args.fullType or ""),
+            tostring(args.itemId or ""),
+        }, "|")
     end
     if kind == "recycleSelectedItems" then
         local parts = {
@@ -39,6 +69,12 @@ function GodSystemTransactionOps.fingerprint(kind, args)
             local id = signatureIds[i]
             parts[#parts + 1] = "s:" .. id .. "=" .. tostring(signatures[id] or "")
         end
+        return table.concat(parts, "|")
+    end
+    if kind == "setShopItemsHidden" then
+        local parts = { "shopHidden", args.hidden == true and "1" or "0" }
+        local keys = sortedUniqueNonEmptyValues(args.variantKeys)
+        for i = 1, #keys do parts[#parts + 1] = "k:" .. keys[i] end
         return table.concat(parts, "|")
     end
     return ""

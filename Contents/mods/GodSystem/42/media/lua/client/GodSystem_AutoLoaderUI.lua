@@ -1,3 +1,4 @@
+require "GodSystem_App"
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISButton"
@@ -18,7 +19,7 @@ UI.window = UI.window or nil
 UI.loaderId = UI.loaderId or nil
 
 local function text(key, fallback)
-    if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.text then return GodSystemApp.services.runtime.text(key, fallback) end
     return fallback or key
 end
 
@@ -170,8 +171,10 @@ function UI.open(loader, playerNum)
     if loaderId == "" then return nil end
     if UI.window and UI.window.loaderId ~= loaderId then UI.window:close() end
     if UI.window then
-        UI.window:setVisible(true)
         UI.window:addToUIManager()
+        UI.window:setVisible(true)
+        UI.window:setAlwaysOnTop(true)
+        UI.window:bringToTop()
         UI.window:rebuild(Client.states[loaderId])
         return UI.window
     end
@@ -182,6 +185,8 @@ function UI.open(loader, playerNum)
     window:initialise()
     window:addToUIManager()
     window:setVisible(true)
+    window:setAlwaysOnTop(true)
+    window:bringToTop()
     UI.window = window
     UI.loaderId = loaderId
     return window

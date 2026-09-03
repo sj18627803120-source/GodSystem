@@ -1,23 +1,24 @@
 ItemName_CN = {
-    ItemName_GodSystem.SystemCoin1 = "一面额神级系统币",
-    ItemName_GodSystem.SystemCoin10 = "十面额神级系统币",
-    ItemName_GodSystem.SystemCoin100 = "百面额神级系统币",
+    ItemName_GodSystem.SystemCoin1 = "系统币（1）",
+    ItemName_GodSystem.SystemCoin10 = "系统币（10）",
+    ItemName_GodSystem.SystemCoin100 = "系统币（100）",
 
     ItemName_GodSystem.SystemRepairKit = "系统修复组件",
     ItemName_GodSystem.DurabilityCore = "耐久强化核心",
     Tooltip_GodSystem_SystemRepairKit = "一次性使用。完整修复当前右手物品的主体/握把耐久、头部耐久和锋利度（若支持）。双手物品有效。采用原版标准耐久接口的 MOD 物品同样有效；自定义耐久系统可能无法修复。",
     Tooltip_GodSystem_DurabilityCore = "一次性使用。使当前右手物品的主体/握把最大耐久永久增加 2，并使当前耐久增加 2。可重复使用，不设强化次数上限。不会提高头部耐久上限。双手物品及采用标准耐久接口的 MOD 物品有效。",
 
-    ItemName_GodSystem.SystemSpaceTerminal = "系统空间终端",
-    Tooltip_GodSystem_SystemSpaceTerminal = "无人物模型的系统空间终端，使用独立穿戴位置，不占用项链、背包或背带栏位。原生容量最高49；可继续升级终端减重与空间减载，默认每次增加5点减载、最高2000。终端自身不可回收、抽奖或自动上架。",
     ItemName_GodSystem.SystemVehicleRepairModule = "系统车辆修复模块",
     Tooltip_GodSystem_SystemVehicleRepairModule = "一次性使用。持有后右键目标车辆，可完整修复车辆及缺失的标准部件。不会补充燃油或修改车内物品；自定义车辆系统可能无法兼容。",
 
-    ItemName_GodSystem.SystemTerminalRelief = "系统内部减载核心",
 
-    ItemName_GodSystem.StorageController = "系统仓库核心",
-    Tooltip_GodSystem_StorageController = "用于把一件已标记的固定网络家具设为系统仓库入口。家具无需清空，仍保留原容量、物品及正常网络储物能力。",
 
     ItemName_GodSystem.SystemAutoLoader = "系统自动装填机",
     Tooltip_GodSystem_SystemAutoLoader = "将随身未收藏的散装弹药转为数字存储，每种弹药按设置拥有独立容量；可为随身的同类型弹匣装填。",
+
+    ItemName_GodSystem.StorageContainer = "储物器.500",
+    Tooltip_GodSystem_StorageContainer = "容量 500、减重 99%%。使用独立储物器栏位，可自由穿戴、转移和存放。",
+    ItemName_GodSystem.LotteryTicketTenRandom = "十连随机抽奖券",
+    Tooltip_GodSystem_LotteryTicketTenRandom = "右键使用。奖池准备完成后连续随机获得十件物品，允许重复。",
+
 }

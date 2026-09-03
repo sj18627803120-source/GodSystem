@@ -1,3 +1,4 @@
+require "GodSystem_App"
 if (isClient and isClient()) or (isServer and isServer()) then return end
 
 require "GodSystem_Core"
@@ -12,7 +13,7 @@ local UI = GodSystemCompanionUI
 local Companion = GodSystemCompanion
 
 local function textKey(key, fallback)
-    return GodSystem.text(key, fallback)
+    return GodSystemApp.services.runtime.text(key, fallback)
 end
 
 local function buttonStyle(button, selected)
@@ -75,7 +76,7 @@ function GodSystemCompanionShortcutWindow:createChildren()
 end
 
 function GodSystemCompanionShortcutWindow:refreshButtons()
-    local data = GodSystem.getCompanionData()
+    local data = GodSystemApp.services.runtime.getCompanionData()
     if not data or not data.unlocked then self:close(); return end
     for i = 1, #self.actionButtons do
         local button = self.actionButtons[i]
@@ -136,12 +137,12 @@ function GodSystemCompanionShortcutWindow:onAction(button)
 end
 
 function GodSystemCompanionShortcutWindow:close()
-    local data = GodSystem.getCompanionData()
+    local data = GodSystemApp.services.runtime.getCompanionData()
     if data and data.ui then
         data.ui.shortcutVisible = false
         data.ui.shortcutX = math.floor(self.x or 0)
         data.ui.shortcutY = math.floor(self.y or 0)
-        GodSystem.save()
+        GodSystemApp.services.runtime.save()
     end
     self:setVisible(false)
     if self.removeFromUIManager then self:removeFromUIManager() end
@@ -149,16 +150,20 @@ function GodSystemCompanionShortcutWindow:close()
 end
 
 function UI.setShortcutVisible(visible, owner)
-    local data = GodSystem.getCompanionData()
+    local data = GodSystemApp.services.runtime.getCompanionData()
     if not data or not data.unlocked then return false end
     visible = visible == true
     if not visible then
         if UI.shortcutWindow then UI.shortcutWindow:close() end
         data.ui.shortcutVisible = false
-        GodSystem.save()
+        GodSystemApp.services.runtime.save()
         return true
     end
-    if UI.shortcutWindow and UI.shortcutWindow:getIsVisible() then return true end
+    if UI.shortcutWindow and UI.shortcutWindow:getIsVisible() then
+        UI.shortcutWindow:setAlwaysOnTop(true)
+        UI.shortcutWindow:bringToTop()
+        return true
+    end
     local screenW, screenH = getCore():getScreenWidth(), getCore():getScreenHeight()
     local x = math.floor(tonumber(data.ui.shortcutX) or ((owner and owner.x or screenW / 2) + 40))
     local y = math.floor(tonumber(data.ui.shortcutY) or ((owner and owner.y or screenH / 2) + 60))
@@ -168,9 +173,11 @@ function UI.setShortcutVisible(visible, owner)
     window:initialise()
     window:addToUIManager()
     window:setVisible(true)
+    window:setAlwaysOnTop(true)
+    window:bringToTop()
     UI.shortcutWindow = window
     data.ui.shortcutVisible = true
-    GodSystem.save()
+    GodSystemApp.services.runtime.save()
     return true
 end
 
@@ -179,7 +186,7 @@ function UI.toggleShortcut(owner)
 end
 
 local function restoreShortcut()
-    local data = GodSystem.getCompanionData()
+    local data = GodSystemApp.services.runtime.getCompanionData()
     if data and data.unlocked and data.ui and data.ui.shortcutVisible then UI.setShortcutVisible(true, nil) end
 end
 

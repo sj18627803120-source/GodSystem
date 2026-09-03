@@ -1,4 +1,6 @@
+require "GodSystem_App"
 require "GodSystem_Core"
+require "GodSystem_InventoryContext"
 require "GodSystem_Maintenance"
 require "GodSystem_Protocol"
 require "ISUI/ISModalDialog"
@@ -14,7 +16,7 @@ local function traceVehicle(message)
 end
 
 local function text(key, fallback)
-    if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.text then return GodSystemApp.services.runtime.text(key, fallback) end
     return fallback or key
 end
 
@@ -27,9 +29,9 @@ local function formatText(template, args)
 end
 
 local function notifyCode(code, args)
-    if not GodSystem or not GodSystem.notify then return end
+    if not GodSystemApp.services.runtime or not GodSystemApp.services.runtime.notify then return end
     local value = text("Notify_" .. tostring(code or "MaintenanceFailed"), text("Notify_MaintenanceFailed", "Maintenance failed"))
-    GodSystem.notify(formatText(value, args or {}))
+    GodSystemApp.services.runtime.notify(formatText(value, args or {}))
 end
 
 local function displayName(item)
@@ -65,6 +67,24 @@ local function containsItem(container, target)
     return false
 end
 
+local function findItemById(container, targetItemId)
+    if not container or not container.getItems or not targetItemId then return nil end
+    local okItems, items = pcall(function() return container:getItems() end)
+    if not okItems or not items or not items.size then return nil end
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item and tostring(GodSystemMaintenance.itemId(item) or "") == tostring(targetItemId) then
+            return item
+        end
+        if item and item.getInventory then
+            local okInventory, child = pcall(function() return item:getInventory() end)
+            local found = okInventory and child and findItemById(child, targetItemId) or nil
+            if found then return found end
+        end
+    end
+    return nil
+end
+
 local function selectedUtility(items)
     local selected = nil
     for _, value in ipairs(items or {}) do
@@ -75,6 +95,17 @@ local function selectedUtility(items)
         if item and GodSystemMaintenance.isUtilityItem(item) then
             if selected and selected ~= item then return nil end
             selected = item
+        end
+    end
+    return selected
+end
+
+local function selectedSnapshotUtility(snapshot)
+    local selected = nil
+    for _, entry in ipairs(snapshot.entries or {}) do
+        if entry.isMaintenanceUtility then
+            if selected and selected ~= entry.item then return nil end
+            selected = entry.item
         end
     end
     return selected
@@ -129,7 +160,29 @@ local function removeConsumable(player, consumable)
     return true
 end
 
-function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
+function Context.sendMaintenanceRequest(player, action, consumable, targetItemId)
+    local consumableItemId = GodSystemMaintenance.itemId(consumable)
+    if not player or not consumableItemId then return false end
+
+    local args = {
+        action = action,
+        consumableItemId = consumableItemId,
+    }
+    if action == "repairVehicle" then
+        args.vehicleId = math.floor(tonumber(targetItemId) or -1)
+        if args.vehicleId < 0 then return false end
+    else
+        args.targetItemId = tostring(targetItemId or "")
+        if args.targetItemId == "" then return false end
+    end
+
+    if not sendClientCommand then return false end
+    local command = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
+    local ok = pcall(sendClientCommand, player, MODULE, command, args)
+    return ok == true
+end
+
+function GodSystemApp.services.runtime.useMaintenanceItem(action, consumable, targetItemId)
     local player = getPlayer and getPlayer() or nil
     if action == "repairVehicle" then
         local vehicleId = math.floor(tonumber(targetItemId) or -1)
@@ -144,17 +197,9 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
             notifyCode("MaintenanceConsumableMissing")
             return false
         end
-        local args = {
-            action = action,
-            consumableItemId = consumableItemId,
-            vehicleId = vehicleId,
-        }
-        local command = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
-        if sendClientCommand then
-            local dispatched = pcall(sendClientCommand, player, MODULE, command, args)
-            traceVehicle("sendClientCommand dispatched=" .. tostring(dispatched))
-            if dispatched then return true end
-        end
+        local dispatched = Context.sendMaintenanceRequest(player, action, consumable, targetItemId)
+        traceVehicle("sendClientCommand dispatched=" .. tostring(dispatched))
+        if dispatched then return true end
         traceVehicle("sendClientCommand unavailable or failed")
         notifyCode("MaintenanceFailed")
         return false
@@ -178,6 +223,12 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
         return false
     end
 
+    if isClient and isClient() == true then
+        local sent = Context.sendMaintenanceRequest(player, action, consumable, targetItemId)
+        if not sent then notifyCode("MaintenanceFailed") end
+        return sent
+    end
+
     local applied, code, result, before = GodSystemMaintenance.apply(target, action)
     if not applied then
         notifyCode(code)
@@ -193,16 +244,27 @@ function GodSystem.useMaintenanceItem(action, consumable, targetItemId)
 end
 
 function Context.onServerCommand(module, command, args)
-    if (isClient and isClient()) or (isServer and isServer()) then return end
+    if isServer and isServer() and not (isClient and isClient()) then return end
     if module ~= MODULE or command ~= ((Protocol.S2C and Protocol.S2C.Result) or "result") then return end
     local payload = args and args.payload or nil
-    if not payload or payload.kind ~= "maintenanceItem" or payload.action ~= "repairVehicle" then return end
-    notifyCode(args.code or (args.ok == true and "VehicleRepaired" or "VehicleRepairFailed"), args.args or {})
+    if not payload or payload.kind ~= "maintenanceItem" then return end
+    if args.ok ~= true or payload.action == "repairVehicle" or type(payload.state) ~= "table" then return end
+    local player = getPlayer and getPlayer() or nil
+    local target = player and player:getPrimaryHandItem() or nil
+    if not target or tostring(GodSystemMaintenance.itemId(target) or "") ~= tostring(payload.targetItemId or "") then
+        target = player and findItemById(player:getInventory(), payload.targetItemId) or nil
+    end
+    if not target or not GodSystemMaintenance.applySnapshot(target, payload.state) then
+        return
+    end
+    local container = target.getContainer and target:getContainer() or nil
+    if container and container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
+    if triggerEvent then pcall(triggerEvent, "OnContainerUpdate") end
 end
 
 function Context:onConfirm(button, payload)
     if not button or button.internal ~= "YES" or not payload then return end
-    GodSystem.useMaintenanceItem(payload.action, payload.consumable, payload.targetItemId)
+    GodSystemApp.services.runtime.useMaintenanceItem(payload.action, payload.consumable, payload.targetItemId)
 end
 
 function Context.confirmUse(consumable, playerNum, action)
@@ -241,10 +303,17 @@ function Context.confirmUse(consumable, playerNum, action)
     })
     modal:initialise()
     modal:addToUIManager()
+    modal:setAlwaysOnTop(true)
+    modal:bringToTop()
 end
 
 function Context.fillInventoryMenu(playerNum, context, items)
-    local consumable = selectedUtility(items)
+    local consumable
+    if items and items.__godSystemInventorySnapshot then
+        consumable = selectedSnapshotUtility(items)
+    else
+        consumable = selectedUtility(items)
+    end
     local action = actionForItem(consumable)
     if not action then return end
     local key = action == "repairHeld" and "Context_RepairHeld" or "Context_ReinforceHeld"
@@ -252,7 +321,7 @@ function Context.fillInventoryMenu(playerNum, context, items)
     context:addOption(text(key, fallback), consumable, Context.confirmUse, playerNum, action)
 end
 
-Events.OnFillInventoryObjectContextMenu.Add(Context.fillInventoryMenu)
+GodSystemInventoryContext.register("maintenance", Context.fillInventoryMenu)
 if Events.OnServerCommand then
     Events.OnServerCommand.Remove(Context.onServerCommand)
     Events.OnServerCommand.Add(Context.onServerCommand)

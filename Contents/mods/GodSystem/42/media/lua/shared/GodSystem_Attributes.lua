@@ -1,25 +1,14 @@
 require "GodSystem_Config"
-require "GodSystem_AdminConfig"
+require "GodSystem_RuntimeConfig"
+require "GodSystem_ItemConfig"
+require "GodSystem_B42JavaCalls"
 
 GodSystemAttributes = GodSystemAttributes or {}
 
 local Attributes = GodSystemAttributes
 
 local function safeCall(object, methodName, fallback, ...)
-    if not object or not object[methodName] then return fallback end
-    local args = { ... }
-    local unpackFn = unpack or (table and table.unpack)
-    local ok, value = pcall(function()
-        if #args == 0 then
-            return object[methodName](object)
-        end
-        if unpackFn then
-            return object[methodName](object, unpackFn(args))
-        end
-        return object[methodName](object, args[1])
-    end)
-    if ok and value ~= nil then return value end
-    return fallback
+    return GodSystemB42JavaCalls.value(object, methodName, fallback, ...)
 end
 
 local function samePerk(left, right)
@@ -37,11 +26,11 @@ local function groupFor(perk, parent)
 end
 
 function Attributes.isEnabled()
-    return GodSystemAdminConfig.getSetting("EnableAttributes", true) == true
+    return GodSystemRuntimeConfig.get("EnableAttributes", true) == true
 end
 
 function Attributes.getXpPerCoin()
-    return math.max(1, math.floor(tonumber(GodSystemAdminConfig.getSetting("AttributeXPPerCoin", GodSystemConfig.AttributeXPPerCoin or 10)) or 10))
+    return math.max(1, math.floor(tonumber(GodSystemRuntimeConfig.get("AttributeXPPerCoin", GodSystemConfig.AttributeXPPerCoin or 10)) or 10))
 end
 
 function Attributes.resolve(perkIndex)

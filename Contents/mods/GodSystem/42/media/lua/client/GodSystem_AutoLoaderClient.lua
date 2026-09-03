@@ -1,3 +1,4 @@
+require "GodSystem_App"
 require "GodSystem_Core"
 require "GodSystem_AutoLoader"
 require "TimedActions/ISGodSystemAutoLoaderDepositAction"
@@ -14,6 +15,8 @@ local MODULE = "GodSystemAutoLoader"
 Client.states = Client.states or {}
 Client.queuedSessions = Client.queuedSessions or {}
 Client.operationCounter = Client.operationCounter or 0
+Client.reloadInterceptors = Client.reloadInterceptors or {}
+Client.reloadHookInstalled = Client.reloadHookInstalled or false
 
 local CODE_KEYS = {
     DepositStarted = "AutoLoader_DepositStarted",
@@ -41,7 +44,7 @@ local CODE_KEYS = {
 }
 
 function Client.text(key, fallback)
-    if GodSystem and GodSystem.text then return GodSystem.text(key, fallback) end
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.text then return GodSystemApp.services.runtime.text(key, fallback) end
     return fallback or key
 end
 
@@ -60,7 +63,7 @@ function Client.format(template, args)
 end
 
 function Client.notify(code, payload)
-    if not GodSystem or not GodSystem.notify then return end
+    if not GodSystemApp.services.runtime or not GodSystemApp.services.runtime.notify then return end
     payload = type(payload) == "table" and payload or {}
     local key = Client.codeKey(code)
     local args = {}
@@ -71,7 +74,7 @@ function Client.notify(code, payload)
     elseif key == "AutoLoader_WithdrawSuccess" then args = { payload.created or 0 }
     elseif key == "AutoLoader_LimitReached" then args = { AutoLoader.MaxLoaders, AutoLoader.MaxMagazines }
     elseif key == "AutoLoader_Error_Generic" then args = { tostring(code or "unknown") } end
-    GodSystem.notify(Client.format(Client.text(key, tostring(code or "")), args))
+    GodSystemApp.services.runtime.notify(Client.format(Client.text(key, tostring(code or "")), args))
 end
 
 function Client.player(playerNum)
@@ -266,21 +269,47 @@ function Client.queueLength(player)
     return #queue.queue
 end
 
+function Client.registerReloadInterceptor(name, callback)
+    name = tostring(name or "")
+    if name == "" or type(callback) ~= "function" then return false end
+    Client.reloadInterceptors[name] = callback
+    return true
+end
+
+function Client.runOriginalReload(player, gun, skipPostReload, originalReload)
+    originalReload = originalReload or Client.originalBeginAutomaticReload
+    if type(originalReload) ~= "function" then return false end
+    local before = Client.queueLength(player)
+    local result = originalReload(player, gun)
+    if skipPostReload == true then return result end
+    local after = Client.queueLength(player)
+    if after > before then
+        local loaders = AutoLoader.getLoaders(player, 1)
+        if #loaders > 0 then ISTimedActionQueue.add(ISGodSystemAutoLoaderPostReloadAction:new(player, Client.makeOperationId(player))) end
+    end
+    return result
+end
+
 function Client.installReloadHook()
     if not ISReloadWeaponAction or type(ISReloadWeaponAction.BeginAutomaticReload) ~= "function" then return false end
-    if ISReloadWeaponAction.BeginAutomaticReload == Client.reloadWrapper then return true end
-    Client.originalBeginAutomaticReload = ISReloadWeaponAction.BeginAutomaticReload
+    if Client.reloadHookInstalled then
+        return ISReloadWeaponAction.BeginAutomaticReload == Client.reloadWrapper
+    end
+    if ISReloadWeaponAction.BeginAutomaticReload == Client.reloadWrapper then
+        Client.reloadHookInstalled = true
+        return true
+    end
+    local originalReload = ISReloadWeaponAction.BeginAutomaticReload
+    Client.originalBeginAutomaticReload = originalReload
     Client.reloadWrapper = function(player, gun)
-        local before = Client.queueLength(player)
-        local result = Client.originalBeginAutomaticReload(player, gun)
-        local after = Client.queueLength(player)
-        if after > before then
-            local loaders = AutoLoader.getLoaders(player, 1)
-            if #loaders > 0 then ISTimedActionQueue.add(ISGodSystemAutoLoaderPostReloadAction:new(player, Client.makeOperationId(player))) end
+        for _, interceptor in pairs(Client.reloadInterceptors) do
+            local ok, handled, result = pcall(interceptor, player, gun)
+            if ok and handled == true then return result end
         end
-        return result
+        return Client.runOriginalReload(player, gun, false, originalReload)
     end
     ISReloadWeaponAction.BeginAutomaticReload = Client.reloadWrapper
+    Client.reloadHookInstalled = true
     return true
 end
 
@@ -290,10 +319,6 @@ function Client.clear()
 end
 
 Client.installReloadHook()
-if Events.OnGameStart then
-    Events.OnGameStart.Remove(Client.installReloadHook)
-    Events.OnGameStart.Add(Client.installReloadHook)
-end
 if Events.OnServerCommand then
     Events.OnServerCommand.Remove(Client.onServerCommand)
     Events.OnServerCommand.Add(Client.onServerCommand)

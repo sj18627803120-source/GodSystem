@@ -1,0 +1,14 @@
+{
+  "Tooltip_GodSystem_SystemRepairKit": "Single use. Fully repairs the held item body or handle, head durability, and sharpness when supported. Compatible with standard B42 durability APIs; custom durability systems may not be supported.",
+  "Tooltip_GodSystem_DurabilityCore": "Single use. Permanently increases the held item body or handle maximum durability by 2 and current durability by 2. Repeatable. Does not increase head durability maximum.",
+  "Tooltip_GodSystem_StorageContainer": "Capacity 500, weight reduction 99%. Uses the dedicated Storage Container body slot and can be worn, moved, and stored normally.",
+  "Tooltip_GodSystem_SystemVehicleRepairModule": "Single use. Right-click a target vehicle while holding it to repair the vehicle and missing standard parts. Does not add fuel or change vehicle inventory.",
+  "Tooltip_GodSystem_SystemAutoLoader": "Converts loose carried ammunition into a digital reserve by ammo type and can load matching magazines.",
+  "Tooltip_GodSystem_LotteryTicketFood": "Right-click to use. This legacy category ticket now performs one full random draw after the cache is ready.",
+  "Tooltip_GodSystem_LotteryTicketMedical": "Right-click to use. This legacy category ticket now performs one full random draw after the cache is ready.",
+  "Tooltip_GodSystem_LotteryTicketMaterial": "Right-click to use. This legacy category ticket now performs one full random draw after the cache is ready.",
+  "Tooltip_GodSystem_LotteryTicketTool": "Right-click to use. This legacy category ticket now performs one full random draw after the cache is ready.",
+  "Tooltip_GodSystem_LotteryTicketWeapon": "Right-click to use. This legacy category ticket now performs one full random draw after the cache is ready.",
+  "Tooltip_GodSystem_LotteryTicketRandom": "Right-click to use. Once the cache is ready, it awards one random item.",
+  "Tooltip_GodSystem_LotteryTicketTenRandom": "Right-click to use. Once the cache is ready, it awards ten independent random items and may repeat."
+}

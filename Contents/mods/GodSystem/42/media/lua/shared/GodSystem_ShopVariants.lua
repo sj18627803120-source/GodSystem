@@ -46,9 +46,7 @@ function GodSystemShopVariants.normalizeUnlocked(data, configuredKeys)
             row.fullType = fullType
             row.variantKey = key
             row.hidden = row.hidden == true
-            if configuredKeys and configuredKeys[key] == true then
-                removedConfigured = removedConfigured + 1
-            elseif migrated[key] then
+            if migrated[key] then
                 local existing = migrated[key]
                 existing.hidden = existing.hidden == true or row.hidden == true
                 existing.label = existing.label or row.label
@@ -63,6 +61,26 @@ function GodSystemShopVariants.normalizeUnlocked(data, configuredKeys)
     end
     data.unlockedShopItems = migrated
     return migrated, removedConfigured, mergedDuplicates
+end
+
+function GodSystemShopVariants.removeMatchingUnlocked(data, fullType, variantKey)
+    local unlocked = type(data) == "table" and data.unlockedShopItems or nil
+    if type(unlocked) ~= "table" then return 0 end
+    fullType = tostring(fullType or "")
+    variantKey = tostring(variantKey or "")
+    local removed = 0
+    for key, row in pairs(unlocked) do
+        local rowType = type(row) == "table" and tostring(row.fullType or key) or tostring(key)
+        local rowKey = type(row) == "table"
+            and GodSystemShopVariants.getKey(rowType, row.worldSprite) or tostring(key)
+        local matches = variantKey ~= "" and rowKey == variantKey
+            or variantKey == "" and fullType ~= "" and rowType == fullType
+        if matches then
+            unlocked[key] = nil
+            removed = removed + 1
+        end
+    end
+    return removed
 end
 
 function GodSystemShopVariants.isListingKnown(data, configuredKeys, fullTypeOrKey, itemOrSprite)
@@ -99,7 +117,11 @@ end
 function GodSystemShopVariants.getUnlockedRows(data, includeHidden)
     local result = {}
     for variantKey, row in pairs((type(data) == "table" and data.unlockedShopItems) or {}) do
-        if type(row) == "table" and (includeHidden == true or row.hidden ~= true) then
+        local fullType = type(row) == "table" and tostring(row.fullType or variantKey) or ""
+        local mode = GodSystemItemConfig and GodSystemItemConfig.getShopVariantMode
+            and GodSystemItemConfig.getShopVariantMode(variantKey, fullType) or "auto"
+        if type(row) == "table" and mode ~= "forced" and mode ~= "disabled"
+            and (includeHidden == true or row.hidden ~= true) then
             row.variantKey = tostring(row.variantKey or variantKey)
             result[#result + 1] = row
         end
@@ -108,8 +130,8 @@ function GodSystemShopVariants.getUnlockedRows(data, includeHidden)
 end
 
 function GodSystemShopVariants.createItem(fullType, worldSprite)
-    if not InventoryItemFactory or not InventoryItemFactory.CreateItem then return nil, "factoryUnavailable" end
-    local ok, item = pcall(function() return InventoryItemFactory.CreateItem(fullType) end)
+    if not instanceItem then return nil, "instanceUnavailable" end
+    local ok, item = pcall(function() return instanceItem(fullType) end)
     if not ok or not item then return nil, "createFailed" end
     worldSprite = GodSystemShopVariants.getWorldSprite(worldSprite)
     if worldSprite then
