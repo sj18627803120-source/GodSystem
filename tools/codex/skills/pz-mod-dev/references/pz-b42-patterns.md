@@ -1,214 +1,136 @@
-# PZ B42 MOD Patterns
+# Project Zomboid B42 Engineering Patterns
 
-## Reference Priority
+These rules consolidate GodSystem development through the user-tested `42.20_3.5` baseline. Unless a bullet explicitly says B42.20.4 live-tested or code-confirmed, revalidate it on the target patch.
 
-Use this order when designing or debugging:
+## Evidence and Diagnosis
 
-1. Same-version official manual, official examples, or vanilla scripts.
-2. Same-version reference mods supplied by the user.
-3. Other same-version community mods.
-4. Different-version official docs.
-5. Different-version mods or old tutorials.
+1. Same-patch vanilla/official source and live reproduction.
+2. Same-patch reference mods supplied by the user.
+3. Other same-patch community implementations.
+4. Different-patch official material.
+5. Older mods/tutorials as architecture hints only.
 
-Version match matters. Official source wins only when it matches or clearly applies to the target version.
+- Keep `代码确认`, `实机验证`, `合理推断`, and `待实机验证` separate in reports.
+- The official 42.13 migration guide is useful architectural evidence for registries and multiplayer inventory items, but it is not proof of 42.20.4 signatures.
+- Java bytecode proves a method exists; a same-patch vanilla Lua call or minimal live test is still required to prove its Kahlua overload.
+- Compare log timestamps, deployed-file hashes, and the exact stack before attributing errors. Errors from map translation, animation, or model mods that occur before GodSystem code are not GodSystem conflicts without a matching call path.
+- B42.20.4 Kahlua can log an `error()` even when an outer `pcall` catches it. Use structured returns for ordinary refusal paths and reserve exceptions for unexpected failures.
+- The standard Lua 5.1 global environment is not identical to PZ Kahlua. GodSystem startup failed because `next()` was unavailable even though desktop Lua tests passed. Test harnesses should disable or shim only APIs proven available in game.
 
-When working in GodSystem, start with the repository's [reference MOD research index](../../../../../docs/reference-mod-research/README.md) and [version catalog](../../../../../docs/reference-mod-research/catalog.md). Reports deliberately separate `代码确认`, `作者声明`, `合理推断`, and `待实机验证`; do not collapse those labels when promoting a rule.
+## Registries, Items, and Persistence
 
-## Official B42 Migration Evidence
+- `media/registries.lua` must use that exact name/path and loads before scripts and normal Lua. Register custom item types, tags, body locations, traits, and professions before script use.
+- B42 item scripts use `ItemType`, not old `Type`. Missing native fields can look like a dependency on another framework. Fix the item's script before adding a dependency.
+- Never mutate shared `ScriptItem` prototypes for player-specific state. Store instance state on the real item and synchronize it through the correct authority path.
+- A custom wearable slot needs the same namespaced location in `ItemBodyLocation.register`, the Human `BodyLocations` group, script `BodyLocation`, and script `CanBeEquipped`.
+- MP clients should not mutate discovered container capacity, reduction, name, or ModData. The server changes the real instance and sends a payload keyed by exact item ID; defer client application during wear/transfer actions.
+- Historical B42.19 evidence showed `ItemContainer:setCapacity()` rejecting values above 50. Treat 49 as the old verified safe cap, not a timeless B42 rule; recheck any newer target patch.
+- A native item ID may persist across saves, but it is not sufficient as a long-lived asset identity. For bound equipment use world ID + equipment UUID + generation + native item ID, with a world-authoritative record and item ModData only as a locator/snapshot.
+- Never recover a high-value record merely because a same-type item exists. Missing identity becomes a lost/unavailable state; recovery creates a new generation and invalidates the old generation.
 
-Read the repository's [official B42 development reference](../../../../../docs/PZ_B42_OFFICIAL_DEVELOPMENT_CN.md) before relying on community summaries.
+## Equipment Findings from B42.20.4
 
-Use the repository's [B42.19 vanilla API navigation reference](../../../../../docs/PZ_B42_游戏本体API技术参考.md) to locate likely objects, events, and same-version call sites when the game installation is unavailable. Treat its tables as search guidance rather than proof: verify overloads and SP/MP availability before coding. In particular, a server-directory Lua file loading in SP does not imply `isServer()` is true in SP.
+- The checked save path did not persist an arbitrary expanded `ConditionMax`, while damaged `Condition` used a one-byte representation. Do not build unlimited durability-cap growth around per-instance `ConditionMax`.
+- Composite weapons may have body condition, head condition, and sharpness. Capability-check each layer. Natural wear paths use the wear/chance parameters, so improve resistance rather than inventing an unbounded condition maximum.
+- Once vanilla break logic removes a composite weapon and produces parts, normal repair cannot resurrect that entity; recovery must be a separate reconstruction/generation operation.
+- `HandWeapon` actual weight is derived from type base weight and attachment weight in the checked path; an ordinary instance weight setter is not a reliable equipment weight upgrade.
+- Reload action duration is driven by animation variables, skills, and panic in the checked vanilla actions. A single `ReloadTime` mutation is not a reliable reload-speed feature.
+- Keep permanent base values separate from attachment/sharpness-derived values. Reapply enhancement from the stored base on every handoff or config change; never multiply the already-enhanced current value.
+- Apply equipment effects only for the verified owner/current generation. Restore base values when unequipped, used by another account, identity-invalid, or awaiting authoritative config.
+- Server item messages should include the scalar growth configuration needed to apply the item. A stale client sandbox value or old page snapshot must not choose equipment multipliers.
+- Stop paid upgrades when the underlying native parameter is already at its effective bound. Show expected parameters separately from final combat outcomes; skill, fatigue, panic, sharpness, and vanilla clamps still affect play.
+- Validate a newly constructed equipment record before writing its item marker, slot, receipt, or world record. A target weapon with unsupported durability or attribute shapes must fail only that bind attempt and leave the player free to choose another weapon.
+- Separate root-store corruption from one-record corruption. Invalid world/account shells, receipts, or uncertain transactions may fail closed; a malformed slot record should become an isolated row state so other slots remain usable. Releasing an invalid slot must preserve the raw record for diagnosis and remove its active slot relationship without deleting any physical weapon.
+- A marked record is active only while the owning account has a valid slot reference to that equipment UUID. Tooltip projection, attribute application, freeze, rename, repair, and recovery must share this rule so an orphaned marker cannot retain benefits.
 
-- The Indie Stone's published migration guide targets 42.13, which introduced the registry and multiplayer Inventory Item architecture still used by 42.19. It is strong architectural evidence, but not a substitute for current 42.19 method signatures.
-- `media/registries.lua` must have that exact path and name and loads before scripts and ordinary Lua. Register custom `ItemType`, `ItemTag`, `ItemBodyLocation`, trait/profession IDs, and other listed identifiers before script use.
-- B42 item scripts use `ItemType`, not the old `Type`; item display names come from translation keys rather than a script `DisplayName` field.
-- In MP, create, remove, and mutate inventory items on the server. Synchronize with the matching add/remove/field/stat/ModData function. A client-created item is not authoritative and may disappear after relog.
-- Network Timed Actions keep visual work in client `perform()` and item/object mutation in server/SP `complete()`. Constructor argument names must match serializable object fields, and `getDuration()` must recompute duration on the authority side.
-- For non-Timed-Action commands, `sendClientCommand(player, module, command, args)` reaches `OnClientCommand(module, command, player, args)`. The handler must re-resolve real objects and validate all authoritative state.
-- The official guide itself says changed Lua APIs should be checked against decompiled Java and warns that unstable patches continue changing APIs. Java existence still does not prove a Kahlua-callable overload; verify a same-version vanilla call or a minimal live test.
+## Equipment Tooltip, Rename, and Freeze Findings
 
-## PZwiki And Community Tooling
+- Inventory tooltips have no dedicated extension event in the checked B42.20.4 path. Chain the currently installed `ISToolTipInv.render`, call it exactly once, append only after a validated projection, restore any temporary instance methods/layout state, and protect the add-on path so a failure cannot suppress the vanilla tooltip or flood the render log.
+- Tooltip rows must be generated from the shared attribute registry and projection level map rather than hard-coding damage/freeze. New attributes then extend capability checks, projection, formatting metadata, translations, and tests in one explicit path.
+- `ISTextEntryBox:getText()` may arrive as `java.lang.String` userdata. Normalize that specific text boundary safely before the shared UTF-8 validator; do not broaden authority requests to accept arbitrary tables or numeric payloads. Client and authority must run the same trim, code-point, control-character, BMP, and length rules.
+- Multiplayer tooltip inspection is read-only and keyed by the complete world/equipment/generation/item/fullType/revision identity. Cache and deduplicate in-flight requests; never scan inventory or trust item ModData as authorization.
+- A real melee swing should produce at most one freeze trigger even when it hits multiple zombies. Keep feature/weapon checks constant-time, let the authority select loaded nearby same-floor targets, merge one strongest timed effect per zombie, batch changes, and unregister temporary workers when inactive.
+- A Java method existing does not prove a render overload is callable. In B42.20.4, the tested `SpriteRenderer.render(Texture, x, y, w, h, r, g, b, a)` Lua call had no matching exposed implementation. Use a same-patch proven drawing path such as the existing line renderer/UI primitive and keep visual state separate from gameplay authority.
+- Freeze visuals and movement are separate acceptance paths. A working slowdown does not prove a marker is rendered; SP effect creation must initialize visual flags/frame lifetime, and render callbacks must tolerate an uninitialized configuration cache without indexing a function or nil value.
 
-Read the repository's [community development resource review](../../../../../docs/PZ_COMMUNITY_DEVELOPMENT_RESOURCES_CN.md) before adopting a community API.
+## Multiplayer Authority and Paid Operations
 
-- PZwiki page titles are intentionally generic, but page source uses `Page version` markers. Community maintenance is asynchronous; check the page marker and warnings instead of assuming a generic title means B42.19 coverage.
-- `PZ Community API` targets 41.56-IWBUMS and its latest code is from 2021. Its MIT-licensed module organization, EmmyLua annotations, light lifecycle, scan utilities, and delayed-square queue are useful design references, but the code is not a B42.19 dependency.
-- `SpawnerAPI` is a submodule of that repository, not a separate project. Its server module is empty and spawning is client-side, so do not use it for B42 multiplayer authority. Its delayed branch also looks up lowercase `spawnItem`-style keys while the exported functions are uppercase `SpawnItem`-style keys; Lua is case-sensitive, so this code is not a working queue reference. Rebuild any similar queue with serializable records, server validation, current synchronization, bounded persistence, and operation IDs.
-- Treat its scan helpers as structural examples only. The old `IsoUtils.GetIsoRange()` hardcodes `z=0`, calls `getOrCreateGridSquare()`, and contains a nil dereference path in `RecursiveGetSquare()`. A B42 runtime scan must preserve the caller's floor, avoid creating unloaded squares, bound work, and validate every returned square.
-- `Archive.Project-Zomboid-Modding` is an active archive, not a runtime API. It has no repository-wide license; verify each file's author, source, version, and permission. Use its TIS guide copies as mirrors of the original forum attachments, not as proof that unrelated archived assets are official or redistributable.
+- The server resolves listings, price, stock, balance, item ownership, feature status, configuration, and final mutation. A server handler that trusts client price or a client item table is not authoritative.
+- Network Timed Actions keep visuals in client `perform()` and authority mutations in server/SP `complete()`. Non-timed commands use stable scalar IDs and re-resolve real objects in `OnClientCommand`.
+- Use one business service for SP and MP with different authority adapters. Do not maintain divergent pricing, validation, or rollback implementations.
+- Transaction order: validate → intent/snapshot → reserve/charge → mutate → verify → commit → sync. For recovery, verify the generated real item before changing the active generation.
+- Preserve `fromBank` and `fromCash`. Refund original sources; if physical coin restoration fails, preserve value in the documented bank fallback.
+- Operation IDs must survive reconnect/module reload, bind to a normalized request fingerprint, and have bounded persistent `processing/done/unknown` results. On restart, unresolved `processing` becomes `unknown`, not an automatic replay.
+- If mutation committed but sync failed, retry sync rather than refunding and leaving the player with both value and benefit.
+- Keep client/server feature gates. Hiding a button is presentation, not authorization.
 
-## Cross-Source Research Rules
+## Inventory and Context-Menu Performance
 
-- Server-authoritative economy means the server resolves the listing, price, stock, balance, item ownership, and final mutation. A server handler alone is insufficient when it still trusts a client price or item snapshot. Compare [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md), [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md), and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).
-- Paid delivery should reserve scarce state, record the exact payment split, perform delivery, verify the result where possible, and restore stock/payment on failure. Offline queues need both a player-created event and a client hello/retry path. See [Server Shop](../../../../../docs/reference-mod-research/mods/Server-Shop.md).
-- Inventory mutation must resolve real item IDs on the authority side and explicitly synchronize add/remove operations. Client snapshots are display/request data, not ownership proof. See [YeseMarket](../../../../../docs/reference-mod-research/mods/YeseMarket.md) and [CaiGou's Shop](../../../../../docs/reference-mod-research/mods/CaiGou-Shop.md).
-- Apparent storage beyond the B42 container limit can be multiple standard-capacity containers, not one oversized `ItemContainer`. Recursive weight compression must store an instance base weight, restore on controlled transfer, and avoid global script mutation. See [Cultivation Storage Artifacts](../../../../../docs/reference-mod-research/mods/CultivationStorageArtifacts.md).
-- Never use `ScriptItem:DoParam()` or `scriptItem:setActualWeight()` for player-specific/per-instance state. Script items are shared prototypes; modifying one fullType can affect other instances and future spawns. Global fallback/classification MODs use this intentionally for global behavior, as shown by [that DAMN Library](../../../../../docs/reference-mod-research/mods/damnlib.md) and [Extended Categories](../../../../../docs/reference-mod-research/mods/CAExtendedCategories.md).
-- Adding a runtime trait marker does not replay creation-time items, injuries, recipes, XP boosts, or custom initialization. Enumerate standard definitions, revalidate cost/conflicts on the server, and use explicit adapters for supported side effects. See [More Traits](../../../../../docs/reference-mod-research/mods/MoreTraits.md) and [Traits Purchase System](../../../../../docs/reference-mod-research/mods/TraitsPurchaseSystem.md).
-- Keep constant-time state updates separate from target scans. Throttle full zombie-list scans, batch large square scans across ticks, and unregister temporary UI events after success. See [Psionic Awakening](../../../../../docs/reference-mod-research/mods/PsionicAwakening.md) and [Extended Categories](../../../../../docs/reference-mod-research/mods/CAExtendedCategories.md).
-- Debug/admin commands prove an engine call exists, not that it is safe for a paid player workflow. Wrap the vanilla call with real item, distance, permission, payment, failure, and synchronization checks. See [DebugMenu](../../../../../docs/reference-mod-research/mods/DebugMenu.md).
+- Gate by the clicked object first. A world right-click should determine whether a vehicle exists before searching for a repair module. Inventory actions should first classify the selected items, then search only the data required by relevant actions.
+- Share one immutable selection snapshot among menu builders. Expand stack selections, deduplicate exact `item:getID()` values, and do not let a later selection change alter the pending request.
+- Menu construction must not recursively scan unrelated inventory, count cash, rebuild full prices, load/sort files, or request server refreshes.
+- Range allow/deny lists should be normalized into membership sets when loaded, edited, imported, or synchronized. Cache by player/session/version and expose a read-only prepared-state query to the menu.
+- For large selection analysis, defer expensive count/category/price/container checks until click. GodSystem uses more than 200 items as the deferred boundary, processes at most 64 entries per frame with an approximately 2 ms budget, and allows only one preparation job per player. These numbers are project defaults, not engine constants.
+- Cancel preparation when selection identity, item location/content signature, configuration, player, or connection changes. Move/delete nothing until the completed analysis is confirmed.
+- Build one exact item-ID index per validation/execution phase, then reuse it inside that phase. Do not cache a full inventory index across operations and never trust a client-built index.
+- `ItemContainer:Remove(item)` is only an attempted mutation. Verify the exact item is absent before paying; record it in the removed ledger only after verification. Restore equipment/worn state on rollback.
+- Non-empty containers need a compact recursive content-instance signature at confirmation and immediate revalidation before settlement.
+- Loot/floor/vehicle selections should use vanilla transfer actions followed by a callback-capable queue barrier; do not assume the final transfer action supports `setOnComplete()`.
 
-## Lessons From GodSystem
+## UI Layers, Lists, and Theme Safety
 
-- A mod can work as one SP/MP entry when client and server files are guarded correctly.
-- Preserve the known-good SP path. Add MP bridge/server handlers instead of rewriting stable SP logic unless there is a clear reason.
-- Keep MP data separate from SP data. Example: append `_MP` to the SP `DataKey`.
-- Do not write MP server state back into the player's SP local `ModData`; update client memory for UI display only.
-- Use `sendClientCommand(player, module, command, args)` first and fall back to the shorter form if needed.
-- MP hello/initial state must retry until the player/network objects are ready.
-- Wrap server command handlers in `pcall` and send an error/state response when a command fails.
+- Main mod window: normal layer. Owned secondary pages: above main. Their confirmation dialogs: above the secondary page. Reassert this on reuse/focus, not every frame.
+- Close or detach owned dialogs when the parent closes. Prevent duplicate confirmations and do not globally override vanilla UI classes.
+- B42.20.4 `ISButton:setEnable(false)` mutates the assigned border/background color objects. Passing shared theme tables lets one disabled button turn unrelated panels red. Clone color tables per control/window.
+- Read the target-patch modal constructor/callback. Historical B42 behavior stores `player` on `button.player` and passes `param1/param2` positionally; a visible modal does not prove its callback ran.
+- Page population and row drawing must be presentation-only. No inventory scans, price rebuilds, server requests, or filesystem work.
+- Preserve selection through rebuilds using stable IDs. Keep a one-shot pending ID and scroll position across MP placeholder/empty states; clear it only after the real row is restored.
+- Reusing/resizing `ISScrollingListBox` requires resetting y-scroll, scroll height, smooth-scroll fields, and resynchronizing `vscroll.x/height`. Stale scrollbar geometry can corrupt stencil width.
+- Do not rely solely on stencil clipping for custom rows. Submit row backgrounds and text only when their coordinates intersect the visible viewport; use UTF-8-safe cached ellipsis for long names.
+- Hide disabled feature tabs, task trackers, shortcut actions, loans/investments blocks, and feature-specific shop entries. If the active page becomes hidden, select the first visible page.
 
-## Inventory and Currency
+## Localization and Encoding
 
-- Entity currency is more robust for SP persistence than a pure Lua number, but MP operations must sync real item add/remove.
-- For server item grants, add item to inventory and call `sendAddItemToContainer` when available.
-- For removals, remove from the real container and call `sendRemoveItemFromContainer` when available.
-- For buy flows, either charge after all grantable items are confirmed or roll back granted items if charging fails.
-- For sell/recycle flows, verify that the item still exists in the player's real inventory/container before paying.
-- For local UI balance, scanning the client backpack can be useful for real operations, but never do it from high-frequency UI paths such as `prerender`, top status bars, hover detail updates, or every tab switch. Use a short-lived display cache and invalidate it after buy/sell/bank/recycle/waist operations.
-- In MP, prefer server state balances for display and keep real item scans for server-side transaction validation. A client display getter should not recursively scan all carried containers every frame.
-- Recycle, waist, and "sell all" pages are allowed to scan real inventory, but only on page entry, explicit refresh, search/filter changes when needed, or after key inventory-changing operations. Cache grouped display results by `fullType`; transaction execution must re-read and validate real items.
-- Inventory context-menu batch transactions must identify instances with `item:getID()`, not only `fullType/count`. Expand stacked selection payloads, deduplicate IDs, and resolve every ID again at execution time.
-- For loot-window, floor, or vehicle selections, queue vanilla `ISInventoryTransferUtil.newInventoryTransferAction()` operations into the player inventory, then append a callback-capable queue barrier such as `ISWaitWhileGettingUp`. Do not assume the final transfer action has `setOnComplete()`; human corpses return `ISGrabCorpseItem`. Revalidate every ID after the barrier.
-- Treat `ItemContainer:Remove(item)` as an attempted mutation. Before paying, verify the exact item no longer appears in the source container. On failure, restore already removed instances and any cleared primary-hand, secondary-hand, or worn state.
-- Do not append an item to a transaction's `removed` ledger until exact removal has been verified. Otherwise a failed removal can be counted as payment and then duplicated again by rollback.
-- For mixed bank/cash payments, retain `fromBank` and `fromCash`. Refund cash to inventory when possible; if item creation fails, credit the same value to the bank so a failed rollback never destroys currency.
-- For destructive non-empty-container operations, capture a compact recursive content-instance signature when the player confirms. Recompute it immediately before settlement and cancel the whole batch if it changed.
+- In GodSystem, the UTF-8 YAML plus generator is the source of truth. Generate CN/CH `IG_UI.json`, legacy `IG_UI_*.txt`, `ItemName.json`, `Tooltip.json`, sandbox JSON, legacy item text, and the ASCII-safe Lua fallback together.
+- Parse item scripts during generation and fail if any scripted item name or tooltip key is missing. SystemCoin and LotteryTicket IDs appearing in English can simply mean this mod omitted `ItemName` entries and another translator masked the omission on the developer's machine.
+- PZ uses CN and CH as separate language codes. GodSystem intentionally mirrors simplified Chinese into both for compatibility; other projects may provide distinct translations.
+- When the active language is CN/CH, a native English fallback should not prevent the mod's own Chinese fallback. For other languages, preserve the normal translator priority.
+- Literal percent signs in formatted PZ translation strings may require escaping as `%%`; otherwise sandbox text can throw `UnknownFormatConversionException` at load time.
+- Keep server results as stable `{code,args}` and localize on the client. Avoid server-authored Chinese sentences in new protocol paths.
+- PowerShell console mojibake is not file corruption. Use `apply_patch`/explicit UTF-8 reads, reject U+FFFD and known mojibake fragments, and avoid Chinese literals in Windows PowerShell 5.1 test scripts without a safe encoding strategy.
 
-## Item Script Compatibility
+## Sandbox Configuration and Tasks
 
-- Missing or incorrect B42 item fields can make a mod appear dependent on another framework mod.
-- GodSystem's currency issue was fixed by adding `ItemType = base:normal` and a usable `WorldStaticModel`, avoiding dependency on `that DAMN Library`.
-- Do not add third-party framework dependencies just because they mask a script issue. Fix the mod's own scripts first.
+- Generate sandbox options and their CN/CH labels/tooltips from the same metadata as runtime/admin configuration when they must stay aligned.
+- Distinguish a sandbox base from purchased progression. A persisted absolute task limit can shadow later lower sandbox values. Prefer `effective = clamp(sandbox base + purchased bonus)` with a schema that states what is stored.
+- If the product explicitly rejects old-save protection for an unpublished schema, reset obsolete absolute fields rather than guessing which portion was purchased.
+- Explain each option's units and edge cases. Examples: daily task count 0 creates none; active limit 0 permits none; a 24-hour baseline shifts new template durations; reward/penalty multipliers apply when the task is created or settled as documented.
+- Configuration changes that affect generated tasks need a generation token/version. Preserve accepted tasks and regenerate only unaccepted tasks when the token changes, even on the same in-game day.
+- Server-authored runtime configuration is authoritative in MP. UI opening/local data hydration must not overwrite it with the client's local sandbox file.
+- Disabling tasks must stop generation, auto-claim, and progress/timeout work as designed, while the server still rejects stale direct task commands.
 
-## B42 Item Durability Layers
+## Event and Performance Discipline
 
-- In B42.19, `Condition` / `ConditionMax` is the primary per-instance durability layer. For composite weapons, vanilla `OnBreak.HandleHandler` behavior shows this layer also represents the body or handle.
-- Composite heads use a separate `HeadCondition` / `HeadConditionMax`. Check `hasHeadCondition()` before calling `getHeadCondition()`, `getHeadConditionMax()`, or `setHeadCondition()`.
-- Sharpenable blades may also expose `hasSharpness()`, `getSharpness()`, and `setSharpness()`. The B42.19 admin item editor treats sharpness as a 0-to-1 value.
-- `InventoryItem:setConditionMax()` is used by B42.19 vanilla code and changes one item instance, not every item of that script type.
-- Do not assume a public `setHeadConditionMax()` exists. No stable B42.19 vanilla call was found during the GodSystem v1.16.47 work. Prefer increasing only primary maximum condition unless a same-version source proves a head-max API.
-- If `OnBreak` has already removed a composite weapon and spawned separate parts, a repair action cannot restore the deleted original item without implementing a separate reconstruction system.
-- For paid or consumable maintenance, snapshot all supported layers first. Mutate and verify, consume only after success, and roll back the snapshot if consumption fails.
-- MOD compatibility should be capability-based: probe the standard methods with `pcall` and avoid module-name whitelists. Document that custom `ModData` durability systems are outside generic support.
+- Prefer load/connect/create-player, hand changes, explicit page open, transaction completion, save/death/disconnect, and low-frequency real-time validation.
+- On weapon attacks, inspect only the known current weapon and mark a deferred durability snapshot dirty. Do not send a full equipment state on every hit.
+- Inventory/container events should mark dirty state, not immediately recurse through all carried containers.
+- UI open or an explicit operation may build one temporary inventory index. Drawing never does.
+- Temporary frame workers must have an item budget, time budget, cancellation conditions, and guaranteed event unregistration.
+- Measure menu cost, traversal count, indexing, application, transaction, and message size. Validate realistic 1/200/201/1,000/10,000 item cases where relevant.
 
-## Multiplayer Light Sync
+## Validation and Backup Checklist
 
-Use this when compatibility and low pressure matter more than anti-cheat:
+- Run focused behavior suites, full regressions, generated localization checks, sandbox key-set checks, protocol parity, UTF-8 scans, and Lua 5.1 compilation for every packaged Lua file.
+- Lua 5.1 main chunks allow at most 200 locals. Prefer modules/namespaces before an entry file reaches the limit.
+- Mock tests cannot validate Java overloads, stencil behavior, final weapon performance, save persistence, or MP synchronization. Record target-patch SP, hosted MP, and dedicated-server coverage separately.
+- A user-confirmed stable build may replace the project's one rolling ZIP when requested. Create a temporary archive, exclude `.git`/test caches, verify `Contents`, `workshop.txt`, `preview.png`, embedded version, and entry count, then replace only the exact intended ZIP and record SHA-256.
+- Never package reference mods or third-party assets without explicit permission and redistributable licensing.
 
-- UI open: request state once.
-- Key operations: send command and wait for server state/result.
-- Background: sync on a low-frequency real-time interval, such as 5 minutes.
-- UI tab switch: do not request state.
-- Frequent events: batch them. Example: zombie kill rewards sync after 10 kills, UI open, key sync, or background sync.
-- If key operation and background sync collide, process key operation first and let background sync happen later.
-- Online-only timers that do not advance reliably in dedicated-server player callbacks can use a client session baseline: report only complete positive world hours, let the server own settlement, reset the baseline on `OnConnected`, `OnDisconnect`, or time rollback, and never backfill offline time.
-- Key commands that spend currency or consume items need idempotency in addition to a single in-flight guard. Use a globally unique operation ID that survives reconnect and Lua module reload, and persist a bounded result cache in server `ModData` under stable player identity rather than temporary online ID. Store a normalized request fingerprint with each `processing/done/unknown` record, reject an ID reused for different payload, and convert persisted `processing` records to `unknown` after server restart. If the UI retries after timeout, reuse the previous ID only when the command and scalar payload are identical.
+## Repository References
 
-## B42.19 Attribute XP Purchases
-
-- Enumerate through `Perks.getMaxIndex()` and `Perks.fromIndex()`, then resolve metadata through `PerkFactory.getPerk(perk)`. Prefer the registered object's `getParent()`, `getName()`, and `getTotalXpForLevel()` over assumptions based on enum names.
-- Skip category nodes, perks without a parent, missing XP curves, and custom skill systems that do not expose the standard player XP state. The generic GodSystem path is intentionally limited to the standard ten-level curve unless a same-version API proves a different maximum.
-- B42.19 vanilla `ISPlayerStatsUI` uses `player:getXp():AddXP(perk, amount, false, false, false, false)` for no-multiplier edits. Re-read XP afterward; charge and history must use the actual delta. If only part of the requested XP applied, refund the difference using the original payment-source split.
-- In MP, the server re-resolves the perk and quote, mutates XP, then calls `SyncXp(player)`. If `SyncXp` fails after XP changed, do not refund the purchase: record a pending resync and retry it during the next server-authoritative hello/reconnect path.
-
-## B42.19 Vehicle Repair
-
-- Vanilla `ISVehicleMechanics` sends the server `vehicle/repair` command, and `VehicleCommands` resolves the vehicle before calling `vehicle:repair()`. Use `getVehicleById()` on the server for MOD requests and validate item ownership, distance, floor, and vehicle state first.
-- The vanilla command is admin/cheat oriented. A paid repair consumable should keep its own server-authoritative business checks and call `vehicle:repair()` only after those checks; never trust a client-side repair result.
-- If SP direct client repair is ineffective, load a guarded SP server bridge and reuse the same consumable command. Consume before repair, refund on verified failure, and return the same structured result shape used by MP.
-- After `vehicle:repair()`, refresh part/bullet statistics and transmit part condition, item, and ModData when available. Re-read the damage summary before success; a successful Java call is not by itself proof that a custom vehicle accepted the repair.
-- A MOD vehicle may log an uncreatable missing item such as `Couldn't find item nil2` and retain that part even though other damage was repaired. For a paid consumable, compare pre/post damage counts: any measurable decrease is a successful repair and consumes the item; refund only when the call errors or produces no change.
-- Treat `vehicle:repair()` as `BaseVehicle` compatibility. Do not promise support for MOD vehicles that replace the standard part or repair system.
-
-## B42.19 Wearable Containers
-
-- A custom wearable container needs the same namespaced location in `ItemBodyLocation.register(...)`, `BodyLocations.getGroup("Human"):getOrCreateLocation(...)`, script `BodyLocation`, and script `CanBeEquipped`. The registry ID alone does not create the location in the Human body-location group.
-- Static agreement across those declarations does not replace SP and MP live wear tests. Keep MP clients read-only for discovered container instances, and let the server synchronize only verified changes so inventory packets do not compete with `ISWearClothing`/`ISUnequipAction`.
-- If dropping/reacquiring or reconnecting fixes a dynamic capacity display, the server state is probably correct but the current client Java item instance is stale. Return authoritative capacity/reduction/helper state keyed by exact item ID after each mutation, call the native item-field sync path, and apply that payload only after active wear/transfer actions finish. Page-open sync is a bounded fallback, not a render-loop refresh.
-
-## Sandbox Defaults
-
-- Generate `media/sandbox-options.txt` from the same metadata that drives an admin settings panel when the option sets must stay identical.
-- Sandbox values are initialization defaults unless the product explicitly defines them as live authority. Import only when the persistent settings field is `nil`; do not treat an existing empty table as a new world.
-- Keep structured item overrides out of scalar sandbox options. Preserve them in the existing admin storage and synchronization path.
-- Generate CN/CH sandbox localization from the same UTF-8 source and test that admin keys, sandbox keys, and translation keys form matching sets.
-
-## B42.19 Negative-Weight Terminal Relief
-
-- `InventoryItem.setActualWeight()` clamps ordinary negative weights, so it cannot directly create reliable relief. A Food instance can produce native negative actual weight when its script baseline has `Weight=1`, `HungerChange=-1`, and the instance `hungChange` is changed to a positive value.
-- For a desired offset `R`, set only the internal Food instance to `hungChange=R/100`, then verify `getActualWeight()` is approximately `-R`. Never mutate the shared `ScriptItem` definition.
-- `ItemContainer.getContentsWeight()` includes the negative result, so Java capacity checks continue to decide whether items fit. This is more reliable than Lua-wrapping exposed capacity helpers, because Java internal calls may bypass Lua method replacement.
-- Keep one hidden, non-edible, favorite and unwanted internal item at the top level of the owned terminal. Exclude its full type from recycle, auto-listing, lottery and player-facing counts.
-- B42.19 favorite and unwanted methods do not share signatures. `isFavorite()` is parameterless, while unwanted state is player-scoped: use `isUnwanted(player)` and `setUnwanted(player, value)`. Pass the local SP player or authoritative MP player through the shared terminal-apply API instead of guessing an overload.
-- Audit only on explicit lifecycle and transaction boundaries. Do not add per-frame, minute, or periodic inventory scans. In MP, create/remove/change the internal item only on the server and use `sendAddItemToContainer`, `sendRemoveItemFromContainer`, `sendItemStats`, and ModData transmission for synchronization.
-- Snapshot the internal item before a paid upgrade. Apply and verify first, charge second, and restore plus synchronize the snapshot if payment or later validation fails.
-
-Recommended trust split:
-
-- Trust client: kill count deltas, move distance, survive time, non-item task progress.
-- Verify server-side: buy affordability, item grants, item removals, recycle items, item-turn-in tasks, waist/container inventory.
-
-## Tasks
-
-- On accept, store baselines from the side that will later compute progress. If client computes kill/move progress, send client baselines at accept time.
-- On claim, include `clientProgress` for non-item tasks.
-- For item tasks, ignore client progress for final validation and count/remove real server-side items.
-- For timeouts in client-first MP, client tracks time and sends `clientExpired=true`; server applies failure and penalty.
-
-## UI and Selection
-
-- Read the same-version dialog class before writing callback signatures. B42.19 `ISModalDialog:new(..., target, onclick, player, param1, param2)` later calls `onclick(target, button, param1, param2)`; `player` becomes `button.player` and does not occupy a callback argument. If the payload was passed as `param1`, the callback is `function(target, button, payload)`. A wrong arity can silently return behind a `button.internal` or `payload` guard while the dialog itself appears normal.
-- For a visible-but-inert action, instrument each boundary separately: confirmation callback entry, client dispatch, server receipt, validation, mutation, and result. Compare log and deployed-file timestamps before concluding the instrumented build was tested.
-- Page population functions should be pure display work. Avoid server requests inside drawing/populate functions except an initial "state missing" bootstrap.
-- UI drawing and resize paths must not call recursive inventory scans, price table rebuilds, or server syncs. If a player carries thousands of stack items, these paths run on the main thread and can make clicks, page switches, and unrelated actions feel delayed.
-- Capture selection before list rebuild and restore by stable IDs.
-- Before an action that waits for server state, keep a separate one-shot pending ID and scroll snapshot. Sync placeholders and empty transient lists must not replace it with `nil`; clear it only after the real row is found again.
-- Do not assume `ISScrollingListBox:clear()` resets scroll state in B42. When reusing list boxes across pages, also reset `setYScroll(0)`, `setScrollHeight(0)`, `smoothScrollTargetY`, and `smoothScrollY`; otherwise rows can exist and remain selectable while rendering outside the visible area.
-- When changing a reused `ISScrollingListBox` width or height, also update its child `vscroll` geometry. B42 initializes `vscroll.x = parent.width - 16` and `vscroll.height = parent.height` once, and `setWidth/setHeight` on the parent does not reattach the scrollbar. `ISScrollingListBox:prerender()` uses `self.vscroll.x + 3` as the stencil width when the scrollbar is visible, so stale scrollbar geometry can make long lists render black/empty while short filtered lists still display. For heavily reused custom UI list boxes, install a local safe `prerender` wrapper that resyncs scrollbar geometry immediately before and after vanilla `ISScrollingListBox.prerender()`, and apply it to every list instance, not only the page where the bug was first seen.
-- For custom `ISScrollingListBox` row rendering, store display text in the row payload as a fallback such as `displayText`; do not rely only on the wrapper's `item.text`.
-- Keep task open/active columns distinct; do not reset the selected column during every redraw.
-- Long history/info pages should use wrapped single-column list rows, not a detail pane that can be hidden/cleared during relayout.
-- When resizing UI, recompute stable dimensions and constrain minimum sizes.
-- For small state-driven windows such as shortcut bars, do not rely on one-time `createChildren()` button creation. Use a low-frequency action/state signature refresh, such as every 5 real seconds while open, and rebuild controls only when the signature changes. The refresh path must stay local and lightweight: no server sync, no price-table rebuild, and no recursive inventory scan.
-
-## Localization and Mojibake
-
-- Lua source can contain valid UTF-8 while PowerShell displays mojibake. Distinguish display problems from file corruption.
-- Use .NET UTF-8 reads to check for replacement characters.
-- Avoid writing Chinese text through fragile shell quoting. Prefer `apply_patch` or escaped strings.
-- MP history/notify should be structured codes and args; the client localizes with `HistoryMP_*` or `NotifyMP_*`.
-- For GodSystem-style commands, prefer a helper such as `finishCode(player, ok, code, args, payload)` so new MP results carry stable codes instead of server-side Chinese sentences.
-- When a generated localization source exists, update the UTF-8 YAML source first, then regenerate CN/CH Translate files and the ASCII-only Lua fallback. Do not hand-edit only one layer.
-- B42.19 vanilla translations use JSON files such as `ItemName.json` and `Tooltip.json`. When a mod still carries legacy `Items_CN.txt`, generate both formats from one source for new item names/tooltips instead of assuming a `Tooltip_*` key inside the item-name table will load.
-- Do not automatically delete old mojibake history from player saves unless the user asks.
-- Windows PowerShell 5.1 parses UTF-8 `.ps1` files without a BOM as the active ANSI code page. Do not put Chinese source literals in these test scripts; use ASCII keys/patterns and validate Chinese files through explicit UTF-8 APIs or Python. The target UTF-8 file may be correct even when a script literal becomes mojibake during parsing.
-
-## Packaging Notes
-
-- Workshop upload directory should usually be the folder containing `workshop.txt`, `preview.png`, and `Contents`.
-- Stable backups are user-confirmed artifacts. Do not overwrite them after code edits until the user has tested and explicitly asks.
-- Keep reference mods outside the packaged mod unless licensing and the user's request explicitly allow bundling.
-
-## B42.19 SP Render-Only Companion Pattern
-
-- Runtime isolation: client-runtime files still load in multiplayer environments unless guarded. Return immediately when `isClient()` or `isServer()` is true, and conditionally require the runtime only from the SP UI path. Do not add protocol/server handlers for an SP-only feature.
-- Pure visual rule: use logical coordinates plus `OnPreUIDraw` textures for a harmless companion. A zombie-backed shell remains an `IsoZombie` to vanilla and third-party systems and cannot reliably suppress bites, panic, stress, knockdown, or corpse behavior.
-- Migration: old marked shells may be removed once on startup. After migration, the companion runtime must not call `addZombiesInOutfit()`, rebuild `ItemVisual`, or expose appearance/shape-switch endpoints.
-- Position safety: choose same-floor, visible, non-solid target squares. Smooth toward low-frequency orbit targets and recall after floor changes, teleport, vehicle transitions, or excessive distance.
-- Light lifecycle: `IsoLightSource.new(x,y,z,r,g,b,radius)` plus `cell:addLamppost(light)` works in B42.19 references. Recreate only after tile/radius changes and remove with the same cell's `removeLamppost(light)` on hide, vehicle entry, death, world exit, or rebuild.
-- Rendering: do not infer Kahlua-callable overloads from Java signatures or commented vanilla Lua. In B42.19, GodSystem successfully loaded a `Texture` but `SpriteRenderer.render(Texture,Double...)` still raised `No implementation found`. For compact visual companions and effects, use the already verified `GodSystem_WhitePixel.png + renderline()` path from `OnPreUIDraw`; only use `render()` after a live same-version call has been proven.
-- Direct kills: set the attacker, subtract health, and call `zombie:Kill(player)` when lethal so original death events run. Read the player's kill count before the hit and only use `setZombieKills(old+1)` as a fallback when `Kill(player)` did not increment it.
-- Damage layering: send direct hits, damage-over-time, chains, and area splash through one kill-ownership helper. Pass an explicit flag that suppresses all on-hit effects for secondary damage, so chain and blast targets cannot recurse into additional chains, blasts, marks, or status refreshes.
-- Performance: throttle no-target attack searches, skip guardian scanning during cooldown, detect the guardian threshold in a fixed 7x7 area with early exit, and gather/cap sight targets only on manual activation.
-- Random APIs: do not assume standard Lua `math.random()` exists in the B42.19 Kahlua runtime. Use the same-version vanilla APIs `ZombRandFloat(min,max)` for float ranges and `ZombRand(min,max)` for integer ranges, and add a static regression check for new runtime random helpers.
-
-## Useful Static Checks
-
-- Version consistency in config, root `mod.info`, versioned `mod.info`, `workshop.txt`, and upload notes.
-- Client send commands have matching `Commands.*` server handlers.
-- No stale duplicate mod IDs such as draft MP entries.
-- No `U+FFFD` replacement characters in Lua files.
-- No accidental state refresh calls on UI tab switches when using light sync.
-- Lua 5.1 `luac -p` on every packaged Lua file. Large entry chunks fail once the main function exceeds 200 locals; avoid adding more top-level locals and group helpers under the existing module table instead.
+- `docs/reference-mod-research/README.md`
+- `docs/reference-mod-research/catalog.md`
+- `docs/PZ_B42_OFFICIAL_DEVELOPMENT_CN.md`
+- `docs/PZ_B42_游戏本体API技术参考.md`
+- `docs/GodSystem_DevHandoff_CN/03_开发经验与踩坑.md`
+- Latest numbered GodSystem handoff files

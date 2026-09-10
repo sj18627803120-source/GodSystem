@@ -154,7 +154,37 @@ function GodSystemWindow:setupLayoutMetrics()
 end
 
 function GodSystemWindow:isNavigationTabVisible(tab)
-    return tab ~= nil and (tab.id ~= "itemConfig" or GodSystemApp.services.runtime.isItemConfigAllowed() == true)
+    if tab == nil then return false end
+    if tab.id == "itemConfig" and GodSystemApp.services.runtime.isItemConfigAllowed() ~= true then return false end
+    if tab.singlePlayerOnly == true and gsIsMultiplayer() then return false end
+    for _, featureKey in ipairs(tab.featureKeys or {}) do
+        if GodSystemApp.services.runtime.isFeatureEnabled(featureKey) == false then return false end
+    end
+    if tab.id == "companion" and not GodSystemCompanionConfig.isEnabled() then return false end
+    if tab.id == "shortcuts" then
+        return GodSystemApp.services.runtime.isFeatureEnabled("EnableTeleport") ~= false
+            or GodSystemApp.services.runtime.isFeatureEnabled("EnableBank") ~= false
+    end
+    return true
+end
+
+function GodSystemWindow:ensureVisibleNavigationMode()
+    local current = self:navigationTabById(self.mode)
+    if current and self:isNavigationTabVisible(current) then return self.mode end
+    for _, tab in ipairs(self.navigationTabs or {}) do
+        if tab.id ~= "equipment" and self:isNavigationTabVisible(tab) then
+            self.mode = tab.id
+            return self.mode
+        end
+    end
+    for _, tab in ipairs(self.moreNavigationTabs or {}) do
+        if tab.id ~= "shortcuts" and self:isNavigationTabVisible(tab) then
+            self.mode = tab.id
+            return self.mode
+        end
+    end
+    self.mode = "info"
+    return self.mode
 end
 
 function GodSystemWindow:navigationTabById(id)
@@ -495,23 +525,17 @@ function GodSystemWindow:createChildren()
         { id = "taskExtensions", label = GodSystemApp.services.runtime.text("Section_TaskExtensions", "Task upgrades") },
     }
     local tabs = {
-        { id = "tasks", label = GodSystemApp.services.runtime.text("Tab_Tasks", "Tasks"), group = "core", sections = self.taskNavigationSections },
-        { id = "shop", label = GodSystemApp.services.runtime.text("Tab_Shop", "Shop"), group = "core" },
-        { id = "rangeRecycle", label = GodSystemApp.services.runtime.text("Tab_RangeRecycle", "Range recycle"), group = "core" },
-        { id = "bank", label = GodSystemApp.services.runtime.text("Tab_Bank", "Bank"), group = "core" },
-        { id = "home", label = GodSystemApp.services.runtime.text("Tab_Home", "Home/Teleport"), group = "systems" },
-        { id = "traits", label = GodSystemApp.services.runtime.text("Tab_Traits", "Traits"), group = "systems" },
+        { id = "tasks", label = GodSystemApp.services.runtime.text("Tab_Tasks", "Tasks"), group = "core", sections = self.taskNavigationSections, featureKeys = { "EnableTasks" } },
+        { id = "shop", label = GodSystemApp.services.runtime.text("Tab_Shop", "Shop"), group = "core", featureKeys = { "EnableShop" } },
+        { id = "rangeRecycle", label = GodSystemApp.services.runtime.text("Tab_RangeRecycle", "Range recycle"), group = "core", featureKeys = { "EnableRecycle", "EnableRangeRecycle" } },
+        { id = "bank", label = GodSystemApp.services.runtime.text("Tab_Bank", "Bank"), group = "core", featureKeys = { "EnableBank" } },
+        { id = "home", label = GodSystemApp.services.runtime.text("Tab_Home", "Home/Teleport"), group = "systems", featureKeys = { "EnableTeleport" } },
+        { id = "traits", label = GodSystemApp.services.runtime.text("Tab_Traits", "Traits"), group = "systems", featureKeys = { "EnableTraits" } },
         { id = "upgrades", label = GodSystemApp.services.runtime.text("Tab_Upgrades", "Upgrades"), group = "systems" },
+        { id = "attribute", label = GodSystemApp.services.runtime.text("Tab_Attributes", "Attributes"), group = "systems", featureKeys = { "EnableAttributes" } },
+        { id = "companion", label = GodSystemApp.services.runtime.text("Tab_Companion", "Companion"), group = "systems", featureKeys = { "EnableCompanion" }, singlePlayerOnly = true },
+        { id = "equipment", label = GodSystemApp.services.runtime.text("Equipment_Title", "Equipment"), group = "systems", featureKeys = { "EnableEquipment" } },
     }
-    local attributesEnabled = GodSystemApp.services.runtime.isFeatureEnabled("EnableAttributes")
-    if attributesEnabled then
-        table.insert(tabs, 8, { id = "attribute", label = GodSystemApp.services.runtime.text("Tab_Attributes", "Attributes"), group = "systems" })
-    end
-    if not gsIsMultiplayer() and GodSystemCompanionConfig.isEnabled() then
-        -- Append to the dense array. A sparse insertion makes ipairs stop before
-        -- the companion row, which hid it in SP whenever attributes were enabled.
-        tabs[#tabs + 1] = { id = "companion", label = GodSystemApp.services.runtime.text("Tab_Companion", "Companion"), group = "systems" }
-    end
     self.navigationTabs = tabs
     self.moreNavigationTabs = {
         { id = "shortcuts", label = GodSystemApp.services.runtime.text("Btn_Shortcuts", "Shortcuts"), group = "more" },
@@ -788,6 +812,13 @@ function GodSystemWindow:prerender()
 end
 
 function GodSystemWindow:onModeButton(button)
+    local tab = button and self:navigationTabById(button.internal) or nil
+    if not tab or not self:isNavigationTabVisible(tab) then return end
+    if button and button.internal == "equipment" then
+        require "GodSystem_EquipmentUI"
+        GodSystemEquipmentUI.open(self.playerNum or 0)
+        return
+    end
     if GodSystemPanelKey.isCapturing() then
         GodSystemPanelKey.cancelCapture("pageChanged")
     end

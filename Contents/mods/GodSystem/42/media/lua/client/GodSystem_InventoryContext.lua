@@ -8,6 +8,7 @@ Dispatcher.order = Dispatcher.order or {}
 Dispatcher._installed = false
 Dispatcher._shopSetRevision = nil
 Dispatcher._shopSet = nil
+Dispatcher.BULK_THRESHOLD = 200
 
 local function itemId(item)
     if not item or not item.getID then return nil end
@@ -28,46 +29,22 @@ local function worldSprite(item)
     return value ~= "" and value or nil
 end
 
-local function variantKey(typeName, item)
-    if GodSystemShopVariants and GodSystemShopVariants.getKey then
-        local ok, value = pcall(function() return GodSystemShopVariants.getKey(typeName, item) end)
-        if ok and value then return tostring(value) end
-    end
-    return typeName
-end
-
 local function append(result, seen, item)
     if not item or not instanceof(item, "InventoryItem") then return end
-    local id = itemId(item)
-    if not id or seen[id] then return end
-    seen[id] = true
+    if seen[item] then return end
+    seen[item] = true
     local typeName = fullType(item)
-    local meta = {
-        item = item,
-        id = id,
-        fullType = typeName,
-        worldSprite = worldSprite(item),
-        variantKey = variantKey(typeName, item),
-    }
-    if GodSystemLottery and GodSystemLottery.isTicket then
-        local ok, value = pcall(function() return GodSystemLottery.isTicket(typeName) end)
-        meta.isLotteryTicket = ok and value == true or false
-    end
-    if GodSystemMaintenance and GodSystemMaintenance.isUtilityItem then
-        local ok, value = pcall(function() return GodSystemMaintenance.isUtilityItem(item) end)
-        meta.isMaintenanceUtility = ok and value == true or false
-    end
-    if GodSystemAutoLoader and GodSystemAutoLoader.isLoader then
-        local ok, value = pcall(function() return GodSystemAutoLoader.isLoader(item) end)
-        meta.isAutoLoader = ok and value == true or false
-    end
+    local ok, source = pcall(function() return item:getContainer() end)
     result.items[#result.items + 1] = item
-    result.entries[#result.entries + 1] = meta
-    result.byId[id] = meta
+    result.fullTypes[item] = typeName
+    result.sources[item] = ok and source or false
+    local group = result.types[typeName] or { count = 0, item = item }
+    result.types[typeName] = group
+    group.count = group.count + 1
 end
 
 local function expand(values)
-    local snapshot = { __godSystemInventorySnapshot = true, items = {}, entries = {}, byId = {} }
+    local snapshot = { __godSystemInventorySnapshot = true, items = {}, entries = {}, byId = {}, fullTypes = {}, sources = {}, types = {} }
     local seen = {}
     for _, value in ipairs(values or {}) do
         if instanceof(value, "InventoryItem") then
@@ -79,9 +56,59 @@ local function expand(values)
     return snapshot
 end
 
+-- Identity/sprite data is only needed by recycling, never by unrelated menu handlers.
+function Dispatcher.getEntry(snapshot, index)
+    if snapshot.entries[index] then return snapshot.entries[index] end
+    local item = snapshot.items[index]
+    if not item then return nil end
+    local id = itemId(item)
+    local sprite = worldSprite(item)
+    local typeName = snapshot.fullTypes[item]
+    local meta = { item = item, id = id, fullType = typeName, worldSprite = sprite,
+        source = snapshot.sources[item], variantKey = GodSystemShopVariants.getKey(typeName, sprite) }
+    snapshot.entries[index] = meta
+    if id then
+        if snapshot.byId[id] and snapshot.byId[id].item ~= item then snapshot.invalid = true end
+        snapshot.byId[id] = meta
+    else
+        snapshot.invalid = true
+    end
+    return meta
+end
+
+function Dispatcher.getEntries(snapshot)
+    for i = 1, #snapshot.items do Dispatcher.getEntry(snapshot, i) end
+    return snapshot.entries
+end
+
+function Dispatcher.singleMatching(snapshot, matches)
+    local selected
+    for typeName, group in pairs(snapshot.types) do
+        if matches(typeName) then
+            if selected or group.count ~= 1 then return nil end
+            selected = group.item
+        end
+    end
+    return selected
+end
+
+-- Cheap ancestry query already used by the lottery menu; never recurse through unrelated items.
+function Dispatcher.isCarried(player, item)
+    local container = item and item.getContainer and item:getContainer() or nil
+    local inventory = player and player.getInventory and player:getInventory() or nil
+    if not container or not inventory then return false end
+    if container == inventory then return true end
+    if container.isInCharacterInventory then
+        local ok, carried = pcall(function() return container:isInCharacterInventory(player) end)
+        return ok and carried == true
+    end
+    return false
+end
+
 function Dispatcher.createSnapshot(playerNum, values)
     local snapshot = expand(values)
     snapshot.playerNum = playerNum
+    snapshot.bulk = #snapshot.items > Dispatcher.BULK_THRESHOLD
     return snapshot
 end
 
@@ -93,12 +120,13 @@ end
 function Dispatcher.getConfiguredShopKeySet()
     local current = GodSystemItemConfig and GodSystemItemConfig.Current or nil
     local revision = tonumber(current and current.economyRevision or 1) or 1
-    if not Dispatcher._shopSet or Dispatcher._shopSetRevision ~= revision then
+    if not Dispatcher._shopSet or Dispatcher._shopSetRevision ~= revision or Dispatcher._shopSetSource ~= current then
         local source = GodSystemApp and GodSystemApp.services and GodSystemApp.services.runtime
         local values = source and source.getConfiguredShopKeySet and source.getConfiguredShopKeySet() or {}
         Dispatcher._shopSet = {}
         for key, value in pairs(values) do Dispatcher._shopSet[key] = value end
         Dispatcher._shopSetRevision = revision
+        Dispatcher._shopSetSource = current
     end
     return Dispatcher._shopSet
 end

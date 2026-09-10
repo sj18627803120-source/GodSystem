@@ -2,6 +2,7 @@ require "GodSystem_Config"
 require "GodSystem_App"
 require "GodSystem_Core"
 require "GodSystem_UITheme"
+require "GodSystem_UISafety"
 require "GodSystem_ItemCatalog"
 require "GodSystem_ItemEconomyUI"
 require "GodSystem_RangeFilterUI"
@@ -39,12 +40,11 @@ function GodSystemUI.openRangeFilterWindow(owner)
 end
 
 function GodSystemUI.presentOverlay(element)
-    if not element then return nil end
-    if element.addToUIManager then element:addToUIManager() end
-    element:setVisible(true)
-    if element.setAlwaysOnTop then element:setAlwaysOnTop(true) end
-    if element.bringToTop then element:bringToTop() end
-    return element
+    return GodSystemUISafety.presentOverlay(element)
+end
+
+function GodSystemUI.presentMain(element)
+    return GodSystemUISafety.presentMain(element)
 end
 
 GodSystemUIRuntimeEnv = GodSystemUIRuntimeEnv or setmetatable({}, { __index = _G })
@@ -68,3 +68,7 @@ assert(GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Details"], "GodSystem 
 assert(GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Dialogs"], "GodSystem UI runtime installer missing: GodSystem_UI_Runtime_Dialogs")(GodSystemUIRuntimeEnv)
 assert(GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Actions"], "GodSystem UI runtime installer missing: GodSystem_UI_Runtime_Actions")(GodSystemUIRuntimeEnv)
 assert(GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Lifecycle"], "GodSystem UI runtime installer missing: GodSystem_UI_Runtime_Lifecycle")(GodSystemUIRuntimeEnv)
+-- Equipment lifecycle must exist before its page is opened so a bound frozen
+-- weapon works immediately after loading a save.
+require "GodSystem_EquipmentClient"
+require "GodSystem_EquipmentTooltip"

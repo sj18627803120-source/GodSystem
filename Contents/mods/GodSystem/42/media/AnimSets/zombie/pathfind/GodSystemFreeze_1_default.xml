@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animNode>
+    <m_Name>GodSystemFreeze_1_default</m_Name>
+    <m_BlendTime>0.35</m_BlendTime>
+    <m_SpeedScale>GSFreezeScale_8000</m_SpeedScale>
+    <m_randomAdvanceFraction>0.25</m_randomAdvanceFraction>
+    <m_Conditions x_name="9b0f9100-74b1-46ac-ba57-bdc1d66b488b">
+        <m_Name>bMoving</m_Name>
+        <m_Type>BOOL</m_Type>
+        <m_Value>true</m_Value>
+    </m_Conditions>
+    <m_Conditions x_name="346cf7f1-66c2-48cb-b225-91f9e4291922">
+        <m_Name>intrees</m_Name>
+        <m_Type>BOOL</m_Type>
+        <m_Value>false</m_Value>
+    </m_Conditions>
+    <m_Conditions x_name="GodSystemFreezePhase">
+        <m_Name>GSFreezePhase</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>1</m_Value>
+    </m_Conditions>
+</animNode>

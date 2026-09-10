@@ -149,6 +149,7 @@ local function removeWorldObject(square, candidate)
     if candidate.portableShell and not containerEmpty(itemContainer(item)) then return false end
     local worldObjects = GodSystemB42JavaCalls.value(square, "getWorldObjects", nil)
     if not containsIdentity(worldObjects, worldObject) then return false end
+    if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
     local ok = GodSystemB42JavaCalls.try(square, "transmitRemoveItemFromSquare", worldObject)
     if not ok then return false end
     worldObjects = GodSystemB42JavaCalls.value(square, "getWorldObjects", nil)

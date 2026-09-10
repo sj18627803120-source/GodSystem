@@ -5,6 +5,7 @@ require "GodSystem_Protocol"
 require "GodSystem_Scheduler"
 require "GodSystem_Maintenance"
 require "GodSystem_B42JavaCalls"
+require "GodSystem_Equipment"
 require "TimedActions/ISTimedActionQueue"
 require "ISUI/ISInventoryPane"
 
@@ -213,6 +214,7 @@ end
 
 local function transactionFingerprint(command, args)
     args = type(args) == "table" and args or {}
+    if command == "equipmentAction" then return GodSystemEquipment.fingerprint(args) end
     local attributeCommand = (Protocol.C2S and Protocol.C2S.Attribute) or "attribute"
     local upgradeCommand = (Protocol.C2S and Protocol.C2S.UpgradeSystem) or "upgradeSystem"
     local recycleCommand = (Protocol.C2S and Protocol.C2S.Recycle) or "recycle"
@@ -399,8 +401,8 @@ local function checkPendingTimeout()
     return true
 end
 
-send = function(command, args)
-    local p = player()
+send = function(command, args, targetPlayer)
+    local p = targetPlayer or player()
     if not p then return false end
     if not sendClientCommand then return false end
     command = tostring(command or "")
@@ -454,7 +456,7 @@ send = function(command, args)
         end
         return true
     end
-    ok = pcall(sendClientCommand, MODULE, command, payload)
+    ok = not targetPlayer and pcall(sendClientCommand, MODULE, command, payload)
     if ok then
         GodSystemNetwork.sentCommands = (GodSystemNetwork.sentCommands or 0) + 1
         if isStateCommand(command) then
@@ -629,6 +631,7 @@ end
 function GodSystemNetwork.refreshOnTick()
     Events.OnTick.Remove(GodSystemNetwork.refreshOnTick)
     pendingRefresh = false
+    if GodSystemUI and GodSystemUI.syncFeatureVisibility then GodSystemUI.syncFeatureVisibility() end
     if GodSystemUI and GodSystemUI.window and GodSystemUI.window.getIsVisible and GodSystemUI.window:getIsVisible() then
         GodSystemUI.window.waitingForServerState = false
         GodSystemUI.window.lastNetworkStateSerial = GodSystemNetwork.stateSerial or 0
@@ -651,8 +654,8 @@ function GodSystemNetwork.helloRetryOnTick()
     GodSystemNetwork.hello()
 end
 
-function GodSystemNetwork.send(command, args)
-    return send(command, args)
+function GodSystemNetwork.send(command, args, targetPlayer)
+    return send(command, args, targetPlayer)
 end
 
 function GodSystemNetwork.getDiagnostics()
@@ -839,6 +842,11 @@ local function OnServerCommand(module, command, args)
         end
         if resultOpId == nil or pendingOperationId == nil or tostring(resultOpId) == tostring(pendingOperationId) then
             clearPendingOperation("result")
+        end
+        if args and args.data and args.data.equipment and GodSystemEquipmentClient then
+            for n, window in pairs(GodSystemEquipmentClient.windows or {}) do
+                if window:getIsVisible() then window:refreshDetails() end
+            end
         end
         return
     end

@@ -190,6 +190,7 @@ function GodSystemItemConfig.getShopVariantOverrides()
 end
 
 function GodSystemItemConfig.getShopMode(fullType)
+    if fullType == "GodSystem.DurabilityCore" then return "disabled" end
     local override = GodSystemItemConfig.getItemOverride(fullType)
     local mode = override and tostring(override.shopMode or "auto") or "auto"
     if mode == "forced" or mode == "disabled" then return mode end
@@ -206,6 +207,8 @@ function GodSystemItemConfig.getShopVariantMode(variantKey, fullType)
 end
 
 function GodSystemItemConfig.isShopItemEnabled(fullType, fallback)
+    -- Existing cores and their use logic are unchanged; only storefront availability is retired.
+    if fullType == "GodSystem.DurabilityCore" then return false end
     if GodSystemItemConfig.getShopMode(fullType) == "disabled" then return false end
     return fallback ~= false
 end

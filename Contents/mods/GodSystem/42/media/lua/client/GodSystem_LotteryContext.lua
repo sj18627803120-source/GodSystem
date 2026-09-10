@@ -193,7 +193,8 @@ function Context.fillInventoryMenu(playerNum, context, items)
     if #selected ~= 1 then return end
     local item = selected[1]
     local entry = items and items.__godSystemInventorySnapshot and items.entries and items.entries[1] or nil
-    local fullType = entry and entry.fullType or (item and item.getFullType and item:getFullType() or "")
+    local fullType = items.__godSystemInventorySnapshot and items.fullTypes[item]
+        or (entry and entry.fullType) or (item and item.getFullType and item:getFullType() or "")
     local ticket = entry and entry.isLotteryTicket
     if ticket == nil and GodSystemLottery and GodSystemLottery.isTicket then
         local ok, value = pcall(function() return GodSystemLottery.isTicket(fullType) end)

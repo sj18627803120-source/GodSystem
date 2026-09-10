@@ -1,5 +1,180 @@
 VERSION = 1,
 
+option GodSystem.EnableEquipment
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableEquipment,
+}
+
+option GodSystem.EquipmentMaxSlots
+{
+    type = integer,
+    min = 1,
+    max = 20,
+    default = 3,
+    page = GodSystem,
+    translation = GodSystem_EquipmentMaxSlots,
+}
+
+option GodSystem.EquipmentSlotTaskBase
+{
+    type = integer,
+    min = 0,
+    max = 1000000,
+    default = 25,
+    page = GodSystem,
+    translation = GodSystem_EquipmentSlotTaskBase,
+}
+
+option GodSystem.EquipmentSlotTaskMultiplier
+{
+    type = double,
+    min = 1,
+    max = 10,
+    default = 2,
+    page = GodSystem,
+    translation = GodSystem_EquipmentSlotTaskMultiplier,
+}
+
+option GodSystem.EnableEquipmentFreeze
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableEquipmentFreeze,
+}
+
+option GodSystem.EquipmentFreezeRadius
+{
+    type = integer,
+    min = 1,
+    max = 10,
+    default = 3,
+    page = GodSystem,
+    translation = GodSystem_EquipmentFreezeRadius,
+}
+
+option GodSystem.EquipmentFreezeSeconds
+{
+    type = double,
+    min = 0.1,
+    max = 30,
+    default = 3,
+    page = GodSystem,
+    translation = GodSystem_EquipmentFreezeSeconds,
+}
+
+option GodSystem.EquipmentFreezeVisuals
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EquipmentFreezeVisuals,
+}
+
+option GodSystem.EquipmentMaxLevel
+{
+    type = integer,
+    min = 1,
+    max = 9999,
+    default = 999,
+    page = GodSystem,
+    translation = GodSystem_EquipmentMaxLevel,
+}
+
+option GodSystem.EquipmentGrowthPercent
+{
+    type = double,
+    min = 0.01,
+    max = 100,
+    default = 10,
+    page = GodSystem,
+    translation = GodSystem_EquipmentGrowthPercent,
+}
+
+option GodSystem.EquipmentBaseCost
+{
+    type = double,
+    min = 1,
+    max = 1000000,
+    default = 100,
+    page = GodSystem,
+    translation = GodSystem_EquipmentBaseCost,
+}
+
+option GodSystem.EquipmentCostExponent
+{
+    type = double,
+    min = 0.1,
+    max = 3,
+    default = 1.5,
+    page = GodSystem,
+    translation = GodSystem_EquipmentCostExponent,
+}
+
+option GodSystem.EquipmentBaseChance
+{
+    type = double,
+    min = 0.01,
+    max = 100,
+    default = 100,
+    page = GodSystem,
+    translation = GodSystem_EquipmentBaseChance,
+}
+
+option GodSystem.EquipmentChanceDecay
+{
+    type = double,
+    min = 0.001,
+    max = 1,
+    default = 0.9,
+    page = GodSystem,
+    translation = GodSystem_EquipmentChanceDecay,
+}
+
+option GodSystem.EquipmentChanceFloor
+{
+    type = double,
+    min = 0.01,
+    max = 100,
+    default = 1,
+    page = GodSystem,
+    translation = GodSystem_EquipmentChanceFloor,
+}
+
+option GodSystem.EquipmentBoostCost
+{
+    type = integer,
+    min = 1,
+    max = 1000000,
+    default = 100,
+    page = GodSystem,
+    translation = GodSystem_EquipmentBoostCost,
+}
+
+option GodSystem.EquipmentRepairCost
+{
+    type = integer,
+    min = 1,
+    max = 1000000,
+    default = 300,
+    page = GodSystem,
+    translation = GodSystem_EquipmentRepairCost,
+}
+
+option GodSystem.EquipmentRetrieveMultiplier
+{
+    type = double,
+    min = 0.01,
+    max = 100,
+    default = 1,
+    page = GodSystem,
+    translation = GodSystem_EquipmentRetrieveMultiplier,
+}
+
+
 option GodSystem.StartingPoints
 {
     type = integer,

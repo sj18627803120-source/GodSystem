@@ -2,7 +2,27 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20_2.51"
+GodSystemConfig.Version = "42.20_3.5"
+
+GodSystemConfig.EnableEquipment = true
+GodSystemConfig.EquipmentMaxSlots = 3
+GodSystemConfig.EquipmentSlotTaskBase = 25
+GodSystemConfig.EquipmentSlotTaskMultiplier = 2
+GodSystemConfig.EnableEquipmentFreeze = false
+GodSystemConfig.EquipmentFreezeRadius = 3
+GodSystemConfig.EquipmentFreezeSeconds = 3
+GodSystemConfig.EquipmentFreezeVisuals = true
+GodSystemConfig.EquipmentMaxLevel = 999
+GodSystemConfig.EquipmentGrowthPercent = 10
+GodSystemConfig.EquipmentBaseCost = 100
+GodSystemConfig.EquipmentCostExponent = 1.5
+GodSystemConfig.EquipmentBaseChance = 100
+GodSystemConfig.EquipmentChanceDecay = 0.9
+GodSystemConfig.EquipmentChanceFloor = 1
+GodSystemConfig.EquipmentBoostCost = 100
+GodSystemConfig.EquipmentRepairCost = 300
+GodSystemConfig.EquipmentRetrieveMultiplier = 1
+
 
 GodSystemConfig.StartingPoints = 60
 GodSystemConfig.CurrencyName = "系统币"
@@ -413,12 +433,6 @@ GodSystemConfig.ShopItems = {
         group = "tool",
         price = 300,
         items = { { fullType = "GodSystem.SystemRepairKit", count = 1 } }
-    },
-    {
-        id = "durability_core",
-        group = "tool",
-        price = 1200,
-        items = { { fullType = "GodSystem.DurabilityCore", count = 1 } }
     },
     {
         id = "system_vehicle_repair_module",

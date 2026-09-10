@@ -134,6 +134,9 @@ function GodSystemApp.services.runtime.canContextListItem(item, contextCache)
     if not GodSystemApp.services.runtime.isAutoShopUnlockAllowed(fullType) then return false, "notListable" end
     local data = contextCache and contextCache.data or GodSystemApp.services.runtime.getData()
     local variantKey = GodSystemShopVariants.getKey(fullType, item)
+    local mode = GodSystemItemConfig.getShopVariantMode(variantKey, fullType)
+    if mode == "disabled" then return false, "disabled" end
+    if mode == "forced" then return false, "configuredListed" end
     local configured = contextCache and contextCache.configuredShopKeySet
         or GodSystemApp.services.runtime.getConfiguredShopKeySet()
     local known, source = GodSystemShopVariants.isListingKnown(data, configured, variantKey)
@@ -221,6 +224,7 @@ function GodSystemApp.services.runtime.removeInventoryItems(fullType, count)
                 sellValue = unlockValue,
                 worldSprite = GodSystemShopVariants.getWorldSprite(item),
             })
+            if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
             found[i].container:Remove(item)
             removed = removed + 1
         end
@@ -332,21 +336,36 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
     local typeOrder = {}
     local skipped = math.min(10000, math.max(0, math.floor(tonumber(clientSkipped) or 0)))
     local listingSkipped = 0
+    local inventoryIndex = GodSystemInventoryIndex.build(player:getInventory())
+    local contextCache = { data = GodSystemApp.services.runtime.getData(),
+        configuredShopKeySet = GodSystemApp.services.runtime.getConfiguredShopKeySet() }
+    local listingByVariant = {}
+    local recyclableByType = {}
     for i = 1, #(itemIds or {}) do
         local id = tostring(itemIds[i] or "")
         if id ~= "" and not seen[id] then
             seen[id] = true
-            local item, container = gsInventoryItemById(id)
+            local item, container = GodSystemInventoryIndex.find(inventoryIndex, id)
             if not item or not container then
                 GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_RecycleSelectionChanged", "Selected items changed; action cancelled"))
                 return false
             end
-            local allowed = GodSystemApp.services.runtime.canContextRecycleItem(item)
             local fullType = item:getFullType()
+            local allowed = recyclableByType[fullType]
+            if allowed == nil then
+                allowed = GodSystemApp.services.runtime.canContextRecycleItem(item) == true
+                recyclableByType[fullType] = allowed
+            end
+            local variantKey = GodSystemShopVariants.getKey(fullType, item)
             local eligible = allowed == true
             local listable = true
             if eligible and mode ~= "recycle" then
-                listable = GodSystemApp.services.runtime.canContextListItem(item) == true
+                local known = listingByVariant[variantKey]
+                if not known then
+                    known = { allowed = GodSystemApp.services.runtime.canContextListItem(item, contextCache) == true }
+                    listingByVariant[variantKey] = known
+                end
+                listable = known.allowed
                 if not listable and mode == "listOnly" then eligible = false end
                 if not listable and mode == "recycleAndList" then listingSkipped = listingSkipped + 1 end
             end
@@ -361,7 +380,6 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
                 end
             end
             if eligible then
-                local variantKey = GodSystemShopVariants.getKey(fullType, item)
                 local groupKey = mode == "recycle" and fullType or variantKey
                 selected[#selected + 1] = { item = item, container = container, fullType = fullType, variantKey = variantKey }
                 if not types[groupKey] then
@@ -400,7 +418,7 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
         local unlocked = {}
         for i = 1, #listRows do
             local row = listRows[i]
-            if not GodSystemApp.services.runtime.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), row.sellValue, row.item) then
+            if not GodSystemApp.services.runtime.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), row.sellValue, row.item, contextCache.configuredShopKeySet) then
                 for j = 1, #unlocked do data.unlockedShopItems[unlocked[j]] = nil end
                 GodSystemApp.services.runtime.refundCurrencySources(fromBank, fromCash)
                 GodSystemApp.services.runtime.save()
@@ -433,6 +451,7 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
             gsRestoreContextItems(player, removed)
             return false
         end
+        if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
         local ok = pcall(function() row.container:Remove(item) end)
         if not ok or gsContainerContainsItem(row.container, item) then
             local current = {
@@ -468,7 +487,7 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
         for i = 1, #typeOrder do
             local row = types[typeOrder[i]]
             if row.listable then
-                GodSystemApp.services.runtime.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), GodSystemApp.services.runtime.getItemSellPrice(row.fullType, row.item), row.item)
+                GodSystemApp.services.runtime.unlockAutoShopItem(row.fullType, row.item:getDisplayName(), GodSystemApp.services.runtime.getItemSellPrice(row.fullType, row.item), row.item, contextCache.configuredShopKeySet)
             end
         end
     end

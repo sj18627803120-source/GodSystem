@@ -47,7 +47,7 @@ function GodSystemApp.services.runtime.generateTaskFromTemplate(template)
         target = template.target,
         item = template.item,
         items = gsCopyStringArray(template.items),
-        limitHours = template.limitHours or GodSystemConfig.DefaultTaskLimitHours,
+        limitHours = GodSystemRuntimeConfig.effectiveTaskLimitHours(template),
         rewardPoints = GodSystemRuntimeConfig.applyTaskReward(template.rewardPoints or 0),
         rewardItems = gsCopyItems(template.rewardItems),
         penaltyPoints = GodSystemRuntimeConfig.applyTaskPenalty(template.penaltyPoints or 0),
@@ -106,8 +106,16 @@ end
 function GodSystemApp.services.runtime.generateDailyTasks(force)
     local data = GodSystemApp.services.runtime.getData()
     local day = gsCurrentDay()
-    if not force and data.lastGeneratedDay == day then
-        return
+    local generationToken = GodSystemRuntimeConfig.taskGenerationToken()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then
+        if data.taskGenerationToken ~= generationToken then
+            data.taskGenerationToken = generationToken
+            GodSystemApp.services.runtime.save()
+        end
+        return false
+    end
+    if not force and data.lastGeneratedDay == day and data.taskGenerationToken == generationToken then
+        return false
     end
 
     local kept = {}
@@ -135,9 +143,11 @@ function GodSystemApp.services.runtime.generateDailyTasks(force)
     end
 
     data.lastGeneratedDay = day
+    data.taskGenerationToken = generationToken
     data.tasks = kept
     gsAppendHistory(data, { kind = "system", text = GodSystemApp.services.runtime.text("History_DailyTasks", "Daily tasks published x") .. tostring(count) })
     GodSystemApp.services.runtime.save()
+    return true
 end
 
 function GodSystemApp.services.runtime.refreshOpenTasks()
@@ -418,7 +428,8 @@ function GodSystemApp.services.runtime.claimTask(task, silent)
     task.status = "claimed"
     task.claimedAt = gsNowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
-    gsAppendHistory(data, { kind = "task", text = GodSystemApp.services.runtime.text("History_ClaimTask", "Task completed: ") .. tostring(GodSystemApp.services.runtime.getTaskTitle(task)) })
+    if GodSystemEquipment then GodSystemEquipment.taskCompleted(gsPlayer()) end
+   gsAppendHistory(data, { kind = "task", text = GodSystemApp.services.runtime.text("History_ClaimTask", "Task completed: ") .. tostring(GodSystemApp.services.runtime.getTaskTitle(task)) })
     GodSystemApp.services.runtime.save()
     if not silent then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_ClaimTask", "Task completed: ") .. tostring(GodSystemApp.services.runtime.getTaskTitle(task)))
@@ -468,6 +479,7 @@ function GodSystemApp.services.runtime.submitTurnInTask(task, itemIds)
     local removed = {}
     for i = 1, #rows do
         local row = rows[i]
+        if GodSystemEquipment then GodSystemEquipment.beforeRemoval(row.item) end
         local ok = pcall(function() row.container:Remove(row.item) end)
         if not ok or GodSystemApp.services.runtime.containerContainsItem(row.container, row.item) then
             local inventory = gsPlayer() and gsPlayer():getInventory() or nil
@@ -485,7 +497,8 @@ function GodSystemApp.services.runtime.submitTurnInTask(task, itemIds)
     task.status = "claimed"
     task.claimedAt = gsNowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
-    gsAppendHistory(data, { kind = "task", text = GodSystemApp.services.runtime.text("History_ClaimTask", "Task completed: ") .. tostring(GodSystemApp.services.runtime.getTaskTitle(task)) })
+    if GodSystemEquipment then GodSystemEquipment.taskCompleted(gsPlayer()) end
+   gsAppendHistory(data, { kind = "task", text = GodSystemApp.services.runtime.text("History_ClaimTask", "Task completed: ") .. tostring(GodSystemApp.services.runtime.getTaskTitle(task)) })
     GodSystemApp.services.runtime.save()
     GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_ClaimTask", "Task completed: ") .. tostring(GodSystemApp.services.runtime.getTaskTitle(task)))
     return true
@@ -501,6 +514,7 @@ function GodSystemApp.services.runtime.toggleAutoTaskClaim()
 end
 
 function GodSystemApp.services.runtime.processAutoTaskClaim()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then return false end
     local data = GodSystemApp.services.runtime.getData()
     if data.autoTaskClaimEnabled ~= true then return false end
     local nowHour = gsNowHours()
@@ -624,6 +638,7 @@ function GodSystemApp.services.runtime.updateKillRewards()
 end
 
 function GodSystemApp.services.runtime.updateTaskTimeouts()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then return false end
     local data = GodSystemApp.services.runtime.getData()
     for i = 1, #(data.tasks or {}) do
         local task = data.tasks[i]
@@ -631,6 +646,7 @@ function GodSystemApp.services.runtime.updateTaskTimeouts()
             GodSystemApp.services.runtime.failTask(task, false, "History_TaskTimeout")
         end
     end
+    return true
 end
 
 function GodSystemApp.services.runtime.failActiveTasksOnDeath()

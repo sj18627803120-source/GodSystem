@@ -4,6 +4,7 @@ require "GodSystem_InventoryContext"
 require "GodSystem_Maintenance"
 require "GodSystem_Protocol"
 require "ISUI/ISModalDialog"
+require "ISUI/ISInventoryPaneContextMenu"
 
 GodSystemMaintenanceContext = GodSystemMaintenanceContext or {}
 
@@ -101,14 +102,10 @@ local function selectedUtility(items)
 end
 
 local function selectedSnapshotUtility(snapshot)
-    local selected = nil
-    for _, entry in ipairs(snapshot.entries or {}) do
-        if entry.isMaintenanceUtility then
-            if selected and selected ~= entry.item then return nil end
-            selected = entry.item
-        end
-    end
-    return selected
+    return GodSystemInventoryContext.singleMatching(snapshot, function(fullType)
+        return fullType == GodSystemMaintenance.RepairItemType or fullType == GodSystemMaintenance.ReinforceItemType
+            or fullType == GodSystemMaintenance.VehicleRepairItemType
+    end)
 end
 
 local function actionForItem(item)
@@ -318,7 +315,23 @@ function Context.fillInventoryMenu(playerNum, context, items)
     if not action then return end
     local key = action == "repairHeld" and "Context_RepairHeld" or "Context_ReinforceHeld"
     local fallback = action == "repairHeld" and "Repair held item" or "Reinforce held item"
-    context:addOption(text(key, fallback), consumable, Context.confirmUse, playerNum, action)
+    local option = context:addOption(text(key, fallback), consumable, Context.confirmUse, playerNum, action)
+    local player = getSpecificPlayer and getSpecificPlayer(playerNum) or getPlayer()
+    local target = player and player:getPrimaryHandItem() or nil
+    local reason
+    if not GodSystemInventoryContext.isCarried(player, consumable) then reason = "Context_ItemNotCarried"
+    elseif not target then reason = "NotifyMP_MaintenanceNoHeldItem"
+    else
+        local state, code = GodSystemMaintenance.snapshot(target)
+        if not state then reason = "Notify_" .. (code or "MaintenanceInvalidTarget")
+        elseif action == "repairHeld" and GodSystemMaintenance.isFullyRepaired(state) then reason = "Notify_MaintenanceAlreadyFull"
+        elseif action == "reinforceHeld" and state.conditionMax > GodSystemMaintenance.MaxSafeCondition then reason = "Notify_MaintenanceOverflow" end
+    end
+    if reason then
+        option.notAvailable = true
+        option.toolTip = ISInventoryPaneContextMenu.addToolTip()
+        option.toolTip.description = text(reason, "This operation is currently unavailable")
+    end
 end
 
 GodSystemInventoryContext.register("maintenance", Context.fillInventoryMenu)

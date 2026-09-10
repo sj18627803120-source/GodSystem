@@ -1,3 +1,4 @@
+require "GodSystem_Equipment"
 GodSystemRuntimeConfig = GodSystemRuntimeConfig or {}
 
 local RANGE_DEFAULTS = {
@@ -13,6 +14,27 @@ local PERFORMANCE_DEFAULTS = {
     HomeSafeZoneScanBudget = 256,
     HomeSafeZoneClearLimit = 64,
     LotteryItemCacheBuildRate = 100,
+}
+
+local TASK_UPGRADE_SCHEMA = 2
+local TASK_TEMPLATE_BASELINE_HOURS = 24
+local TASK_LIMITS = {
+    activeTasks = {
+        baseKey = "MaxActiveTasks",
+        defaultBase = 3,
+        maximumKey = "MaxActiveTaskLimit",
+        defaultMaximum = 10,
+        bonusKey = "maxActiveTaskBonus",
+        legacyKey = "maxActiveTasks",
+    },
+    dailyTasks = {
+        baseKey = "DailyTaskCount",
+        defaultBase = 5,
+        maximumKey = "MaxDailyTaskLimit",
+        defaultMaximum = 20,
+        bonusKey = "dailyTaskBonus",
+        legacyKey = "dailyTaskCount",
+    },
 }
 
 local function boolValue(value, fallback)
@@ -47,6 +69,19 @@ end
 
 function GodSystemRuntimeConfig.fromSandbox(source)
     local result = copyScalars(source)
+    result.EnableEquipment = boolValue(result.EnableEquipment, true)
+    result.EnableEquipmentFreeze = boolValue(result.EnableEquipmentFreeze, true)
+    result.EquipmentFreezeVisuals = boolValue(result.EquipmentFreezeVisuals, true)
+    result.EnableTasks = boolValue(result.EnableTasks, true)
+    result.DailyTaskCount = math.floor(clampNumber(result.DailyTaskCount, 5, 0, 20))
+    result.MaxActiveTasks = math.floor(clampNumber(result.MaxActiveTasks, 3, 0, 10))
+    result.RefreshTaskCost = math.floor(clampNumber(result.RefreshTaskCost, 30, 0, 100000))
+    result.DefaultTaskLimitHours = math.floor(clampNumber(result.DefaultTaskLimitHours, 24, 1, 168))
+    result.TaskRewardMultiplier = clampNumber(result.TaskRewardMultiplier, 1, 0, 100)
+    result.TaskPenaltyMultiplier = clampNumber(result.TaskPenaltyMultiplier, 1, 0, 100)
+    for key, rule in pairs(GodSystemEquipment.Settings) do
+        if result[key] == nil then result[key] = rule[1] end
+    end
     result.EnableRangeRecycle = boolValue(result.EnableRangeRecycle, RANGE_DEFAULTS.EnableRangeRecycle)
     result.RangeRecycleRadius = math.floor(clampNumber(
         result.RangeRecycleRadius,
@@ -134,12 +169,14 @@ end
 function GodSystemRuntimeConfig.readSandbox()
     local source = SandboxVars and SandboxVars.GodSystem or {}
     GodSystemRuntimeConfig.Current = GodSystemRuntimeConfig.fromSandbox(source)
+    GodSystemRuntimeConfig.Source = "sandbox"
     applyDirectConfigValues(GodSystemRuntimeConfig.Current)
     return GodSystemRuntimeConfig.Current
 end
 
 function GodSystemRuntimeConfig.applySnapshot(snapshot)
     GodSystemRuntimeConfig.Current = GodSystemRuntimeConfig.fromSandbox(snapshot)
+    GodSystemRuntimeConfig.Source = "server"
     applyDirectConfigValues(GodSystemRuntimeConfig.Current)
     return GodSystemRuntimeConfig.Current
 end
@@ -169,4 +206,83 @@ end
 function GodSystemRuntimeConfig.applyTaskPenalty(value)
     local multiplier = tonumber(GodSystemRuntimeConfig.get("TaskPenaltyMultiplier", 1)) or 1
     return math.max(0, math.floor((tonumber(value) or 0) * multiplier))
+end
+
+local function taskLimitRule(upgradeType)
+    return TASK_LIMITS[tostring(upgradeType or "")]
+end
+
+local function taskLimitBase(rule)
+    return math.max(0, math.floor(tonumber(GodSystemRuntimeConfig.get(rule.baseKey, rule.defaultBase)) or rule.defaultBase))
+end
+
+local function taskLimitMaximum(rule)
+    local value = rule.defaultMaximum
+    if GodSystemConfig then value = GodSystemConfig[rule.maximumKey] or value end
+    return math.max(0, math.floor(tonumber(value) or rule.defaultMaximum))
+end
+
+function GodSystemRuntimeConfig.normalizeTaskUpgrades(upgrades)
+    upgrades = type(upgrades) == "table" and upgrades or {}
+    local schema = math.floor(tonumber(upgrades.taskLimitSchema) or 0)
+    if schema < TASK_UPGRADE_SCHEMA then
+        -- The previous fields stored absolute limits and allowed old values to
+        -- override a lower sandbox base.  v3.1 intentionally starts the new
+        -- additive model clean instead of guessing which values were bought.
+        upgrades.maxActiveTaskBonus = 0
+        upgrades.dailyTaskBonus = 0
+    end
+    upgrades.taskLimitSchema = TASK_UPGRADE_SCHEMA
+    for _, rule in pairs(TASK_LIMITS) do
+        local maximum = taskLimitMaximum(rule)
+        local bonus = math.max(0, math.floor(tonumber(upgrades[rule.bonusKey]) or 0))
+        upgrades[rule.bonusKey] = math.min(maximum, bonus)
+        upgrades[rule.legacyKey] = math.min(maximum, taskLimitBase(rule) + upgrades[rule.bonusKey])
+    end
+    return upgrades
+end
+
+function GodSystemRuntimeConfig.getTaskLimit(upgrades, upgradeType)
+    local rule = taskLimitRule(upgradeType)
+    if not rule then return 0 end
+    upgrades = GodSystemRuntimeConfig.normalizeTaskUpgrades(upgrades)
+    return math.min(taskLimitMaximum(rule), taskLimitBase(rule) + upgrades[rule.bonusKey])
+end
+
+function GodSystemRuntimeConfig.increaseTaskLimitUpgrade(upgrades, upgradeType)
+    local rule = taskLimitRule(upgradeType)
+    if not rule then return false, 0 end
+    upgrades = GodSystemRuntimeConfig.normalizeTaskUpgrades(upgrades)
+    local current = GodSystemRuntimeConfig.getTaskLimit(upgrades, upgradeType)
+    local maximum = taskLimitMaximum(rule)
+    if current >= maximum then return false, current end
+    upgrades[rule.bonusKey] = upgrades[rule.bonusKey] + 1
+    GodSystemRuntimeConfig.normalizeTaskUpgrades(upgrades)
+    return true, GodSystemRuntimeConfig.getTaskLimit(upgrades, upgradeType)
+end
+
+function GodSystemRuntimeConfig.effectiveTaskLimitHours(template)
+    template = type(template) == "table" and template or {}
+    local configured = math.max(1, math.floor(tonumber(GodSystemRuntimeConfig.get(
+        "DefaultTaskLimitHours",
+        TASK_TEMPLATE_BASELINE_HOURS
+    )) or TASK_TEMPLATE_BASELINE_HOURS))
+    local templateHours = math.max(1, math.floor(tonumber(template.limitHours) or TASK_TEMPLATE_BASELINE_HOURS))
+    local adjusted = math.max(1, templateHours + configured - TASK_TEMPLATE_BASELINE_HOURS)
+    if tostring(template.kind or "") == "surviveHours" then
+        adjusted = math.max(adjusted, math.floor(tonumber(template.target) or 1))
+    end
+    return adjusted
+end
+
+function GodSystemRuntimeConfig.taskGenerationToken()
+    local enabled = GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks", true) and "1" or "0"
+    return table.concat({
+        "task-v2",
+        enabled,
+        tostring(math.floor(tonumber(GodSystemRuntimeConfig.get("DailyTaskCount", 5)) or 5)),
+        tostring(math.floor(tonumber(GodSystemRuntimeConfig.get("DefaultTaskLimitHours", 24)) or 24)),
+        tostring(tonumber(GodSystemRuntimeConfig.get("TaskRewardMultiplier", 1)) or 1),
+        tostring(tonumber(GodSystemRuntimeConfig.get("TaskPenaltyMultiplier", 1)) or 1),
+    }, "|")
 end

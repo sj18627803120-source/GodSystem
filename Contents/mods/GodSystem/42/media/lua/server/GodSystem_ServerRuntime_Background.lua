@@ -19,6 +19,7 @@ function updateKillRewards(player)
 end
 
 function updateTaskTimeouts(player)
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks") == false then return false end
     local data = playerData(player)
     local changed = false
     for i = 1, #(data.tasks or {}) do

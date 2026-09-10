@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animNode>
+    <m_BlendTime>0.20</m_BlendTime>
+    <m_Conditions x_name="cfbc5b14-d694-45fc-b7fe-babcebdf1512">
+        <m_Name>bMoving</m_Name>
+        <m_Type>BOOL</m_Type>
+        <m_Value>true</m_Value>
+    </m_Conditions>
+    <m_Name>GodSystemFreeze_2_zombieWalkSlow3</m_Name>
+    <m_AnimName>Zombie_Walk5</m_AnimName>
+    <m_SpeedScale>GSFreezeScale_7200</m_SpeedScale>
+    <m_Conditions x_name="9cafc8ca-8d98-4aad-86f8-953597388f1f">
+        <m_Name>zombieWalkType</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>slow3</m_Value>
+    </m_Conditions>
+    <m_Events x_name="6f7dd296-88ce-48d0-95c2-0392bab63182">
+        <m_EventName>Footstep</m_EventName>
+        <m_TimePc>0.15</m_TimePc>
+        <m_ParameterValue>walk</m_ParameterValue>
+    </m_Events>
+    <m_Events x_name="4840a41e-ca52-4521-9759-ce503ea589ca">
+        <m_EventName>Footstep</m_EventName>
+        <m_TimePc>0.6</m_TimePc>
+        <m_ParameterValue>walk</m_ParameterValue>
+    </m_Events>
+    <m_Conditions x_name="GodSystemFreezePhase">
+        <m_Name>GSFreezePhase</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>2</m_Value>
+    </m_Conditions>
+</animNode>

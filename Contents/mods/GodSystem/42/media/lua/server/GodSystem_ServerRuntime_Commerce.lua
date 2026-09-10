@@ -315,18 +315,32 @@ function recycleSelectedInternal(player, args)
         local typeOrder = {}
         local skipped = math.min(10000, math.max(0, floor(args and args.clientSkipped, 0)))
         local listingSkipped = 0
+        local inventoryIndex = GodSystemInventoryIndex.build(player:getInventory())
+        local configuredKeys = GodSystemServer.getConfiguredShopKeySet()
+        local listingByVariant = {}
+        local recyclableByType = {}
         for i = 1, #(args and args.itemIds or {}) do
             local id = tostring(args.itemIds[i] or "")
             if id ~= "" and not seen[id] then
                 seen[id] = true
-                local item, container = inventoryItemById(player, id)
+                local item, container = GodSystemInventoryIndex.find(inventoryIndex, id)
                 if not item or not container then return complete(false, "RecycleSelectionChanged") end
-                local allowed = canContextRecycleItem(item)
                 local fullType = item:getFullType()
+                local allowed = recyclableByType[fullType]
+                if allowed == nil then
+                    allowed = canContextRecycleItem(item) == true
+                    recyclableByType[fullType] = allowed
+                end
+                local variantKey = GodSystemShopVariants.getKey(fullType, item)
                 local eligible = allowed == true
                 local listable = true
                 if eligible and mode ~= "recycle" then
-                    listable = canContextListItem(data, item) == true
+                    local known = listingByVariant[variantKey]
+                    if not known then
+                        known = { allowed = canContextListItem(data, item, configuredKeys) == true }
+                        listingByVariant[variantKey] = known
+                    end
+                    listable = known.allowed
                     if not listable and mode == "listOnly" then eligible = false end
                     if not listable and mode == "recycleAndList" then listingSkipped = listingSkipped + 1 end
                 end
@@ -341,7 +355,6 @@ function recycleSelectedInternal(player, args)
                     end
                 end
                 if eligible then
-                    local variantKey = GodSystemShopVariants.getKey(fullType, item)
                     local groupKey = mode == "recycle" and fullType or variantKey
                     selected[#selected + 1] = { item = item, container = container, fullType = fullType, variantKey = variantKey }
                     if not types[groupKey] then
@@ -375,7 +388,7 @@ function recycleSelectedInternal(player, args)
             local unlocked = {}
             for i = 1, #rows do
                 local row = rows[i]
-                if not unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), row.sellValue, row.item) then
+                if not unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), row.sellValue, row.item, configuredKeys) then
                     for j = 1, #unlocked do data.unlockedShopItems[unlocked[j]] = nil end
                     GodSystemServer.refundCurrencySources(player, data, fromBank, fromCash)
                     return complete(false, "RecycleSelectionChanged")
@@ -436,7 +449,7 @@ function recycleSelectedInternal(player, args)
             for i = 1, #typeOrder do
                 local row = types[typeOrder[i]]
                 if row.listable then
-                    unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), itemSellPrice(row.fullType, row.item), row.item)
+                    unlockAutoShopItem(data, row.fullType, row.item:getDisplayName(), itemSellPrice(row.fullType, row.item), row.item, configuredKeys)
                 end
             end
         end

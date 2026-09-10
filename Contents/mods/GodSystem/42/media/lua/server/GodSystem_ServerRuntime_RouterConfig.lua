@@ -385,7 +385,9 @@ function Commands.syncKills(_, _, player, args)
     local delta = kills - data.lastKnownKills
     if delta <= 0 then return end
     data.lastKnownKills = kills
-    applyKillTaskDelta(data, delta, kills - delta)
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks") ~= false then
+        applyKillTaskDelta(data, delta, kills - delta)
+    end
     local reward = math.max(0, floor(GodSystemConfig.KillPointReward, 0))
     if reward <= 0 then return end
     local amount = delta * reward

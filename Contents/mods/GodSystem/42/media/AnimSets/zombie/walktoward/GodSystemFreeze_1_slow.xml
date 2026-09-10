@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animNode>
+    <m_Name>GodSystemFreeze_1_slow</m_Name>
+    <m_BlendTime>0.20</m_BlendTime>
+    <m_SpeedScale>GSFreezeScale_8000</m_SpeedScale>
+    <m_Conditions x_name="GodSystemFreezePhase">
+        <m_Name>GSFreezePhase</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>1</m_Value>
+    </m_Conditions>
+</animNode>

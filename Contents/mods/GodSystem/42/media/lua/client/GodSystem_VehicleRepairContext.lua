@@ -83,19 +83,19 @@ end
 function Context.fillWorldMenu(playerNum, context, worldobjects, test)
     if test then return end
     local player = getSpecificPlayer and getSpecificPlayer(playerNum) or nil
-    local module = findModule(player)
-    if not module then return end
     local vehicle = selectedVehicle(player)
     if not vehicle then return end
-    local summary = GodSystemMaintenance.vehicleDamageSummary(vehicle)
+    local module = findModule(player)
+    local summary = module and GodSystemMaintenance.vehicleDamageSummary(vehicle) or nil
     local option = context:addOption(text("Context_RepairVehicle", "Use system vehicle repair module"), playerNum, Context.confirm, vehicle)
-    if summary.damaged <= 0 then
+    if not module or summary.damaged <= 0 then
         option.notAvailable = true
         local tooltip = ISToolTip:new()
         tooltip:initialise()
         tooltip:setVisible(false)
         tooltip:setName(text("Context_RepairVehicle", "Use system vehicle repair module"))
-        tooltip.description = text("Notify_VehicleAlreadyFull", "This vehicle is already fully repaired")
+        tooltip.description = not module and text("Notify_MaintenanceConsumableMissing", "Repair module is missing")
+            or text("Notify_VehicleAlreadyFull", "This vehicle is already fully repaired")
         option.toolTip = tooltip
     end
 end

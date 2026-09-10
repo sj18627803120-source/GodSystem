@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animNode>
+    <m_Name>GodSystemFreeze_2_move2</m_Name>
+    <m_BlendTime>0.20</m_BlendTime>
+    <m_SpeedScale>GSFreezeScale_6400</m_SpeedScale>
+    <m_Conditions x_name="fccdeae3-f345-4711-a0bd-d52f59b6a68e">
+        <m_Name>TurnDirection</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value />
+    </m_Conditions>
+    <m_AnimName>Zombie_Crawl02</m_AnimName>
+    <m_Conditions x_name="0b1a8e0d-2b9a-44fd-83ff-580f1d6e3b96">
+        <m_Name>CrawlerType</m_Name>
+        <m_Type>EQU</m_Type>
+        <m_Value>2</m_Value>
+    </m_Conditions>
+    <m_Conditions x_name="GodSystemFreezePhase">
+        <m_Name>GSFreezePhase</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>2</m_Value>
+    </m_Conditions>
+</animNode>

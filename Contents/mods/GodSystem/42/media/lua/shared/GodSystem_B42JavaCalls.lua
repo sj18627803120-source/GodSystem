@@ -129,6 +129,7 @@ local CALLERS = {
     isInfected = function(target, ...) return target:isInfected(...) end,
     isItemInBothHands = function(target, ...) return target:isItemInBothHands(...) end,
     isItemType = function(target, ...) return target:isItemType(...) end,
+    isCustomName = function(target, ...) return target:isCustomName(...) end,
     isKeep = function(target, ...) return target:isKeep(...) end,
     isOwner = function(target, ...) return target:isOwner(...) end,
     isRotten = function(target, ...) return target:isRotten(...) end,

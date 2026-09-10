@@ -217,6 +217,7 @@ function normalizeBankInvestments(bank)
 end
 
 function playerData(player)
+    if not GodSystemRuntimeConfig.Current then GodSystemRuntimeConfig.readSandbox() end
     local root = store()
     local key = userKey(player)
     root.players[key] = root.players[key] or {}
@@ -248,10 +249,7 @@ function playerData(player)
     data.recycleLimitUsed = data.recycleLimitUsed or 0
     if data.recycleUnlockMode == nil then data.recycleUnlockMode = true end
     data.upgrades = data.upgrades or {}
-    data.upgrades.maxActiveTasks = math.max(GodSystemConfig.MaxActiveTasks or 3, floor(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTasks or 3))
-    data.upgrades.maxActiveTasks = math.min(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTaskLimit or 10)
-    data.upgrades.dailyTaskCount = math.max(GodSystemConfig.DailyTaskCount or 5, floor(data.upgrades.dailyTaskCount, GodSystemConfig.DailyTaskCount or 5))
-    data.upgrades.dailyTaskCount = math.min(data.upgrades.dailyTaskCount, GodSystemConfig.MaxDailyTaskLimit or 20)
+    GodSystemRuntimeConfig.normalizeTaskUpgrades(data.upgrades)
     data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.getLevel(data, player)
     data.homeSystem = data.homeSystem or {}
     data.homeSystem.tempSlots = data.homeSystem.tempSlots or {}
@@ -500,6 +498,7 @@ end
 
 function removeItemFromContainer(container, item)
     if not container or not item then return false end
+    if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
     local ok = pcall(function() container:Remove(item) end)
     if not ok or GodSystemServerContainerContainsItem(container, item) then return false end
     if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, container, item) end

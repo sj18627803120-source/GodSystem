@@ -4,3 +4,5 @@
 *.tmp.zip
 Thumbs.db
 .DS_Store
+.test-runtime/
+__pycache__/

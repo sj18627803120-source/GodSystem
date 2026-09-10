@@ -343,7 +343,7 @@ function canContextRecycleItem(item)
     return GodSystemManualRecycle.canRecycle(item)
 end
 
-function canContextListItem(data, item)
+function canContextListItem(data, item, configuredKeys)
     local allowed, reason = canContextRecycleItem(item)
     if not allowed then return false, reason end
     local fullType = item:getFullType()
@@ -352,7 +352,7 @@ function canContextListItem(data, item)
     local mode = GodSystemItemConfig.getShopVariantMode(variantKey, fullType)
     if mode == "disabled" then return false, "disabled" end
     if mode == "forced" then return false, "configuredListed" end
-    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.getConfiguredShopKeySet(), variantKey)
+    local listed, source = GodSystemShopVariants.isListingKnown(data, configuredKeys or GodSystemServer.getConfiguredShopKeySet(), variantKey)
     if listed then
         if source == "configured" then return false, "configuredListed" end
         if data.unlockedShopItems and data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then
@@ -392,7 +392,7 @@ function applyRecycleDailyPayout(data, rawValue)
     return result.payout, result.diminished
 end
 
-function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite)
+function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite, configuredKeys)
     if not fullType or not GodSystemConfig.AutoUnlockShopFromRecycle then return nil end
     if (GodSystemConfig.AutoShopBlacklist or {})[fullType] or (GodSystemConfig.RecycleBlacklist or {})[fullType] then return nil end
     local mod = moduleName(fullType)
@@ -404,7 +404,7 @@ function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite)
     local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
     local mode = GodSystemItemConfig.getShopVariantMode(variantKey, fullType)
     if mode == "disabled" or mode == "forced" then return nil, variantKey, mode end
-    local listed, source = GodSystemShopVariants.isListingKnown(data, GodSystemServer.getConfiguredShopKeySet(), variantKey)
+    local listed, source = GodSystemShopVariants.isListingKnown(data, configuredKeys or GodSystemServer.getConfiguredShopKeySet(), variantKey)
     if listed then return nil, variantKey, source end
     data.unlockedShopItems[variantKey] = {
         fullType = fullType,
@@ -420,11 +420,11 @@ function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite)
 end
 
 function maxActiveTasks(data)
-    return math.min(GodSystemConfig.MaxActiveTaskLimit or 10, math.max(GodSystemConfig.MaxActiveTasks or 3, floor(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTasks or 3)))
+    return GodSystemRuntimeConfig.getTaskLimit(data.upgrades, "activeTasks")
 end
 
 function dailyTaskCount(data)
-    return math.min(GodSystemConfig.MaxDailyTaskLimit or 20, math.max(GodSystemConfig.DailyTaskCount or 5, floor(data.upgrades.dailyTaskCount, GodSystemConfig.DailyTaskCount or 5)))
+    return GodSystemRuntimeConfig.getTaskLimit(data.upgrades, "dailyTasks")
 end
 
 function isTaskTemplateAvailable(template)
@@ -463,7 +463,7 @@ function generateTask(template)
         target = template.target,
         item = template.item,
         items = copyStringArray(template.items),
-        limitHours = template.limitHours or GodSystemConfig.DefaultTaskLimitHours,
+        limitHours = GodSystemRuntimeConfig.effectiveTaskLimitHours(template),
         rewardPoints = GodSystemRuntimeConfig.applyTaskReward(template.rewardPoints or 0),
         rewardItems = copyItems(template.rewardItems),
         penaltyPoints = GodSystemRuntimeConfig.applyTaskPenalty(template.penaltyPoints or 0),
@@ -476,7 +476,12 @@ end
 
 function generateDailyTasks(data, force)
     local day = currentDay()
-    if not force and data.lastGeneratedDay == day then return end
+    local generationToken = GodSystemRuntimeConfig.taskGenerationToken()
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks") == false then
+        data.taskGenerationToken = generationToken
+        return false
+    end
+    if not force and data.lastGeneratedDay == day and data.taskGenerationToken == generationToken then return false end
     local kept = {}
     for i = 1, #(data.tasks or {}) do
         local task = data.tasks[i]
@@ -494,8 +499,10 @@ function generateDailyTasks(data, force)
         kept[#kept + 1] = generateTask(templates[randomIndex(#templates)])
     end
     data.lastGeneratedDay = day
+    data.taskGenerationToken = generationToken
     data.tasks = kept
     appendHistory(data, historyEntry("system", "DailyTasks", { count }))
+    return true
 end
 
 function findTask(data, taskId)
@@ -624,7 +631,8 @@ function claimTaskForPlayer(player, data, task, claimArgs)
     task.status = "claimed"
     task.claimedAt = nowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
-    appendHistory(data, taskHistoryEntry("ClaimTask", task))
+    if GodSystemEquipment then GodSystemEquipment.taskCompleted(player) end
+   appendHistory(data, taskHistoryEntry("ClaimTask", task))
     return true, "TaskClaimed"
 end
 
@@ -687,7 +695,8 @@ function submitTurnInTaskForPlayer(player, data, task, args)
     task.status = "claimed"
     task.claimedAt = nowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
-    appendHistory(data, taskHistoryEntry("ClaimTask", task))
+    if GodSystemEquipment then GodSystemEquipment.taskCompleted(player) end
+   appendHistory(data, taskHistoryEntry("ClaimTask", task))
     return true, "TaskClaimed"
 end
 end

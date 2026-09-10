@@ -35,7 +35,7 @@ function GodSystemUI.toggleWindow()
     -- SandboxVars can change between sessions. Refresh the runtime snapshot
     -- before the window builds its navigation so SP-only entries are derived
     -- from the current session instead of a stale cached value.
-    if GodSystemRuntimeConfig and GodSystemRuntimeConfig.readSandbox then
+    if not gsIsMultiplayer() and GodSystemRuntimeConfig and GodSystemRuntimeConfig.readSandbox then
         pcall(GodSystemRuntimeConfig.readSandbox)
     end
     local data = GodSystemApp.services.runtime.getData()
@@ -63,8 +63,7 @@ function GodSystemUI.toggleWindow()
     window:initialise()
     window:setScaledSize(scale)
     window:clampToScreen()
-    window:addToUIManager()
-    window:setVisible(true)
+    GodSystemUI.presentMain(window)
     GodSystemUI.window = window
     window:requestDeferredPopulate(1)
 end
@@ -78,6 +77,8 @@ function GodSystemUI.openMode(mode)
     if not window then
         return false
     end
+    local tab = window:navigationTabById(mode)
+    if not tab or not window:isNavigationTabVisible(tab) then return false end
     window:captureSelection()
     window.mode = mode
     window:updateModeButtonStyles()
@@ -87,6 +88,11 @@ function GodSystemUI.openMode(mode)
 end
 
 function GodSystemUI.toggleShortcutWindow(owner)
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTeleport") == false
+        and GodSystemApp.services.runtime.isFeatureEnabled("EnableBank") == false then
+        if GodSystemUI.shortcutWindow then GodSystemUI.shortcutWindow:close() end
+        return nil
+    end
     if GodSystemUI.shortcutWindow then
         return GodSystemUI.presentOverlay(GodSystemUI.shortcutWindow)
     end
@@ -110,12 +116,16 @@ function GodSystemUI.isTaskTrackerVisible()
 end
 
 function GodSystemUI.createTaskTracker()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then
+        if GodSystemUI.taskTracker then GodSystemUI.taskTracker:close() end
+        return nil
+    end
     if GodSystemUI.taskTracker then
         local data = GodSystemApp.services.runtime.getData()
         local w = math.max(260, math.floor(tonumber(data.ui.taskTrackerW) or GodSystemUI.taskTracker.width or 340))
         local h = math.max(70, math.floor(tonumber(data.ui.taskTrackerH) or GodSystemUI.taskTracker.height or 92))
         gsSetBounds(GodSystemUI.taskTracker, nil, nil, w, h)
-        GodSystemUI.taskTracker:setVisible(true)
+        GodSystemUI.presentOverlay(GodSystemUI.taskTracker)
         return GodSystemUI.taskTracker
     end
     local data = GodSystemApp.services.runtime.getData()
@@ -127,14 +137,17 @@ function GodSystemUI.createTaskTracker()
     local h = math.max(70, math.floor(tonumber(data.ui.taskTrackerH) or defaultH))
     local tracker = GodSystemTaskTracker:new(x, y, w, h)
     tracker:initialise()
-    tracker:addToUIManager()
-    tracker:setVisible(true)
+    GodSystemUI.presentOverlay(tracker)
     GodSystemUI.taskTracker = tracker
     return tracker
 end
 
 function GodSystemUI.toggleTaskTracker()
     local data = GodSystemApp.services.runtime.getData()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then
+        if GodSystemUI.taskTracker then GodSystemUI.taskTracker:close() end
+        return false
+    end
     if GodSystemUI.isTaskTrackerVisible() then
         GodSystemUI.taskTracker:close()
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_TaskTrackerOff", "Task tracker hidden"))
@@ -171,6 +184,7 @@ function GodSystemUI.ensureFloatingButton()
         screenHeight
     )
     if not button then return nil end
+    button:setAlwaysOnTop(true)
     GodSystemUI.floating = button
     if moved then
         data.ui.x = button.x
@@ -202,8 +216,22 @@ function GodSystemUI.onGameStart()
     GodSystemUI.lastFloatingButtonCheckMs = 0
     GodSystemUI.createFloatingButton()
     local data = GodSystemApp.services.runtime.getData()
-    if data.ui.taskTrackerVisible == true then
+    if data.ui.taskTrackerVisible == true and GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") ~= false then
         GodSystemUI.createTaskTracker()
+    end
+end
+
+function GodSystemUI.syncFeatureVisibility()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false and GodSystemUI.taskTracker then
+        GodSystemUI.taskTracker:close()
+    end
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableShop") == false and GodSystemUI.shopHiddenWindow then
+        GodSystemUI.closeShopHiddenWindow()
+    end
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTeleport") == false
+        and GodSystemApp.services.runtime.isFeatureEnabled("EnableBank") == false
+        and GodSystemUI.shortcutWindow then
+        GodSystemUI.shortcutWindow:close()
     end
 end
 

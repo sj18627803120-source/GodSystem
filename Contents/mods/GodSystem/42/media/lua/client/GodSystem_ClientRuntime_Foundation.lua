@@ -305,6 +305,18 @@ end
 
 function GodSystemApp.services.runtime.text(key, fallback)
     local fullKey = "IGUI_GodSystem_" .. tostring(key)
+    -- B42's translator can return EN when a CN file/key is missing or hidden
+    -- by another translation pack. That is a successful getText(), not a miss.
+    -- Prefer our maintained Chinese dictionary for Chinese/default locales;
+    -- this does not replace getText or change the game's language/other MODs.
+    local language = ""
+    if Translator and Translator.getLanguage then
+        local ok, name = pcall(function() return Translator.getLanguage():name() end)
+        if ok then language = string.upper(tostring(name or "")) end
+    end
+    local fallbackTable = GodSystemFallbackText and (language == "EN" and GodSystemFallbackText.en or GodSystemFallbackText.zh)
+    local chinese = language == "" or language == "CN" or language == "CH"
+    if chinese and fallbackTable and fallbackTable[key] then return fallbackTable[key] end
     if getText then
         local ok, value = pcall(function() return getText(fullKey) end)
         if ok and value and value ~= fullKey then
@@ -312,17 +324,6 @@ function GodSystemApp.services.runtime.text(key, fallback)
         end
     end
 
-    local language = ""
-    if getCore then
-        pcall(function()
-            local core = getCore()
-            if core and core.getLanguage then language = tostring(core:getLanguage() or "") end
-        end)
-    end
-    language = string.upper(language)
-    local fallbackTable = (language == "EN" or string.find(language, "EN", 1, true))
-        and GodSystemFallbackText and GodSystemFallbackText.en
-        or GodSystemFallbackText and GodSystemFallbackText.zh
     if fallbackTable and fallbackTable[key] then
         return fallbackTable[key]
     end
@@ -395,11 +396,12 @@ function GodSystemApp.services.runtime.getData()
     if data.recycleUnlockMode == nil then
         data.recycleUnlockMode = true
     end
+    if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer == true
+        and GodSystemRuntimeConfig.Source == "server") then
+        GodSystemRuntimeConfig.readSandbox()
+    end
     data.upgrades = data.upgrades or {}
-    data.upgrades.maxActiveTasks = math.max(GodSystemConfig.MaxActiveTasks or 3, math.floor(tonumber(data.upgrades.maxActiveTasks) or (GodSystemConfig.MaxActiveTasks or 3)))
-    data.upgrades.maxActiveTasks = math.min(data.upgrades.maxActiveTasks, GodSystemConfig.MaxActiveTaskLimit or 10)
-    data.upgrades.dailyTaskCount = math.max(GodSystemConfig.DailyTaskCount or 5, math.floor(tonumber(data.upgrades.dailyTaskCount) or (GodSystemConfig.DailyTaskCount or 5)))
-    data.upgrades.dailyTaskCount = math.min(data.upgrades.dailyTaskCount, GodSystemConfig.MaxDailyTaskLimit or 20)
+    GodSystemRuntimeConfig.normalizeTaskUpgrades(data.upgrades)
     data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.getLevel(data, gsPlayer())
     data.homeSystem = data.homeSystem or {}
     data.homeSystem.tempSlots = data.homeSystem.tempSlots or {}
@@ -433,7 +435,6 @@ function GodSystemApp.services.runtime.getData()
     data.ui.y = data.ui.y or GodSystemConfig.FloatingButton.y
     data.ui.showHeadUpNotifications = data.ui.showHeadUpNotifications ~= false
     data.itemConfig = GodSystemItemConfig.migrate(data.itemConfig, data.adminConfig)
-    GodSystemRuntimeConfig.readSandbox()
     if not (isClient and isClient()) then
         GodSystemItemConfig.applyRuntime(
             data.itemConfig.itemOverrides,
@@ -869,6 +870,7 @@ function GodSystemApp.services.runtime.removeCurrency(amount)
 end
 
 function GodSystemApp.services.runtime.updateKillTaskProgress(delta, baselineKills)
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then return false end
     local data = GodSystemApp.services.runtime.getData()
     local changed = gsApplyKillTaskDelta(data, delta, baselineKills)
     if changed then
@@ -1012,18 +1014,12 @@ end
 
 function GodSystemApp.services.runtime.getMaxActiveTasks()
     local data = GodSystemApp.services.runtime.getData()
-    local base = GodSystemConfig.MaxActiveTasks or 3
-    local limit = GodSystemConfig.MaxActiveTaskLimit or 10
-    local value = data.upgrades and data.upgrades.maxActiveTasks or base
-    return math.min(limit, math.max(base, math.floor(tonumber(value) or base)))
+    return GodSystemRuntimeConfig.getTaskLimit(data.upgrades, "activeTasks")
 end
 
 function GodSystemApp.services.runtime.getDailyTaskCount()
     local data = GodSystemApp.services.runtime.getData()
-    local base = GodSystemConfig.DailyTaskCount or 5
-    local limit = GodSystemConfig.MaxDailyTaskLimit or 20
-    local value = data.upgrades and data.upgrades.dailyTaskCount or base
-    return math.min(limit, math.max(base, math.floor(tonumber(value) or base)))
+    return GodSystemRuntimeConfig.getTaskLimit(data.upgrades, "dailyTasks")
 end
 
 function GodSystemApp.services.runtime.getCarryCapacityLevel()

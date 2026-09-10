@@ -1,3 +1,4 @@
+require "GodSystem_UISafety"
 _G.GodSystemUIRuntimeInstallers = _G.GodSystemUIRuntimeInstallers or {}
 GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Components"] = function(runtimeEnvironment)
     if runtimeEnvironment.__GodSystemInstalled_GodSystem_UI_Runtime_Components then return end
@@ -11,47 +12,14 @@ function gsSetLabel(label, text)
 end
 
 function gsSyncScrollingListGeometry(element)
-    if not element or not element.vscroll then
-        return
-    end
-    local vscroll = element.vscroll
-    local scrollW = math.floor(tonumber(element.width) or (element.getWidth and element:getWidth()) or 0)
-    local scrollH = math.floor(tonumber(element.height) or (element.getHeight and element:getHeight()) or 0)
-    local scrollX = math.max(0, scrollW - 16)
-    if vscroll.setX then
-        vscroll:setX(scrollX)
-    else
-        vscroll.x = scrollX
-    end
-    if vscroll.setY then
-        vscroll:setY(0)
-    else
-        vscroll.y = 0
-    end
-    if vscroll.setHeight then
-        vscroll:setHeight(scrollH)
-    else
-        vscroll.height = scrollH
-    end
-    if vscroll.updatePos then
-        vscroll:updatePos()
-    end
-end
-
-gsOriginalScrollingListPrerender = ISScrollingListBox.prerender
-
-function gsSafeScrollingListPrerender(self)
-    gsSyncScrollingListGeometry(self)
-    gsOriginalScrollingListPrerender(self)
-    gsSyncScrollingListGeometry(self)
+    GodSystemUISafety.syncListGeometry(element)
 end
 
 function gsInstallSafeScrollingListPrerender(list)
     if not list then
         return
     end
-    list.prerender = gsSafeScrollingListPrerender
-    gsSyncScrollingListGeometry(list)
+    GodSystemUISafety.installList(list)
 end
 
 function gsSetBounds(element, x, y, width, height)
@@ -754,14 +722,18 @@ end
 
 function GodSystemShortcutWindow:getActions()
     local actions = {}
-    local home = GodSystemApp.services.runtime.getHomeSystem and GodSystemApp.services.runtime.getHomeSystem() or nil
-    if home and home.home then
-        actions[#actions + 1] = { action = "teleportHome", label = GodSystemApp.services.runtime.text("Shortcut_Home", "Home") }
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableTeleport") ~= false then
+        local home = GodSystemApp.services.runtime.getHomeSystem and GodSystemApp.services.runtime.getHomeSystem() or nil
+        if home and home.home then
+            actions[#actions + 1] = { action = "teleportHome", label = GodSystemApp.services.runtime.text("Shortcut_Home", "Home") }
+        end
+        if home and home.returnPoint then
+            actions[#actions + 1] = { action = "return", label = GodSystemApp.services.runtime.text("Shortcut_Return", "Return") }
+        end
     end
-    if home and home.returnPoint then
-        actions[#actions + 1] = { action = "return", label = GodSystemApp.services.runtime.text("Shortcut_Return", "Return") }
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableBank") ~= false then
+        actions[#actions + 1] = { action = "depositAllCash", label = GodSystemApp.services.runtime.text("Shortcut_DepositAllCash", "Deposit cash") }
     end
-    actions[#actions + 1] = { action = "depositAllCash", label = GodSystemApp.services.runtime.text("Shortcut_DepositAllCash", "Deposit cash") }
     return actions
 end
 

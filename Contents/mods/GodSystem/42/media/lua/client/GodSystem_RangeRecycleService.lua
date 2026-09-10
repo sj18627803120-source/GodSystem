@@ -26,25 +26,39 @@ local function keyFor(playerNum)
     return tostring(math.floor(tonumber(playerNum) or 0))
 end
 
-local function stateFor(playerNum)
+local function replaceFilter(state, filter)
+    state.filter = filter
+    local members = {}
+    for i = 1, #(filter.activeFullTypes or {}) do members[filter.activeFullTypes[i]] = true end
+    state.menuFilter = { mode = filter.mode, revision = filter.revision, members = members }
+end
+
+local function stateFor(playerNum, readOnly)
     local key = keyFor(playerNum)
+    local player = playerFor(playerNum)
+    if states[key] and states[key].owner and states[key].owner ~= player then states[key] = nil end
     states[key] = states[key] or {
+        owner = player,
         status = "idle",
         stage = "verifying",
         processed = 0,
         payout = 0,
         skipped = 0,
         cancelRequested = false,
-        filter = GodSystemRangeFilter.normalize(nil),
+        filter = { mode = "allowlist", revision = 1, activeFullTypes = {}, allowedFullTypes = {} },
+        menuFilter = { mode = "allowlist", revision = 1, members = {} },
         filterReady = false,
         filterLoaded = false,
         filterSyncing = false,
     }
     local state = states[key]
-    if not state.filterLoaded then
-        local loaded, loadOk = GodSystemRangeFilterProfile.load(playerFor(playerNum))
+    if not state.owner and player then state.owner = player end
+    if not state.filterLoaded and not readOnly and player
+        and GodSystemScheduler.nowMs() >= (state.nextLoadAtMs or 0) then
+        state.nextLoadAtMs = GodSystemScheduler.nowMs() + 5000
+        local loaded, loadOk = GodSystemRangeFilterProfile.load(player)
         if loadOk == true then
-            state.filter = loaded
+            replaceFilter(state, loaded)
             state.filterLoaded = true
             state.filterReady = not isMultiplayer()
         end
@@ -56,12 +70,19 @@ local function stateFor(playerNum)
 end
 
 function service:resetSession()
-    if not isMultiplayer() then return false end
     states = {}
     notifiedOperations = {}
     localJobs = {}
     syncQueues = {}
     return true
+end
+
+-- Pure menu read: no disk access, normalization, sorting or network requests.
+function service:getContextMenuState(playerNum)
+    local state = stateFor(playerNum, true)
+    return { enabled = state.enabled, ready = state.filterReady == true,
+        mode = state.menuFilter.mode, revision = state.menuFilter.revision,
+        members = state.menuFilter.members, token = state.menuFilter }
 end
 
 local function publish(playerNum, topic)
@@ -262,6 +283,7 @@ function Adapter:recycle(_, candidate, stage, square)
     if candidate.kind == "containerItem" then
         local nested = itemContainer(candidate.item)
         if (not nested or listSize(containerItems(nested)) == 0) and containerContains(candidate.container, candidate.item) then
+            if GodSystemEquipment then GodSystemEquipment.beforeRemoval(candidate.item) end
             local ok = GodSystemB42JavaCalls.try(candidate.container, "Remove", candidate.item)
             removed = ok and not containerContains(candidate.container, candidate.item)
         end
@@ -271,6 +293,7 @@ function Adapter:recycle(_, candidate, stage, square)
         if (not candidate.portableShell or not nested or listSize(containerItems(nested)) == 0)
             and contains(worldObjects, candidate.worldObject)
             and GodSystemB42JavaCalls.value(candidate.worldObject, "getItem", nil) == candidate.item then
+            if GodSystemEquipment then GodSystemEquipment.beforeRemoval(candidate.item) end
             local ok = GodSystemB42JavaCalls.try(square, "transmitRemoveItemFromSquare", candidate.worldObject)
             removed = ok and not contains(GodSystemB42JavaCalls.value(square, "getWorldObjects", nil), candidate.worldObject)
         end
@@ -304,7 +327,7 @@ function service:syncProfile(playerNum)
     local player = playerFor(playerNum)
     local loaded, loadOk = GodSystemRangeFilterProfile.load(player)
     if loadOk ~= true then return false end
-    state.filter = loaded
+    replaceFilter(state, loaded)
     state.filterLoaded = true
     state.filterReady = false
     state.filterSyncing = true
@@ -392,6 +415,9 @@ local function settleLocal(record, progress)
 end
 
 local function tickLocal()
+    for key, state in pairs(states) do
+        if not state.filterLoaded then stateFor(tonumber(key)) end
+    end
     local nowMs = GodSystemScheduler.nowMs()
     if isMultiplayer() then
         local syncRecords = {}
@@ -581,9 +607,9 @@ service:setExecutor(function(playerNum, intent, payload, callback)
                 if callback then callback(value) end
                 return nil
             end
-            state.filter = changed.state
+            replaceFilter(state, changed.state)
         elseif changed.ok then
-            state.filter = changed.state
+            replaceFilter(state, changed.state)
         end
         publishFilter(playerNum, "filter")
         if isMultiplayer() and changed.ok and changed.code == "RangeFilterUpdated" then
@@ -592,7 +618,10 @@ service:setExecutor(function(playerNum, intent, payload, callback)
                 service:syncProfile(playerNum)
             else
                 local sent = GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("rangeFilterDelta", payload)
-                if not sent and callback then callback(result(false, "RangeRecycleSendFailed")) end
+                state.filterReady = false
+                state.filterSyncing = true
+                publishFilter(playerNum, "filterSyncing")
+                if not sent then service:syncProfile(playerNum) end
             end
         end
         local value = result(changed.ok, changed.code, nil, { snapshot = changed.state })
@@ -614,7 +643,7 @@ service:setExecutor(function(playerNum, intent, payload, callback)
                     return nil
                 end
             end
-            state.filter = changed.state
+            replaceFilter(state, changed.state)
             publishFilter(playerNum, "filterMode")
             if isMultiplayer() then
                 if state.filterReady == true then
@@ -623,6 +652,9 @@ service:setExecutor(function(playerNum, intent, payload, callback)
                         op = "setMode",
                         mode = changed.state.mode,
                     })
+                    state.filterReady = false
+                    state.filterSyncing = true
+                    publishFilter(playerNum, "filterSyncing")
                     if not sent then service:syncProfile(playerNum) end
                 else
                     service:syncProfile(playerNum)
@@ -650,7 +682,7 @@ service:setExecutor(function(playerNum, intent, payload, callback)
             if callback then callback(value) end
             return nil
         end
-        state.filter = nextState
+        replaceFilter(state, nextState)
         publishFilter(playerNum, "filter")
         if isMultiplayer() then service:syncProfile(playerNum) end
         local value = result(true, "RangeFilterUpdated", nil, { snapshot = nextState })
@@ -710,7 +742,8 @@ function service:handleFilterAck(snapshot, ready, syncId)
         publishFilter(playerNum, "filterSyncing")
         return
     end
-    state.filter = GodSystemRangeFilter.normalize(snapshot)
+    replaceFilter(state, GodSystemRangeFilter.normalize(snapshot))
+    state.filterLoaded = true
     state.filterReady = true
     state.filterSyncing = false
     if not queue or not syncId or queue.syncId == syncId then
@@ -736,5 +769,16 @@ function service:handleResult(payload)
 end
 
 Events.OnTick.Add(tickLocal)
+
+if service._menuSessionReset then
+    if Events.OnDisconnect then Events.OnDisconnect.Remove(service._menuSessionReset) end
+    if Events.OnMainMenuEnter then Events.OnMainMenuEnter.Remove(service._menuSessionReset) end
+end
+service._menuSessionReset = function() service:resetSession() end
+if Events.OnDisconnect then Events.OnDisconnect.Add(service._menuSessionReset) end
+if Events.OnMainMenuEnter then Events.OnMainMenuEnter.Add(service._menuSessionReset) end
+if service._menuWarmup and Events.OnGameStart then Events.OnGameStart.Remove(service._menuWarmup) end
+service._menuWarmup = function() if playerFor(0) then stateFor(0) end end
+if Events.OnGameStart then Events.OnGameStart.Add(service._menuWarmup) end
 
 return service

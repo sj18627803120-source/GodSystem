@@ -2,6 +2,7 @@ require "GodSystem_Config"
 require "GodSystem_ContainerCapacity"
 require "GodSystem_Result"
 require "GodSystem_ManualRecycle"
+require "GodSystem_InventoryIndex"
 require "GodSystem_RuntimeConfig"
 require "GodSystem_ItemConfig"
 require "GodSystem_RangeFilter"
@@ -40,6 +41,7 @@ require "GodSystem_ServerRuntime_Services"
 require "GodSystem_ServerRuntime_HomeGrowth"
 require "GodSystem_ServerRangeRecycle"
 require "GodSystem_ServerRuntime_Background"
+require "GodSystem_ServerRuntime_Equipment"
 
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Foundation"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Foundation")(GodSystemServerRuntimeEnv)
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Bank"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Bank")(GodSystemServerRuntimeEnv)
@@ -51,5 +53,7 @@ assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Services"], "Go
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_HomeGrowth"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_HomeGrowth")(GodSystemServerRuntimeEnv)
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRangeRecycle"], "GodSystem server runtime installer missing: GodSystem_ServerRangeRecycle")(GodSystemServerRuntimeEnv)
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Background"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Background")(GodSystemServerRuntimeEnv)
+
+assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Equipment")(GodSystemServerRuntimeEnv)
 
 return GodSystemServerRuntimeEnv.Commands

@@ -3,6 +3,7 @@ require "GodSystem_InventoryContext"
 require "GodSystem_AutoLoader"
 require "GodSystem_AutoLoaderClient"
 require "GodSystem_AutoLoaderUI"
+require "ISUI/ISInventoryPaneContextMenu"
 
 GodSystemAutoLoaderContext = GodSystemAutoLoaderContext or {}
 
@@ -36,14 +37,7 @@ function Context.selectedLoader(items)
 end
 
 function Context.selectedSnapshotLoader(snapshot)
-    local selected
-    for _, entry in ipairs(snapshot.entries or {}) do
-        if entry.isAutoLoader then
-            if selected and selected ~= entry.item then return nil end
-            selected = entry.item
-        end
-    end
-    return selected
+    return GodSystemInventoryContext.singleMatching(snapshot, function(fullType) return fullType == AutoLoader.FullType end)
 end
 
 function Context.open(loader, playerNum)
@@ -60,11 +54,18 @@ function Context.fill(loader, playerNum)
 end
 
 function Context.fillInventoryMenu(playerNum, context, items)
-    local loader = items and items.__godSystemInventorySnapshot
-        and Context.selectedSnapshotLoader(items)
-        or Context.selectedLoader(items)
+    local loader
+    if items and items.__godSystemInventorySnapshot then loader = Context.selectedSnapshotLoader(items)
+    else loader = Context.selectedLoader(items) end
     if not loader then return end
     local parent = context:addOption(Context.text("AutoLoader_Context", "System auto-loader"))
+    local player = getSpecificPlayer and getSpecificPlayer(playerNum) or getPlayer()
+    if not GodSystemInventoryContext.isCarried(player, loader) then
+        parent.notAvailable = true
+        parent.toolTip = ISInventoryPaneContextMenu.addToolTip()
+        parent.toolTip.description = Context.text("Context_ItemNotCarried", "Carry this item before using it")
+        return
+    end
     local submenu = ISContextMenu:getNew(context)
     context:addSubMenu(parent, submenu)
     submenu:addOption(Context.text("AutoLoader_Open", "Open"), loader, Context.open, playerNum)

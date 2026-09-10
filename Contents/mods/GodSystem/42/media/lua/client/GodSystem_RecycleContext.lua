@@ -2,6 +2,9 @@ require "GodSystem_App"
 require "GodSystem_Core"
 require "GodSystem_RangeFilter"
 require "GodSystem_InventoryContext"
+require "GodSystem_InventoryIndex"
+require "GodSystem_RecyclePreparation"
+require "GodSystem_RecyclePreparationUI"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISModalDialog"
 require "TimedActions/ISInventoryTransferUtil"
@@ -32,28 +35,6 @@ local function itemId(item)
     return tostring(value)
 end
 
-local function appendItem(result, seen, item)
-    if not item or not instanceof(item, "InventoryItem") then return end
-    local id = itemId(item)
-    if not id or seen[id] then return end
-    seen[id] = true
-    result[#result + 1] = item
-end
-
-local function collectItems(values)
-    local result = {}
-    local seen = {}
-    for _, value in ipairs(values or {}) do
-        if instanceof(value, "InventoryItem") then
-            appendItem(result, seen, value)
-        elseif value and value.items then
-            for _, item in ipairs(value.items) do
-                appendItem(result, seen, item)
-            end
-        end
-    end
-    return result
-end
 
 local function collectFullTypes(items)
     local result = {}
@@ -111,21 +92,22 @@ local function listOnlyCost(items)
     return total
 end
 
-local function createAnalysisCache(items, entries)
+function Context.newAnalysis()
     if not GodSystemApp.services.runtime
         or GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycle") == false then
         return { disabled = true, recycle = {} }
     end
-    local cache = {
+    return {
         data = GodSystemApp.services.runtime.getData(),
         configuredShopKeySet = GodSystemInventoryContext.getConfiguredShopKeySet(),
         recycle = {},
         recycleByFullType = {},
         listByVariantKey = {},
     }
-    for i = 1, #items do
-        local item = items[i]
-        local snapshotEntry = entries and entries[i] or nil
+end
+
+function Context.analyzeItem(cache, item, snapshotEntry)
+        if cache.disabled then return { allowed = false, reason = "disabled" } end
         local fullType = snapshotEntry and snapshotEntry.fullType or item:getFullType()
         local variantKey = snapshotEntry and snapshotEntry.variantKey or GodSystemShopVariants.getKey(fullType, item)
         local entry = cache.recycleByFullType[fullType]
@@ -148,104 +130,42 @@ local function createAnalysisCache(items, entries)
         end
         entry = { allowed = entry.allowed, reason = entry.reason, listable = listEntry.listable, listReason = listEntry.listReason }
         cache.recycle[item] = entry
-    end
+        return entry
+end
+
+local function createAnalysisCache(items, entries)
+    local cache = Context.newAnalysis()
+    for i = 1, #items do Context.analyzeItem(cache, items[i], entries and entries[i]) end
     return cache
 end
 
-local function classifyItems(items, mode, analysis)
-    local result = { eligible = {}, skipped = 0, firstReason = nil }
-    if not GodSystemApp.services.runtime or GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycle") == false then
-        result.skipped = #items
-        result.firstReason = "ContextReason_RecycleDisabled"
-        return result
+function Context.classifyItem(item, mode, cached)
+    if not cached or not cached.allowed then
+        local reason = cached and cached.reason
+        return false, reason == "disabled" and "ContextReason_RecycleDisabled"
+            or reason == "protected" and "ContextReason_Protected" or "ContextReason_Invalid"
     end
-    for i = 1, #items do
-        local item = items[i]
-        local cached = analysis and analysis.recycle[item] or nil
-        local allowed = cached and cached.allowed or false
-        local reason = cached and cached.reason or nil
-        local reasonKey = nil
-        if not allowed then
-            reasonKey = reason == "protected" and "ContextReason_Protected" or "ContextReason_Invalid"
-        elseif mode ~= "recycle" then
-            local listable = cached and cached.listable or false
-            local listReason = cached and cached.listReason or nil
-            if not listable then
-                if listReason == "alreadyListed" then
-                    reasonKey = "ContextReason_AlreadyListed"
-                elseif listReason == "hiddenListed" then
-                    reasonKey = "ContextReason_HiddenListed"
-                elseif listReason == "configuredListed" then
-                    reasonKey = "ContextReason_ConfiguredListed"
-                else
-                    reasonKey = "ContextReason_NotListable"
-                end
-            end
-        end
-        if reasonKey and mode ~= "recycleAndList" then
-            result.skipped = result.skipped + 1
-            result.firstReason = result.firstReason or reasonKey
-        else
-            result.eligible[#result.eligible + 1] = item
-            if reasonKey then
-                result.skipped = result.skipped + 1
-                result.firstReason = result.firstReason or reasonKey
-            end
-        end
-    end
-    return result
+    if mode == "recycle" or cached.listable then return true, nil end
+    local reasons = { alreadyListed = "ContextReason_AlreadyListed", hiddenListed = "ContextReason_HiddenListed",
+        configuredListed = "ContextReason_ConfiguredListed" }
+    return mode == "recycleAndList", reasons[cached.listReason] or "ContextReason_NotListable"
 end
 
 local function classifyAll(items, analysis)
     local result = {
-        recycle = { eligible = {}, skipped = 0, firstReason = nil },
-        recycleAndList = { eligible = {}, skipped = 0, firstReason = nil },
-        listOnly = { eligible = {}, skipped = 0, firstReason = nil },
+        recycle = { eligible = {}, skipped = 0 },
+        recycleAndList = { eligible = {}, skipped = 0 },
+        listOnly = { eligible = {}, skipped = 0 },
     }
-    local enabled = GodSystemApp.services.runtime
-        and GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycle") ~= false
     for i = 1, #items do
         local item = items[i]
-        local cached = analysis and analysis.recycle[item] or nil
-        local allowed = cached and cached.allowed or false
-        local reason = cached and cached.reason or nil
-        local reasonKey = nil
-        local listable = cached and cached.listable or false
-        local listReason = cached and cached.listReason or nil
-        if not allowed then
-            reasonKey = reason == "protected" and "ContextReason_Protected" or "ContextReason_Invalid"
-        elseif not listable then
-            if listReason == "alreadyListed" then
-                reasonKey = "ContextReason_AlreadyListed"
-            elseif listReason == "hiddenListed" then
-                reasonKey = "ContextReason_HiddenListed"
-            elseif listReason == "configuredListed" then
-                reasonKey = "ContextReason_ConfiguredListed"
-            elseif allowed then
-                reasonKey = "ContextReason_NotListable"
-            end
-        end
-        local function add(mode, eligible, skippedReason)
-            local target = result[mode]
-            if not eligible then
+        for mode, target in pairs(result) do
+            local eligible, reason = Context.classifyItem(item, mode, analysis.recycle[item])
+            if eligible then target.eligible[#target.eligible + 1] = item end
+            if not eligible or reason then
                 target.skipped = target.skipped + 1
-                target.firstReason = target.firstReason or skippedReason
-            else
-                target.eligible[#target.eligible + 1] = item
-                if skippedReason then
-                    target.skipped = target.skipped + 1
-                    target.firstReason = target.firstReason or skippedReason
-                end
+                target.firstReason = target.firstReason or reason
             end
-        end
-        if not enabled then
-            add("recycle", false, "ContextReason_RecycleDisabled")
-            add("recycleAndList", false, "ContextReason_RecycleDisabled")
-            add("listOnly", false, "ContextReason_RecycleDisabled")
-        else
-            add("recycle", allowed, allowed and nil or reasonKey)
-            add("recycleAndList", allowed or reasonKey ~= nil, reasonKey)
-            add("listOnly", allowed and listable, allowed and (listable and nil or reasonKey) or reasonKey)
         end
     end
     return result
@@ -253,16 +173,14 @@ end
 
 local function rangeFilterView(playerNum)
     local service = GodSystemApp.services and GodSystemApp.services.rangeRecycle
-    if not service or not service.getViewModel then return nil end
-    return service:getViewModel(playerNum)
+    if not service or not service.getContextMenuState then return nil end
+    return service:getContextMenuState(playerNum)
 end
 
 local function rangeFilterPayload(playerNum, items)
     local state = rangeFilterView(playerNum)
-    if not state then return nil end
-    local filter = GodSystemRangeFilter.normalize(state.filter)
-    local active = {}
-    for i = 1, #filter.activeFullTypes do active[filter.activeFullTypes[i]] = true end
+    if not state or not state.enabled then return nil end
+    local active = state.members
     local all = collectFullTypes(items)
     local missing, skipped = {}, 0
     for i = 1, #all do
@@ -278,8 +196,10 @@ local function rangeFilterPayload(playerNum, items)
         playerNum = playerNum,
         fullTypes = missing,
         skippedExisting = skipped,
-        mode = filter.mode,
-        ready = state.filterReady == true,
+        mode = state.mode,
+        revision = state.revision,
+        token = state.token,
+        ready = state.ready == true,
     }
 end
 
@@ -297,11 +217,13 @@ function Context.addToRangeFilter(payload)
         return false
     end
     local service = GodSystemApp.services.rangeRecycle
-    local state = service and service.getViewModel and service:getViewModel(data.playerNum) or nil
-    local filter = state and GodSystemRangeFilter.normalize(state.filter) or nil
-    if not filter then return false end
+    local state = rangeFilterView(data.playerNum)
+    if not state or not state.enabled or not state.ready or (data.token and state.token ~= data.token) then
+        GodSystemApp.services.runtime.notify(text("Notify_RecycleSelectionChanged", "Selection changed; reopen the menu"))
+        return false
+    end
     local result = service:execute(data.playerNum, "filterDelta", {
-        baseRevision = filter.revision,
+        baseRevision = state.revision,
         op = "addMany",
         fullTypes = data.fullTypes,
     }, function(value)
@@ -328,20 +250,6 @@ local function setOptionSummary(option, classification)
     })
 end
 
-local function containsId(container, expectedId)
-    if not container or not container.getItems then return false end
-    local items = container:getItems()
-    if not items or not items.size then return false end
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        if itemId(item) == expectedId then return true end
-        if item and item.getInventory then
-            local ok, child = pcall(function() return item:getInventory() end)
-            if ok and child and containsId(child, expectedId) then return true end
-        end
-    end
-    return false
-end
 
 local function isInPlayerInventory(player, item)
     local container = item and item.getContainer and item:getContainer() or nil
@@ -358,9 +266,10 @@ function Context.execute(payload)
     local player = getSpecificPlayer and getSpecificPlayer(payload.playerNum) or getPlayer()
     if not player then return false end
     local itemIds = {}
+    local inventoryIndex = GodSystemInventoryIndex.build(player:getInventory())
     for i = 1, #(payload.items or {}) do
         local id = itemId(payload.items[i])
-        if not id or not containsId(player:getInventory(), id) then
+        if not id or GodSystemInventoryIndex.find(inventoryIndex, id) ~= payload.items[i] then
             GodSystemApp.services.runtime.notify(text("Notify_RecycleSelectionTransferFailed", "Could not move all selected items"))
             return false
         end
@@ -449,13 +358,61 @@ function Context.begin(payload, mode)
     return true
 end
 
+function Context.startBulk(payload, mode)
+    local UI = GodSystemRecyclePreparationUI
+    local job = GodSystemRecyclePreparation.start(payload.snapshot, mode, {
+        close = UI.dismiss, progress = UI.update, ready = UI.update,
+        failed = function(_, reason)
+            GodSystemApp.services.runtime.notify(reason == "submission"
+                and text("RecyclePrep_SubmissionFailed", "Submission failed; check inventory and transaction result before retrying")
+                or reason == "empty"
+                and text("RecyclePrep_Empty", "No eligible items or new types")
+                or text("RecyclePrep_Changed", "Items, contents or settings changed; please try again"))
+        end,
+        execute = function(prepared)
+            if prepared.mode == "rangeFilter" then
+                Context.addToRangeFilter({ playerNum = prepared.playerNum, fullTypes = prepared.rangeTypes,
+                    skippedExisting = prepared.rangeSkipped, ready = true, token = prepared.range.token })
+            else
+                Context.queueTransfers({ playerNum = prepared.playerNum, items = prepared.items, mode = prepared.mode,
+                    allowDestroyContents = prepared.hasContents == true,
+                    containerContentSignatures = prepared.containerContentSignatures, skippedCount = prepared.skipped })
+            end
+        end,
+    })
+    if not job then
+        GodSystemApp.services.runtime.notify(text("RecyclePrep_Changed", "Items, contents or settings changed; please try again"))
+        return false
+    end
+    UI.open(job)
+    return true
+end
+
+local function unavailable(option, key, fallback)
+    option.notAvailable = true
+    option.toolTip = ISInventoryPaneContextMenu.addToolTip()
+    option.toolTip.description = text(key, fallback)
+end
+
 function Context.fillInventoryMenu(playerNum, context, values)
-    local items = values and values.__godSystemInventorySnapshot and values.items or collectItems(values)
-    local entries = values and values.__godSystemInventorySnapshot and values.entries or nil
+    local runtime = GodSystemApp.services.runtime
+    if not runtime or runtime.isFeatureEnabled("EnableRecycle") == false then return end
+    local snapshot = values and values.__godSystemInventorySnapshot and values
+        or GodSystemInventoryContext.createSnapshot(playerNum, values)
+    local items = snapshot.items
     if #items <= 0 then return end
-    local analysis = createAnalysisCache(items, entries)
-    local classifications = classifyAll(items, analysis)
+    local syncing = isClient and isClient() and GodSystemNetwork and not GodSystemNetwork.isStateReady()
+    local classifications
+    if not snapshot.bulk and not syncing then
+        local entries = GodSystemInventoryContext.getEntries(snapshot)
+        classifications = classifyAll(items, createAnalysisCache(items, entries))
+    end
     local function addModeOption(labelKey, fallback, mode)
+        if not classifications then
+            local option = context:addOption(text(labelKey .. "Bulk", fallback .. "..."), { snapshot = snapshot }, Context.startBulk, mode)
+            if syncing then unavailable(option, "Context_RecycleSyncing", "Player data is still syncing") end
+            return
+        end
         local classification = classifications[mode]
         local label = text(labelKey, fallback)
         if classification.skipped > 0 and #classification.eligible > 0 then
@@ -471,9 +428,19 @@ function Context.fillInventoryMenu(playerNum, context, values)
     end
 
     addModeOption("Menu_ContextRecycle", "Recycle", "recycle")
-    addModeOption("Menu_ContextRecycleAndList", "Recycle and list", "recycleAndList")
-    addModeOption("Menu_ContextListOnly", "List only", "listOnly")
+    if runtime.isFeatureEnabled("EnableShop") ~= false then
+        addModeOption("Menu_ContextRecycleAndList", "Recycle and list", "recycleAndList")
+        addModeOption("Menu_ContextListOnly", "List only", "listOnly")
+    end
 
+    local rangeState = rangeFilterView(playerNum)
+    if not rangeState or not rangeState.enabled then return end
+    if not classifications then
+        local option = context:addOption(text("Menu_ContextRangeBulk", "Add types to range list..."), { snapshot = snapshot }, Context.startBulk, "rangeFilter")
+        if not rangeState.ready then unavailable(option, "Context_RangeSyncing", "Range recycle list is still syncing")
+        elseif syncing then unavailable(option, "Context_RecycleSyncing", "Player data is still syncing") end
+        return
+    end
     local rangeClassification = classifications.recycle
     local rangePayload = rangeFilterPayload(playerNum, rangeClassification.eligible)
     if rangePayload then
@@ -491,7 +458,7 @@ function Context.fillInventoryMenu(playerNum, context, values)
         elseif #rangePayload.fullTypes <= 0 then
             option.notAvailable = true
             option.toolTip = ISInventoryPaneContextMenu.addToolTip()
-            option.toolTip.description = text("Context_RangeAllPresent", "All selected item types are already in the current range list")
+            option.toolTip.description = formatText(text("Context_RangeAllPresent", "All selected item types are already in the current range list ({1} skipped)"), { rangePayload.skippedExisting })
         end
     end
 end

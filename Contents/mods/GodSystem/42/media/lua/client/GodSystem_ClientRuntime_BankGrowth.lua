@@ -150,9 +150,9 @@ function GodSystemApp.services.runtime.upgradeSystem(upgradeType)
     local data = GodSystemApp.services.runtime.getData()
     data.upgrades = data.upgrades or {}
     if upgradeType == "activeTasks" then
-        data.upgrades.maxActiveTasks = info.nextValue
+        GodSystemRuntimeConfig.increaseTaskLimitUpgrade(data.upgrades, "activeTasks")
     elseif upgradeType == "dailyTasks" then
-        data.upgrades.dailyTaskCount = info.nextValue
+        GodSystemRuntimeConfig.increaseTaskLimitUpgrade(data.upgrades, "dailyTasks")
         local templates = GodSystemApp.services.runtime.getAvailableTaskTemplates()
         if #templates > 0 then
             data.tasks = data.tasks or {}

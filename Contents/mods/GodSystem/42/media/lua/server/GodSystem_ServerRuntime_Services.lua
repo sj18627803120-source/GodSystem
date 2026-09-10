@@ -425,9 +425,9 @@ function Commands.upgradeSystem(_, _, player, args)
         if not cost then return complete(false, "SystemUpgradeMaxed") end
         if not addPoints(player, -cost, data) then return complete(false, "CurrencyNotEnough") end
         if t == "activeTasks" then
-            data.upgrades.maxActiveTasks = nextValue
+            GodSystemRuntimeConfig.increaseTaskLimitUpgrade(data.upgrades, "activeTasks")
         elseif t == "dailyTasks" then
-            data.upgrades.dailyTaskCount = nextValue
+            GodSystemRuntimeConfig.increaseTaskLimitUpgrade(data.upgrades, "dailyTasks")
             local templates = availableTaskTemplates()
             if #templates > 0 then data.tasks[#data.tasks + 1] = generateTask(templates[randomIndex(#templates)]) end
         end

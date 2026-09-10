@@ -3,6 +3,10 @@ GodSystemProtocol = GodSystemProtocol or {}
 GodSystemProtocol.Module = "GodSystem"
 
 GodSystemProtocol.C2S = {
+    EquipmentSync = "equipmentSync",
+    EquipmentInspect = "equipmentInspect",
+    EquipmentAction = "equipmentAction",
+    EquipmentFreezeSwing = "equipmentFreezeSwing",
     Hello = "hello",
     Refresh = "refresh",
     SyncClientData = "syncClientData",
@@ -42,6 +46,11 @@ GodSystemProtocol.C2S = {
 }
 
 GodSystemProtocol.S2C = {
+    EquipmentState = "equipmentState",
+    EquipmentItem = "equipmentItem",
+    EquipmentProjection = "equipmentProjection",
+    EquipmentFreezeHello = "equipmentFreezeHello",
+    EquipmentFreezeEffects = "equipmentFreezeEffects",
     State = "state",
     Result = "result",
     Notify = "notify",
@@ -90,6 +99,7 @@ GodSystemProtocol.StateCommands = {
 }
 
 GodSystemProtocol.KeyCommands = {
+    equipmentAction = true,
     buyShop = true,
     useLotteryTicket = true,
     recycle = true,

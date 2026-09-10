@@ -6,6 +6,7 @@ GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Details"] = function(runtimeE
 
 function GodSystemWindow:populateList()
     self:resetActionButtonEnabledState()
+    self:ensureVisibleNavigationMode()
     if self.mode == "recycle" then
         self.mode = "shop"
     end

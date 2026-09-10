@@ -141,49 +141,51 @@ function GodSystemWindow:populateBank()
     local currentText = GodSystemApp.services.runtime.text("Bank_Current", "Current account")
     self:addListItem(currentText, { kind = "bankCurrent", data = summary, detail = tostring(summary.current or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c") })
 
-    local loanSummary = GodSystemApp.services.runtime.getBankLoanSummary and GodSystemApp.services.runtime.getBankLoanSummary() or {}
-    local freezeText = (loanSummary.freezeLeftHours or 0) > 0 and tostring(loanSummary.freezeLeftHours or 0) .. GodSystemApp.services.runtime.text("Unit_Hour", "h") or "0"
-    local loanLine = gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanSummary", "Loan credit {1} | Available {2} | Debt {3} | Frozen {4}"), {
-        loanSummary.creditTotal or 0,
-        loanSummary.creditAvailable or 0,
-        loanSummary.unpaidTotal or 0,
-        freezeText,
-    })
-    self:addListItem(loanLine, { kind = "bankLoanSummary", data = loanSummary, detail = "" })
-
-    local loan = loanSummary.loan
-    if loan then
-        local activeText = gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanActive", "Active loan {1} | Paid {2}/{3}"), {
-            tostring(loan.id or ""),
-            tostring(loan.paid or 0),
-            tostring(loan.totalDue or 0),
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableBankLoan") ~= false then
+        local loanSummary = GodSystemApp.services.runtime.getBankLoanSummary and GodSystemApp.services.runtime.getBankLoanSummary() or {}
+        local freezeText = (loanSummary.freezeLeftHours or 0) > 0 and tostring(loanSummary.freezeLeftHours or 0) .. GodSystemApp.services.runtime.text("Unit_Hour", "h") or "0"
+        local loanLine = gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanSummary", "Loan credit {1} | Available {2} | Debt {3} | Frozen {4}"), {
+            loanSummary.creditTotal or 0,
+            loanSummary.creditAvailable or 0,
+            loanSummary.unpaidTotal or 0,
+            freezeText,
         })
-        local activeDetail = GodSystemApp.services.runtime.text("Bank_LoanDueNow", "Due now") .. " " .. tostring(loanSummary.dueNow or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c") ..
-            " | " .. GodSystemApp.services.runtime.text("Bank_LoanPayoff", "Payoff") .. " " .. tostring(loanSummary.payoff or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c")
-        if loanSummary.overdueStartHour then
-            local nowHours = GameTime and GameTime:getInstance() and GameTime:getInstance():getWorldAgeHours() or 0
-            activeDetail = activeDetail .. " | " .. gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanOverdue", "Overdue {1} hours"), { tostring(math.max(0, math.ceil(nowHours - (loanSummary.overdueStartHour or nowHours)))) })
-        end
-        self:addListItem(activeText, { kind = "bankLoanActive", data = loan, summary = loanSummary, detail = activeDetail })
-    else
-        self:addListItem(GodSystemApp.services.runtime.text("Bank_LoanNoDebt", "No active loan"), { kind = "empty", detail = "" })
-    end
+        self:addListItem(loanLine, { kind = "bankLoanSummary", data = loanSummary, detail = "" })
 
-    local loanPlans = GodSystemApp.services.runtime.getBankLoanPlans and GodSystemApp.services.runtime.getBankLoanPlans() or {}
-    for i = 1, #loanPlans do
-        local plan = loanPlans[i]
-        local label
-        if plan.kind == "single" then
-            label = GodSystemApp.services.runtime.text("Bank_LoanPlanSingle", "Short loan | 3 days | interest 5%")
-        else
-            label = gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanPlanInstallment", "{1} period loan | every 3 days | interest {2}%"), {
-                tostring(plan.periods or 1),
-                tostring(math.floor((tonumber(plan.totalInterestRate) or 0) * 100)),
+        local loan = loanSummary.loan
+        if loan then
+            local activeText = gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanActive", "Active loan {1} | Paid {2}/{3}"), {
+                tostring(loan.id or ""),
+                tostring(loan.paid or 0),
+                tostring(loan.totalDue or 0),
             })
+            local activeDetail = GodSystemApp.services.runtime.text("Bank_LoanDueNow", "Due now") .. " " .. tostring(loanSummary.dueNow or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c") ..
+                " | " .. GodSystemApp.services.runtime.text("Bank_LoanPayoff", "Payoff") .. " " .. tostring(loanSummary.payoff or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c")
+            if loanSummary.overdueStartHour then
+                local nowHours = GameTime and GameTime:getInstance() and GameTime:getInstance():getWorldAgeHours() or 0
+                activeDetail = activeDetail .. " | " .. gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanOverdue", "Overdue {1} hours"), { tostring(math.max(0, math.ceil(nowHours - (loanSummary.overdueStartHour or nowHours)))) })
+            end
+            self:addListItem(activeText, { kind = "bankLoanActive", data = loan, summary = loanSummary, detail = activeDetail })
+        else
+            self:addListItem(GodSystemApp.services.runtime.text("Bank_LoanNoDebt", "No active loan"), { kind = "empty", detail = "" })
         end
-        local detail = GodSystemApp.services.runtime.text("Bank_LoanDueNow", "Due now") .. " " .. tostring(math.max(1, math.floor((tonumber(plan.dueHours) or 72) / 24))) .. "d" ..
-            " | " .. GodSystemApp.services.runtime.text("Bank_LoanPayoff", "Payoff") .. " " .. tostring(math.floor((tonumber(plan.totalInterestRate) or 0) * 100)) .. "%"
-        self:addListItem(label, { kind = "bankLoanPlan", data = plan, summary = loanSummary, detail = detail })
+
+        local loanPlans = GodSystemApp.services.runtime.getBankLoanPlans and GodSystemApp.services.runtime.getBankLoanPlans() or {}
+        for i = 1, #loanPlans do
+            local plan = loanPlans[i]
+            local label
+            if plan.kind == "single" then
+                label = GodSystemApp.services.runtime.text("Bank_LoanPlanSingle", "Short loan | 3 days | interest 5%")
+            else
+                label = gsFormatTemplate(GodSystemApp.services.runtime.text("Bank_LoanPlanInstallment", "{1} period loan | every 3 days | interest {2}%"), {
+                    tostring(plan.periods or 1),
+                    tostring(math.floor((tonumber(plan.totalInterestRate) or 0) * 100)),
+                })
+            end
+            local detail = GodSystemApp.services.runtime.text("Bank_LoanDueNow", "Due now") .. " " .. tostring(math.max(1, math.floor((tonumber(plan.dueHours) or 72) / 24))) .. "d" ..
+                " | " .. GodSystemApp.services.runtime.text("Bank_LoanPayoff", "Payoff") .. " " .. tostring(math.floor((tonumber(plan.totalInterestRate) or 0) * 100)) .. "%"
+            self:addListItem(label, { kind = "bankLoanPlan", data = plan, summary = loanSummary, detail = detail })
+        end
     end
 
     if GodSystemApp.services.runtime.isFeatureEnabled("EnableBankInvestments") ~= false then

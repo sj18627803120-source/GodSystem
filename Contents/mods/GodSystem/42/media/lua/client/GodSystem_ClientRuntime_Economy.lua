@@ -517,7 +517,7 @@ function GodSystemApp.services.runtime.getForcedShopItemsList()
     return result
 end
 
-function GodSystemApp.services.runtime.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite)
+function GodSystemApp.services.runtime.unlockAutoShopItem(fullType, label, sellValue, itemOrSprite, configuredKeys)
     if not GodSystemApp.services.runtime.isAutoShopUnlockAllowed(fullType) then
         return false
     end
@@ -528,7 +528,7 @@ function GodSystemApp.services.runtime.unlockAutoShopItem(fullType, label, sellV
     local buyPrice = GodSystemApp.services.runtime.getAutoShopBuyPriceForItem(fullType, baseSell)
     local worldSprite = GodSystemShopVariants.getWorldSprite(itemOrSprite)
     local variantKey = GodSystemShopVariants.getKey(fullType, worldSprite)
-    local known, source = GodSystemShopVariants.isListingKnown(data, GodSystemApp.services.runtime.getConfiguredShopKeySet(), variantKey)
+    local known, source = GodSystemShopVariants.isListingKnown(data, configuredKeys or GodSystemApp.services.runtime.getConfiguredShopKeySet(), variantKey)
     if known then return false, source, variantKey end
 
     data.unlockedShopItems[variantKey] = {
