@@ -40,4 +40,10 @@ ItemName_CN = {
     Tooltip_GodSystem_LotteryTicketTool = "右键使用。奖池准备完成后随机获得一件物品；旧分类票现统一使用完整奖池。",
     Tooltip_GodSystem_LotteryTicketWeapon = "右键使用。奖池准备完成后随机获得一件物品；旧分类票现统一使用完整奖池。",
     Tooltip_GodSystem_LotteryTicketRandom = "右键使用。奖池准备完成后随机获得一件物品。",
+
+    ItemName_GodSystem.MimicKey = "拟态钥匙",
+    Tooltip_GodSystem_MimicKey = "一次性使用。持有后右键已上锁的原版门、钥匙挂锁或车辆，可生成对应的永久钥匙；密码锁会被解除并返还密码挂锁。普通锁和车辆不会自动解锁。",
+
+    ItemName_GodSystem.UtilityGenerator = "水电一体机",
+    Tooltip_GodSystem_UtilityGenerator = "可放置并接入原版发电机供电范围。公共水电停止后，可为范围内支持原版管道水接口的固定设备供水。任何玩家均可操作；水电共用余额，设备搬走时余额随设备保留。",
 }

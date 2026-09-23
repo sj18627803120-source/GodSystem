@@ -347,6 +347,88 @@ function Commands.useMaintenanceItem(_, _, player, args)
     if not ok then errorMessage(player, tostring(err)) end
 end
 
+local function mimicRemove(player, container, item)
+    if not player or not container or not item then return false end
+    local itemId = GodSystemMimicKey.itemId(item)
+    local removed = pcall(function() container:Remove(item) end)
+    if not removed or inventoryItemById(player, itemId) ~= nil then return false end
+    if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, container, item) end
+    if container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
+    return true
+end
+
+local function mimicAdd(player, item)
+    local inventory = player and player:getInventory() or nil
+    if not inventory or not item then return false end
+    local added = GodSystemB42JavaCalls and GodSystemB42JavaCalls.try(inventory, "AddItem", item) or false
+    if not added then return false end
+    if sendAddItemToContainer then
+        local synced = pcall(sendAddItemToContainer, inventory, item)
+        if not synced then
+            pcall(function() inventory:Remove(item) end)
+            return false
+        end
+    end
+    markInventoryDirty(player, inventory)
+    return true
+end
+
+local function mimicRemoveOutput(player, item)
+    local inventory = player and player:getInventory() or nil
+    if not inventory or not item then return false end
+    local removed = pcall(function() inventory:Remove(item) end)
+    if removed and sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, inventory, item) end
+    return removed == true
+end
+
+function Commands.useMimicKey(_, _, player, args)
+    local txKind, txRoot, txOwner = "useMimicKey", store(), userKey(player)
+    local cached = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+    if cached then
+        local status = tostring(cached.status or "")
+        if status == "invalid" or status == "mismatch" then return finishCode(player, false, "TransactionOperationInvalid") end
+        if status == "processing" then return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId }) end
+        if status == "unknown" then return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId }) end
+        if status == "done" then
+            local payload = type(cached.payload) == "table" and cached.payload or {}
+            payload.opId = args and args.opId
+            return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
+        end
+    end
+    if not guard(player) then return end
+    if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationPending", {}, { opId = args and args.opId })
+    end
+    local persisted = storeCheckpoint()
+    if not persisted then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        unguard(player)
+        return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args and args.opId })
+    end
+    local ok, err = pcall(function()
+        local function complete(okValue, code, codeArgs, payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.opId = args and args.opId
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            return finishCode(player, okValue, code, codeArgs, payload)
+        end
+        local success, code, codeArgs, payload = GodSystemMimicKey.execute(player, args, {
+            findItem = inventoryItemById,
+            remove = mimicRemove,
+            add = mimicAdd,
+            removeOutput = mimicRemoveOutput,
+            refund = function(target) return giveItem(target, GodSystemMimicKey.FullType, 1) end,
+        })
+        return complete(success, code, codeArgs, payload)
+    end)
+    unguard(player)
+    if not ok then
+        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        errorMessage(player, tostring(err))
+    end
+end
+
 function Commands.upgradeSystem(_, _, player, args)
     local data = playerData(player)
     local t = args and args.upgradeType
@@ -388,10 +470,11 @@ function Commands.upgradeSystem(_, _, player, args)
             local nextLevel = currentLevel + 1
             local cost = GodSystemCarryCapacity.getNextCost(currentLevel)
             if not cost then return complete(false, "CarryCapacityCostOverflow") end
-            local applied, reason = GodSystemCarryCapacity.restore(player, nextLevel)
+            local carrySnapshot = GodSystemCarryCapacity.capture(player)
+            local applied, reason = GodSystemCarryCapacity.restore(player, nextLevel, true)
             if not applied then return complete(false, "CarryCapacityApplyFailed", { tostring(reason or "unknown") }) end
             if not addPoints(player, -cost, data) then
-                GodSystemCarryCapacity.restore(player, currentLevel)
+                GodSystemCarryCapacity.rollback(player, carrySnapshot)
                 return complete(false, "CurrencyNotEnough")
             end
             data.upgrades.carryCapacityLevel = nextLevel
@@ -506,13 +589,13 @@ function Commands.task(_, _, player, args)
         task.status = "active"
         task.acceptedAt = nowHours()
         task.deadline = task.acceptedAt + (task.limitHours or GodSystemConfig.DefaultTaskLimitHours)
-        task.startKills = math.max(0, floor(args and args.clientKills, player.getZombieKills and player:getZombieKills() or 0))
+        task.startKills = math.max(0, floor(player.getZombieKills and player:getZombieKills() or 0))
         task.killProgress = task.kind == "kill" and 0 or nil
         task.startRecycledItems = data.stats.recycledItems or 0
         task.startRecycledPoints = data.stats.recycledPoints or 0
         task.startSpentPoints = data.stats.spentPoints or 0
         task.startBoughtItems = data.stats.boughtItems or 0
-        data.stats.moveDistance = math.max(data.stats.moveDistance or 0, n(args and args.clientMoveDistance, data.stats.moveDistance or 0))
+        if updateTaskAuthoritativeProgress then updateTaskAuthoritativeProgress(player, data) end
         task.startMoveDistance = data.stats.moveDistance or 0
         appendHistory(data, taskHistoryEntry("AcceptTask", task))
         return finish(player, true, "任务已接取")

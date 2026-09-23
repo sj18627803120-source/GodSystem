@@ -195,6 +195,7 @@ function GodSystemWindow:getPayloadId(payload)
     if payload.kind == "medicalService" and payload.data then
         return "medical:" .. tostring(payload.data.action or "")
     end
+    if payload.kind == "deathProtection" then return "deathProtection" end
     if payload.kind == "companionNode" then
         return "companionNode:" .. tostring(payload.id or "")
     end
@@ -209,6 +210,7 @@ function GodSystemWindow:captureSelection()
         return
     end
     local payload = self:getSelectedPayload()
+    if self.mode == "shop" and self.shopAwaitingSnapshot and (not payload or payload.kind ~= "shop") then return end
     self.restoreSelectedId = self:getPayloadId(payload)
     self.restoreSelectedTaskList = self.selectedTaskList
 end
@@ -235,7 +237,13 @@ end
 
 function GodSystemWindow:restoreSelection()
     local selectedId = self.pendingRestoreMode == self.mode and self.pendingRestoreSelectedId or self.restoreSelectedId
-    if not selectedId or selectedId == "" then
+    local r=GodSystemApp.services.runtime
+    local savedKey=nil
+    if self.mode=="shop" and not selectedId then
+        local data=r.getData()
+        savedKey=data and data.ui and data.ui.shopView and data.ui.shopView.selectedKey
+    end
+    if (not selectedId or selectedId == "") and (not savedKey or savedKey=="") then
         return false
     end
     local function selectInList(list)
@@ -244,7 +252,8 @@ function GodSystemWindow:restoreSelection()
         end
         for i = 1, #list.items do
             local item = list.items[i]
-            if self:getPayloadId(item and item.item) == selectedId then
+            local p=item and item.item
+            if self:getPayloadId(p) == selectedId or (savedKey and p and p.kind=="shop" and r.shopPreferenceKey(p.data)==savedKey) then
                 list.selected = i
                 if list == self.activeList then
                     self.lastSelectableActiveRow = i
@@ -684,6 +693,7 @@ function GodSystemWindow:setShopCategory(key)
     if key ~= self.shopCategoryKey then
         self.shopCategoryKey = key
         self.shopPage = 1
+        GodSystemApp.services.runtime.setShopViewPreference(self.shopCategoryKey, self.shopSearchText)
         self:populateList()
     end
 end
@@ -736,7 +746,10 @@ function GodSystemWindow:onShopSearchChange(entry)
         if text ~= self.shopSearchText then
             self.shopSearchText = text
             self.shopPage = 1
-            self:populateList()
+            GodSystemApp.services.runtime.setShopViewPreference(self.shopCategoryKey, self.shopSearchText)
+            -- Filtering a large cached directory is still meaningful work.  Wait for a
+            -- short pause so IME and normal typing do not rebuild the page per key.
+            self.shopSearchDueMs = (getTimestampMs and getTimestampMs() or math.floor(((os and os.clock and os.clock()) or 0) * 1000)) + 250
         end
     end
 end

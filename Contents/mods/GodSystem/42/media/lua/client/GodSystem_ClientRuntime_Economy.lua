@@ -257,7 +257,7 @@ function GodSystemApp.services.runtime.getItemSellPrice(fullType, item)
     return (GodSystemApp.services.runtime.getItemPriceInfo(fullType, item).sellPrice or 0)
 end
 
-function GodSystemApp.services.runtime.getShopItemUnitPrice(shopItem)
+function GodSystemApp.services.runtime.getShopBaseUnitPrice(shopItem)
     if not shopItem then
         return 0
     end
@@ -277,6 +277,54 @@ function GodSystemApp.services.runtime.getShopItemUnitPrice(shopItem)
         end
     end
     return math.max(0, math.floor(tonumber(shopItem.price) or 0))
+end
+
+function GodSystemApp.services.runtime.getShopInflationQuote(shopItem, quantity, online)
+    local base = GodSystemApp.services.runtime.getShopBaseUnitPrice(shopItem)
+    local data = GodSystemApp.services.runtime.getData()
+    local key = GodSystemShopInflation.key(shopItem)
+    return GodSystemShopInflation.quote(data, GodSystemRuntimeConfig.Current, math.floor(gsNowHours() * 60), key, base, quantity or 1, online)
+end
+
+function GodSystemApp.services.runtime.shopPreferenceKey(shopItem)
+    return GodSystemShopInflation.key(shopItem)
+end
+
+function GodSystemApp.services.runtime.isShopFavorite(shopItem)
+    local data = GodSystemApp.services.runtime.getData()
+    local key = GodSystemApp.services.runtime.shopPreferenceKey(shopItem)
+    return data and data.ui and data.ui.shopFavorites and data.ui.shopFavorites[key] == true
+end
+
+function GodSystemApp.services.runtime.toggleShopFavorite(shopItem)
+    if not shopItem then return false end
+    local data = GodSystemApp.services.runtime.getData()
+    data.ui = data.ui or {}
+    data.ui.shopFavorites = type(data.ui.shopFavorites) == "table" and data.ui.shopFavorites or {}
+    local key = GodSystemApp.services.runtime.shopPreferenceKey(shopItem)
+    if not key then return false end
+    local favorite = data.ui.shopFavorites[key] ~= true
+    data.ui.shopFavorites[key] = favorite or nil
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidatePreferences() end
+    GodSystemApp.services.runtime.save()
+    return favorite, key
+end
+
+function GodSystemApp.services.runtime.setShopViewPreference(category, search, selectedKey)
+    local data = GodSystemApp.services.runtime.getData()
+    data.ui = data.ui or {}
+    local previous = data.ui.shopView or {}
+    data.ui.shopView = {
+        category = tostring(category or "all"):sub(1, 100),
+        search = tostring(search or ""):sub(1, 120),
+        selectedKey = selectedKey or previous.selectedKey,
+    }
+    return data.ui.shopView
+end
+
+function GodSystemApp.services.runtime.getShopItemUnitPrice(shopItem)
+    local quote = GodSystemApp.services.runtime.getShopInflationQuote(shopItem, 1, nil)
+    return quote and quote.total or GodSystemApp.services.runtime.getShopBaseUnitPrice(shopItem)
 end
 
 function GodSystemApp.services.runtime.getAutoShopBuyPriceForItem(fullType, sellValue)
@@ -542,7 +590,9 @@ function GodSystemApp.services.runtime.unlockAutoShopItem(fullType, label, sellV
         unlockedAt = math.floor(gsNowHours()),
         hidden = false,
     }
+    GodSystemShopVariants.touchCatalog(data, 1)
     GodSystemApp.services.runtime.save()
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("listingCreated") end
     return true, "created", variantKey
 end
 
@@ -669,6 +719,7 @@ function GodSystemApp.services.runtime.setShopItemHidden(variantKey, hidden)
     local label = item.label or GodSystemApp.services.runtime.getItemDisplayName(item.fullType or variantKey)
     local targetHidden = hidden == true
     if changed then
+        if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("listingVisibility") end
         local historyKey = targetHidden and "History_ShopItemHidden" or "History_ShopItemVisible"
         local historyFallback = targetHidden and "Hidden shop item: " or "Restored shop item: "
         gsAppendHistory(data, { kind = "shop", text = GodSystemApp.services.runtime.text(historyKey, historyFallback) .. tostring(label) })
@@ -715,6 +766,7 @@ function GodSystemApp.services.runtime.setShopItemsHidden(variantKeys, hidden)
     end
     local targetHidden = hidden == true
     if #changedKeys > 0 then
+        if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("listingVisibility") end
         local historyKey = targetHidden and "History_ShopItemsHidden" or "History_ShopItemsVisible"
         local historyFallback = targetHidden and "Hidden {1} shop items" or "Restored {1} shop items"
         gsAppendHistory(data, {
@@ -745,6 +797,7 @@ function GodSystemApp.services.runtime.deleteShopItem(variantKey)
     end
     local label = item.label or GodSystemApp.services.runtime.getItemDisplayName(item.fullType or variantKey)
     gsAppendHistory(data, { kind = "shop", text = GodSystemApp.services.runtime.text("History_ShopItemDeleted", "Delisted shop item: ") .. tostring(label) })
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("listingDeleted") end
     GodSystemApp.services.runtime.save()
     GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_ShopItemDeleted", "Delisted shop item: ") .. tostring(label))
     return true

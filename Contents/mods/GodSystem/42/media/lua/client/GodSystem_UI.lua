@@ -4,7 +4,10 @@ require "GodSystem_Core"
 require "GodSystem_UITheme"
 require "GodSystem_UISafety"
 require "GodSystem_ItemCatalog"
+require "GodSystem_ShopCatalog"
+require "GodSystem_UIRefresh"
 require "GodSystem_ItemEconomyUI"
+require "GodSystem_ConversionRelationsUI"
 require "GodSystem_RangeFilterUI"
 require "GodSystem_CompanionConfig"
 require "GodSystem_FloatingButtonLifecycle"
@@ -72,3 +75,10 @@ assert(GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Lifecycle"], "GodSyste
 -- weapon works immediately after loading a save.
 require "GodSystem_EquipmentClient"
 require "GodSystem_EquipmentTooltip"
+-- Independent UI test presentation. Existing action/settlement controllers stay in place.
+require "GodSystem_TerminalShell"
+require "GodSystem_TerminalEquipment"
+GodSystemTerminalShell.install()
+GodSystemTerminalEquipment.install(GodSystemUIRuntimeEnv.GodSystemWindow)
+require "GodSystem_TerminalOverlays"
+GodSystemTerminalOverlays.install()

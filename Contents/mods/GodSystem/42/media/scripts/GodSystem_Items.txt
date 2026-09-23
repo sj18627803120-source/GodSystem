@@ -124,6 +124,34 @@ module GodSystem
         Tooltip = Tooltip_GodSystem_SystemVehicleRepairModule,
     }
 
+    item MimicKey
+    {
+        DisplayCategory = Security,
+        ItemType = base:key,
+        Icon = Key_Blank,
+        WorldStaticModel = Key_Blank,
+        Tags = base:fitswallet;base:hasmetal,
+        Weight = 0.05,
+        Tooltip = Tooltip_GodSystem_MimicKey,
+    }
+
+    item UtilityGenerator
+    {
+        DisplayCategory = Electronics,
+        ItemType = base:normal,
+        Weight = 40.0,
+        Icon = Generator,
+        ConditionMax = 100,
+        MetalValue = 500.0,
+        RequiresEquippedBothHands = true,
+        Tags = base:heavyitem;base:generator;base:hasmetal;base:ignorezombiedensity;base:showcondition,
+        WorldObjectSprite = appliances_misc_01_0,
+        ConditionLowerChanceOneIn = 30,
+        SoundRadius = 20,
+        SoundVolume = 1,
+        Tooltip = Tooltip_GodSystem_UtilityGenerator,
+    }
+
     item StorageContainer
     {
         DisplayCategory = Bag,

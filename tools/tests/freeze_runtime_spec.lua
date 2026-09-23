@@ -29,7 +29,7 @@ end)
 test("freeze uses shared X and refuses an ineffective paid level",function()
     local cfg=assert(E.config({EnableEquipmentFreeze=true,EquipmentGrowthPercent=10}))
     eq(F.strength(0,cfg),0); eq(F.strength(1,cfg),0.1); eq(F.strength(8,cfg),0.8); eq(F.strength(999,cfg),0.8)
-    local record={base={ranged=false,minDamage=1,maxDamage=2,wear=1,speed=1},levels={damage=0,wear=0,speed=0,freeze=8}}
+    local record={weaponKind="melee",levels={freeze=8,impact=0}}
     local quote,code=E.quote(record,"freeze",0,cfg)
     eq(quote,nil); eq(code,"EquipmentParameterCap")
 end)

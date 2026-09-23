@@ -158,6 +158,46 @@ local function copyDiagnostics(diagnostics)
     }
 end
 
+-- Revisions are compact server-owned display hints.  They deliberately do not
+-- authorize anything; commands still resolve listings, prices and inventory on
+-- the server.  Keeping signatures here lets old saves start at revision one.
+local function sameValue(a, b, depth)
+    if type(a) ~= type(b) then return false end
+    if type(a) ~= "table" then return a == b end
+    if depth >= 12 then return true end
+    for key, value in pairs(a) do if not sameValue(value, b[key], depth + 1) then return false end end
+    for key in pairs(b) do if a[key] == nil then return false end end
+    return true
+end
+
+Projection.uiRevisionStates = setmetatable({}, { __mode = "k" })
+function Projection.updateUIRevisions(data, options)
+    data = type(data) == "table" and data or {}
+    options = type(options) == "table" and options or {}
+    local state = Projection.uiRevisionStates[data]
+    if not state then state = { revisions = {}, signatures = {} }; Projection.uiRevisionStates[data] = state end
+    local taskMembership = {}
+    for i, task in ipairs(data.tasks or {}) do
+        taskMembership[i] = { task.taskId, task.status, task.kind, task.target, task.item, task.items,
+            task.deadline, task.rewardPoints, task.rewardItems, task.penaltyPoints }
+    end
+    local values = {
+        shopCatalog = { options.economyRevision or 0, data.shopCatalogRevision or 0,
+            data.shopCatalogCount or 0, options.shopConfigVersion or "" },
+        shopPreferences = data.ui and { data.ui.shopFavorites, data.ui.shopRecent, data.ui.shopView } or {},
+        walletBank = { data.balance, data.bank, data.stats and data.stats.bankDeposited, data.stats and data.stats.bankWithdrawn },
+        tasks = taskMembership,
+        equipment = { options.equipmentRevision or 0 },
+    }
+    for key, value in pairs(values) do
+        if not sameValue(state.signatures[key], value, 0) then
+            state.signatures[key] = copyTable(value)
+            state.revisions[key] = math.max(1, math.floor(tonumber(state.revisions[key]) or 0) + 1)
+        end
+    end
+    return state.revisions
+end
+
 function Projection.build(data, options)
     data = type(data) == "table" and data or {}
     options = type(options) == "table" and options or {}
@@ -167,10 +207,25 @@ function Projection.build(data, options)
         if data[key] ~= nil then result[key] = copyValue(data[key], {}, 0) end
     end
     result.stats = copyStats(data.stats)
+    if type(data.shopInflation) == "table" then
+        result.shopInflation = { onlineMinute = data.shopInflation.onlineMinute,
+            generation = data.shopInflation.generation, enabled = data.shopInflation.enabled,
+            priceRevision = data.shopInflation.priceRevision or data.shopInflation.generation }
+        if options.includeShopPayload ~= false then
+            result.shopInflation.listings = copyValue(data.shopInflation.listings or {}, {}, 0)
+        end
+    end
     result.tasks = copyTasks(data.tasks)
     result.history = copyHistory(data.history, options.historyLimit)
-    result.unlockedShopItems = copyUnlocked(data.unlockedShopItems, options.itemExists)
+    result.shopCatalogSchemaVersion = data.shopCatalogSchemaVersion or 1
+    result.shopCatalogRevision = data.shopCatalogRevision or 1
+    result.shopCatalogCount = data.shopCatalogCount or 0
+    if options.includeShopPayload ~= false then
+        result.unlockedShopItems = copyUnlocked(data.unlockedShopItems, options.itemExists)
+    end
     result.serverDiagnostics = copyDiagnostics(data.serverDiagnostics)
+    local revisions = Projection.uiRevisionStates[data]
+    if revisions then result.uiRevisions = copyValue(revisions.revisions, {}, 0) end
     return result
 end
 

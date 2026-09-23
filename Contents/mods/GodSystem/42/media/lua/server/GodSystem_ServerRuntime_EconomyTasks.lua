@@ -416,6 +416,7 @@ function unlockAutoShopItem(data, fullType, label, sellValue, itemOrSprite, conf
         unlockedAt = nowHours(),
         hidden = false,
     }
+    GodSystemShopVariants.touchCatalog(data, 1)
     return data.unlockedShopItems[variantKey], variantKey, "created"
 end
 
@@ -537,6 +538,42 @@ function applyKillTaskDelta(data, delta, baselineKills)
     return changed
 end
 
+taskMotionOwners = setmetatable({}, {__mode="k"})
+function updateTaskAuthoritativeProgress(player, data)
+    if not player or not data or GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks") == false then return false end
+    local hasMove = false
+    for i = 1, #(data.tasks or {}) do
+        local task = data.tasks[i]
+        if task and task.status == "active" and task.kind == "moveDistance" then hasMove = true break end
+    end
+    if not hasMove then data.taskMotion = nil; return false end
+    if not player.getX or not player.getY then return false end
+    local ok, x, y = pcall(function() return player:getX(), player:getY() end)
+    if not ok or type(x) ~= "number" or type(y) ~= "number" then return false end
+    local ms = GodSystemScheduler.nowMs()
+    if taskMotionOwners[data] ~= player then data.taskMotion=nil; taskMotionOwners[data]=player end
+    data.taskMotion = data.taskMotion or { x = x, y = y, ms = ms }
+    local previous = data.taskMotion
+    local dx, dy = x - (tonumber(previous.x) or x), y - (tonumber(previous.y) or y)
+    local elapsed = math.max(0, math.min(10,(ms-(previous.ms or ms))/1000))
+    previous.x, previous.y, previous.ms = x, y, ms
+    local distance = math.sqrt(dx * dx + dy * dy)
+    -- A large single sample is a teleport/load handoff, not walking progress.
+    if distance <= 0 or distance > elapsed * 8 or (player.getVehicle and player:getVehicle()) then return false end
+    data.stats.moveDistance = math.max(0, (data.stats.moveDistance or 0) + distance)
+    return true
+end
+
+function recordTaskCompletions(player, data)
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks") == false then return end
+    local now = nowHours()
+    for i=1,#(data.tasks or {}) do
+        local task=data.tasks[i]
+        if task.status=="active" and not isTurnInTask(task) and now<=(task.deadline or math.huge)
+            and taskProgress(data,player,task)>=(task.target or 1) then task.completedAt=task.completedAt or now end
+    end
+end
+
 function taskProgress(data, player, task)
     if not task then return 0 end
     if task.kind == "kill" then
@@ -609,25 +646,48 @@ function restoreTurnInItems(player, removed)
     return restoredAll
 end
 
+function grantTaskRewards(player, data, task)
+    if task.rewardReceipt == "done" then return true end
+    if task.rewardReceipt then return false end
+    task.rewardReceipt = "processing"
+    local added = {}
+    local ok, granted = pcall(function()
+        for i = 1, #(task.rewardItems or {}) do
+            local row = task.rewardItems[i]
+            local success, items = giveItem(player, row.fullType, row.count or 1)
+            for j = 1, #(items or {}) do added[#added + 1] = items[j] end
+            if not success then return false end
+        end
+        if (task.rewardPoints or 0) > 0 and not addPoints(player, task.rewardPoints, data) then return false end
+        return true
+    end)
+    if not ok or not granted then
+        local restored = true
+        for i = #added, 1, -1 do
+            local removed, result = pcall(removeItemFromContainer, player:getInventory(), added[i])
+            restored = restored and removed and result == true
+        end
+        -- Exceptions may leave an indeterminate native operation. Never retry those blindly.
+        if ok and restored then task.rewardReceipt = nil else task.rewardReceipt = "unknown" end
+        return false
+    end
+    task.rewardReceipt = "done"
+    return true
+end
+
 function claimTaskForPlayer(player, data, task, claimArgs)
     claimArgs = claimArgs or {}
+    if task and task.status == "claimed" and task.rewardReceipt == "done" then return true, "TaskClaimed" end
     if not task or task.status ~= "active" then return false, "TaskStateInvalid" end
     if isTurnInTask(task) then return false, "TaskTurnInManualRequired" end
+    updateTaskAuthoritativeProgress(player, data)
     local progress = taskProgress(data, player, task)
-    progress = math.max(0, floor(claimArgs.clientProgress, progress))
-    if task.kind == "kill" then
-        task.killProgress = math.max(ensureKillTaskProgress(task, player and player.getZombieKills and player:getZombieKills() or 0), progress)
-        progress = task.killProgress
-    elseif task.kind == "moveDistance" then
-        data.stats.moveDistance = math.max(data.stats.moveDistance or 0, (task.startMoveDistance or 0) + progress)
-    end
-    if claimArgs.clientExpired == true and progress < (task.target or 1) then
+    if nowHours() > (task.deadline or math.huge) and not task.completedAt then
         failTask(player, data, task, "TaskFailed")
         return false, "TaskFailed"
     end
     if progress < (task.target or 1) then return false, "TaskIncomplete" end
-    if (task.rewardPoints or 0) > 0 then addPoints(player, task.rewardPoints) end
-    for i = 1, #(task.rewardItems or {}) do giveItem(player, task.rewardItems[i].fullType, task.rewardItems[i].count or 1) end
+    if not grantTaskRewards(player, data, task) then return false, "ItemGrantFailed" end
     task.status = "claimed"
     task.claimedAt = nowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
@@ -637,8 +697,11 @@ function claimTaskForPlayer(player, data, task, claimArgs)
 end
 
 function submitTurnInTaskForPlayer(player, data, task, args)
+    if task and task.status == "claimed" and task.rewardReceipt == "done" then return true, "TaskClaimed" end
     if not task or task.status ~= "active" then return false, "TaskStateInvalid" end
     if not isTurnInTask(task) then return false, "TaskTurnInManualRequired" end
+    if task.rewardReceipt then return false, "TransactionOperationUnknown" end
+    if nowHours() > (task.deadline or math.huge) then return false, "TaskFailed" end
 
     local target = math.max(1, floor(task.target, 1))
     local itemIds = args and args.itemIds or nil
@@ -688,9 +751,9 @@ function submitTurnInTaskForPlayer(player, data, task, args)
         removed[#removed + 1] = row
     end
 
-    if (task.rewardPoints or 0) > 0 then addPoints(player, task.rewardPoints) end
-    for i = 1, #(task.rewardItems or {}) do
-        giveItem(player, task.rewardItems[i].fullType, task.rewardItems[i].count or 1)
+    if not grantTaskRewards(player, data, task) then
+        if not restoreTurnInItems(player, removed) then task.rewardReceipt = "unknown" end
+        return false, "ItemGrantFailed"
     end
     task.status = "claimed"
     task.claimedAt = nowHours()

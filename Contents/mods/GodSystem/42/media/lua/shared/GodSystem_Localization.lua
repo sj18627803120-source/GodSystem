@@ -410,3 +410,5 @@ GodSystemFallbackItems["GodSystem.WeightStone"] = "\229\188\131\231\148\168\229\
 GodSystemFallbackItems["GodSystem.SystemSpaceTerminal"] = "\231\179\187\231\187\159\231\169\186\233\151\180\231\187\136\231\171\175"
 GodSystemFallbackItems["GodSystem.SystemTerminalRelief"] = "\231\179\187\231\187\159\229\134\133\233\131\168\229\135\143\232\189\189\230\160\184\229\191\131"
 GodSystemFallbackItems["GodSystem.StorageController"] = "\231\179\187\231\187\159\228\187\147\229\186\147\230\160\184\229\191\131"
+GodSystemFallbackItems["GodSystem.MimicKey"] = "\230\139\159\230\128\129\233\146\165\229\140\153"
+GodSystemFallbackItems["GodSystem.UtilityGenerator"] = "\230\176\180\231\148\181\228\184\128\228\189\147\230\156\186"

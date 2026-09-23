@@ -82,7 +82,12 @@ function GodSystemWindow:onPrimaryAction()
             GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_SelectOne", "Select an item first"))
             return
         end
-        if payload.kind == "medicalService" then
+        if payload.kind == "deathProtection" and not gsIsMultiplayer() and GodSystemDeathProtection then
+            self:prepareActionSelection(payload)
+            GodSystemDeathProtection.buy()
+            self:populateList()
+            return
+        elseif payload.kind == "medicalService" then
             self:confirmMedicalService(payload.data)
             return
         elseif payload.kind == "upgrade" then
@@ -235,6 +240,10 @@ function GodSystemWindow:onListOnlyAutoShopConfirm(button, payload)
 end
 
 function GodSystemWindow:buyShopPayload(payload, count)
+    if GodSystemShopCatalog and not GodSystemShopCatalog.ensure() then
+        GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Shop_LoadingHint", "Preparing available items. Purchase will unlock when loading finishes."))
+        return false
+    end
     if not payload or payload.kind ~= "shop" or not payload.data then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_SelectOne", "Select an item first"))
         return false
@@ -277,6 +286,9 @@ function GodSystemWindow:onListRightMouseUp(x, y)
         context:addOption(GodSystemApp.services.runtime.text("Menu_BuyOne", "Buy 1"), self, self.buyShopPayload, payload, 1)
         context:addOption(GodSystemApp.services.runtime.text("Menu_BuyTen", "Buy 10"), self, self.buyShopPayload, payload, 10)
         context:addOption(GodSystemApp.services.runtime.text("Menu_BuyFifty", "Buy 50"), self, self.buyShopPayload, payload, 50)
+        context:addOption(GodSystemApp.services.runtime.text(
+            GodSystemApp.services.runtime.isShopFavorite(payload.data) and "Menu_UnfavoriteShop" or "Menu_FavoriteShop",
+            GodSystemApp.services.runtime.isShopFavorite(payload.data) and "Remove favorite" or "Favorite"), self, self.toggleShopFavoritePayload, payload)
         if payload.data.unlocked == true then
             context:addOption(GodSystemApp.services.runtime.text("Menu_HideShopItem", "Hide this item"), self, self.hideShopPayload, payload)
         end
@@ -305,7 +317,15 @@ function GodSystemWindow:onListRightMouseUp(x, y)
     return true
 end
 
+function GodSystemWindow:toggleShopFavoritePayload(payload)
+    if not payload or payload.kind ~= "shop" then return false end
+    local favorite = GodSystemApp.services.runtime.toggleShopFavorite(payload.data)
+    self:populateList()
+    return favorite ~= nil
+end
+
 function GodSystemWindow:onSecondaryAction()
+    if self.mode == "shop" and GodSystemShopCatalog then GodSystemShopCatalog.invalidate("manualRefresh") end
     if self.mode == "settings" then
         GodSystemPanelKey.cancelCapture("reset")
         local selected = self:getSelectedPayload()

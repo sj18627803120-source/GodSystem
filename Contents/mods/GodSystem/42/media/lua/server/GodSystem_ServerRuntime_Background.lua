@@ -24,7 +24,9 @@ function updateTaskTimeouts(player)
     local changed = false
     for i = 1, #(data.tasks or {}) do
         local task = data.tasks[i]
-        if task.status == "active" and task.deadline and nowHours() > task.deadline and taskProgress(data, player, task) < (task.target or 1) then
+        if task.status == "active" and not isTurnInTask(task) and nowHours() <= (task.deadline or math.huge)
+            and taskProgress(data, player, task) >= (task.target or 1) then task.completedAt = task.completedAt or nowHours() end
+        if task.status == "active" and task.deadline and nowHours() > task.deadline and not task.completedAt then
             failTask(player, data, task, "TaskFailed")
             changed = true
         end
@@ -46,6 +48,25 @@ function updateHomeSafeZone(player)
 end
 
 playerUpdateState = {}
+shopInflationOnline = shopInflationOnline or {}
+shopInflationCheckMs = shopInflationCheckMs or {}
+taskAuthorityCheckMs = taskAuthorityCheckMs or {}
+
+function updateShopInflationOnline(player, data)
+    if not player or not data or not GodSystemShopInflation then return end
+    local key, currentMs = userKey(player), GodSystemScheduler.nowMs()
+    if shopInflationOnline[key] ~= player then
+        GodSystemShopInflation.pause(data, GodSystemRuntimeConfig.Current, math.floor((nowHours and nowHours() or 0) * 60))
+        shopInflationCheckMs[key] = nil
+        data.taskMotion = nil
+    end
+    if currentMs - (shopInflationCheckMs[key] or 0) < 30000 then return end
+    shopInflationCheckMs[key] = currentMs
+    local minute = math.floor((nowHours and nowHours() or 0) * 60)
+    GodSystemShopInflation.advance(data, GodSystemRuntimeConfig.Current or GodSystemRuntimeConfig.readSandbox(), minute, true)
+    GodSystemShopInflation.sweep(data, 8)
+    shopInflationOnline[key] = player
+end
 
 function prunePlayerUpdateState()
     local active = {}
@@ -59,6 +80,7 @@ function prunePlayerUpdateState()
     for key in pairs(playerUpdateState) do
         if not active[key] then
             playerUpdateState[key] = nil
+            shopInflationCheckMs[key], taskAuthorityCheckMs[key] = nil, nil
             GodSystemScheduler.resetKey("server.player." .. key)
         end
     end
@@ -74,11 +96,62 @@ function onPlayerUpdate(player)
     end
     playerUpdateState[key] = { player = player }
     local data = playerData(player)
+    updateShopInflationOnline(player, data)
     generateDailyTasks(data, false)
     updateHomeSafeZone(player)
 end
 
 Events.OnPlayerUpdate.Add(onPlayerUpdate)
+-- B42.20.4 skips OnPlayerUpdate for server remote players. Maintain their
+-- carry state from a real-time gate, with no inventory traversal or UI work.
+carryPushState = setmetatable({}, { __mode = "k" })
+function onCarryTick()
+    if not GodSystemScheduler.due("server.carry", 1000) then return end
+    local players = getOnlinePlayers and getOnlinePlayers() or nil
+    if not players then return end
+    local root, active = store(), {}
+    for i = 0, players:size() - 1 do
+        local target = players:get(i)
+        if target then
+            local key = userKey(target)
+            local data = root.players and root.players[key] or nil
+            if data then
+                active[key] = true
+                updateShopInflationOnline(target, data)
+                if checkPendingTeleport then checkPendingTeleport(target, data) end
+            end
+            if data and not target:isDead() then
+                local currentMs = GodSystemScheduler.nowMs()
+                if currentMs - (taskAuthorityCheckMs[key] or 0) >= 5000 then
+                taskAuthorityCheckMs[key] = currentMs
+                if updateTaskAuthoritativeProgress then updateTaskAuthoritativeProgress(target, data) end
+                if updateTaskTimeouts and GodSystemRuntimeConfig then updateTaskTimeouts(target) end
+                if Commands.syncKills then Commands.syncKills(nil, nil, target, {}) end
+                end
+            end
+            if not target:isDead() then
+                data = data or playerData(target)
+                local level = GodSystemCarryCapacity.getLevel(data, target)
+                GodSystemCarryCapacity.restore(target, level)
+                local snapshot = GodSystemCarryCapacity.makeSnapshot(target, level)
+                if carryPushState[target] ~= snapshot.revision then
+                    sendServerCommand(target, MODULE, Protocol.S2C.CarryState, snapshot)
+                    carryPushState[target] = snapshot.revision
+                end
+            end
+        end
+    end
+    if cleanupTeleportRequests then cleanupTeleportRequests(active) end
+    for key in pairs(shopInflationOnline) do
+        if not active[key] then
+            local data = root.players and root.players[key]
+            if data and GodSystemShopInflation then GodSystemShopInflation.pause(data, GodSystemRuntimeConfig.Current, math.floor((nowHours and nowHours() or 0) * 60)) end
+            shopInflationOnline[key] = nil
+            shopInflationCheckMs[key], taskAuthorityCheckMs[key] = nil, nil
+        end
+    end
+end
+Events.OnTick.Add(onCarryTick)
 Events.OnClientCommand.Add(function(module, command, player, args)
     if module ~= MODULE or not player then return end
     diagnostics.handledCommands = (diagnostics.handledCommands or 0) + 1

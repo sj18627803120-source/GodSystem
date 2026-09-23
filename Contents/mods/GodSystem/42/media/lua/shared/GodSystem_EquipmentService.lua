@@ -153,6 +153,20 @@ function S:recordFor(item, root)
     return nil
 end
 
+-- Constant-time authority lookup for combat effects.  It never builds an
+-- inventory index: a combat effect only applies to the currently held item.
+function S:activeRecord(player,item)
+    local cached=self.players[player]
+    if not cached then self:account(player); cached=self.players[player] end
+    local root,account,cfg=cached and cached.root,cached and cached.account,cached and cached.cfg
+    if not root or not account or not cfg or not cfg.enabled or account.uncertainOp then return nil end
+    local record=self:recordFor(item,root)
+    if not record or record.identityConflict or record.ownerKey~=account.ownerKey
+        or record.characterId~=account.activeCharacterId or not I.matches(item,root,record)
+        or not I.owned(player,item) or I.value(player,"isDead",true) then return nil end
+    return record,cfg,root
+end
+
 -- Read-only projection for inventory Tooltip presentation.  It deliberately
 -- resolves only the supplied equipment UUID in the authority archive: no
 -- player inventory, world-container, or account scan happens on hover.
@@ -172,7 +186,9 @@ function S:inspect(args)
     result.valid, result.worldId, result.equipmentId = true, root.worldId, record.id
     result.generation, result.itemId, result.fullType, result.revision = record.generation, record.itemId, record.fullType, record.revision
     result.levels = E.projectionLevels(record)
+    result.effectState = { impact = GodSystemEquipmentImpact.state(record) }
     result.config = { enabled = cfg.enabled == true, freezeEnabled = cfg.freezeEnabled == true,
+        splashEnabled = cfg.splashEnabled == true,
         EquipmentGrowthPercent = cfg.EquipmentGrowthPercent }
     return result
 end
@@ -192,7 +208,7 @@ function S:observe(item, root)
         local previous = self.known[record.id]
         if previous and previous ~= item and I.matches(previous, root, record) then record.identityConflict = true; return end
         local d = I.durability(item)
-        if d then record.durability = d end
+        record.durability = d
         self.known[record.id] = item
         self.knownIds[record.itemId]={item=item,recordId=record.id}
     end
@@ -227,10 +243,8 @@ function S:reconcile(player, item, forceSync)
     if not root then return false end
     local record = self:recordFor(item, root)
     if not record then
-        -- Missing/cross-world authority: restore a pristine type baseline, never trust client auxiliary data.
-        local pristine = self.adapter.create(I.value(item, "getFullType"))
-        local base = pristine and I.base(pristine)
-        if not base or not I.apply(item, base, nil) then return false end
+        -- Old/cross-world markers simply lose GodSystem identity.  Do not
+        -- write any native combat field while reconciling.
         I.value(item, "getModData")[E.ItemKey] = nil
         self:sync(player, item, nil, false)
         return true
@@ -240,13 +254,6 @@ function S:reconcile(player, item, forceSync)
     local active = matches and cfg.enabled and record.ownerKey == account.ownerKey
         and record.characterId == account.activeCharacterId and not account.uncertainOp and not record.identityConflict
         and I.held(player, item) and I.owned(player, item) and not I.value(player, "isDead", true)
-    local before = I.raw(item)
-    if not I.apply(item, record.base, active and record.levels or nil, cfg) then
-        if before then I.write(item, before) end
-        record.parameterError = true
-        return false
-    end
-    record.parameterError = nil
     if not matches then
         local md = I.value(item, "getModData")
         if md then md[E.ItemKey] = nil end
@@ -255,10 +262,7 @@ function S:reconcile(player, item, forceSync)
         self:observe(item, root)
     end
     self.metrics.reconciles = self.metrics.reconciles + 1
-    local after=I.raw(item)
-    local changed=false
-    for key,value in pairs(after or {}) do if type(value)=="number" and (not before or not I.near(before[key],value)) then changed=true end end
-    if forceSync or changed or record.pendingSync then self:sync(player, item, record, active) end
+    if forceSync or record.pendingSync then self:sync(player, item, record, active) end
     return true
 end
 
@@ -281,7 +285,10 @@ function S:snapshot(player)
         if not index.ambiguous[id] then
             if I.marker(row.item) then self:reconcile(player,row.item,true) end
             if not self.adapter.multiplayer and I.isWeapon(row.item) and not I.marker(row.item) then
-                candidates[#candidates+1]={id=id,item=row.item,name=I.value(row.item,"getDisplayName",I.value(row.item,"getFullType"))}
+                local durability, reason = I.durability(row.item)
+                local bindable = durability ~= nil
+                candidates[#candidates+1]={id=id,item=row.item,name=I.value(row.item,"getDisplayName",I.value(row.item,"getFullType")),
+                    bindable=bindable, bindReason=reason}
             end
         end
     end
@@ -300,16 +307,10 @@ function S:snapshot(player)
             local item = Index.find(index, record.itemId)
             local present = item and I.matches(item, root, record) or false
             if present then self:observe(item, root) end
-            if item and not present and I.value(item,"getFullType")==record.fullType then
-                if I.apply(item,record.base,nil) then self:sync(player,item,record,false) end
-            end
             row.record = { id = record.id, itemId = record.itemId, generation = record.generation,
                 revision = record.revision, fullType = record.fullType, name = record.name,
-                base = E.copy(record.base), levels = E.copy(record.levels), durability = E.copy(record.durability) }
-            row.record.actual = present and I.target(item,record.base,record.levels,cfg) or E.values(record.base,record.levels,cfg)
-            -- A preview is not evidence that an instance received its values.
-            -- Read only while building this page snapshot, never from UI draw.
-            row.record.observed = present and I.raw(item) or nil
+                weaponKind = E.weaponKind(record), levels = E.projectionLevels(record),
+                effectState = E.copy(record.effectState), durability = E.copy(record.durability) }
             row.present, row.conflict = present, index.ambiguous[record.itemId] == true or record.identityConflict == true
                 or (item and I.value(item,"getFullType")~=record.fullType) or false
             row.parameterError = record.parameterError == true
@@ -398,32 +399,30 @@ function S:performAction(player, args)
             return response(false, "EquipmentIdentityInvalid", opId)
         end
     end
-    local base, snapshot, quote, cost, bindRecord = nil, nil, nil, 0, nil
+    local snapshot, quote, cost, bindRecord = nil, nil, 0, nil
     if action ~= "retrieve" and action ~= "clearInvalidSlot" and item and (action == "bind" or present) then
-        snapshot = I.snapshot(item)
+        snapshot = I.snapshot(item, action == "bind" or action == "repair")
         if not snapshot then
             if action == "bind" then self:logUnsupported(item, "snapshot", "item") end
             return response(false, action == "bind" and "EquipmentBindUnsupported" or "EquipmentUnsupported", opId)
         end
     end
     if action == "bind" then
-        base = I.base(item)
-        if not base or snapshot.durability.conditionMax > 127 then
-            self:logUnsupported(item, "durability", "conditionMax")
-            return response(false, "EquipmentBindUnsupported", opId)
-        end
         local equipmentId = self.adapter.uuid()
         bindRecord = { id = equipmentId, ownerKey = account.ownerKey, characterId = account.activeCharacterId,
             generation = 1, revision = 1, itemId = id, fullType = I.value(item, "getFullType"),
-            name = I.name(item), customName = I.customName(item) and I.name(item) or nil, base = base,
-            levels = E.newLevels(base), durability = E.copy(snapshot.durability), state = "active" }
+            name = I.name(item), customName = I.customName(item) and I.name(item) or nil,
+            weaponKind = I.value(item,"isRanged",false) and "ranged" or "melee",
+            levels = E.newLevels(I.value(item,"isRanged",false) and "ranged" or "melee"),
+            effectState = { impact = { attackCount = 0, ready = false, stateRevision = 0 } },
+            durability = E.copy(snapshot.durability), state = "active" }
         local valid, reason, field = E.validateRecord(bindRecord, account.ownerKey)
         if type(equipmentId) ~= "string" or equipmentId == "" or root.records[equipmentId] or not valid then
             self:logUnsupported(item, reason or "identity", field or "id")
             return response(false, "EquipmentBindUnsupported", opId)
         end
     elseif action == "enhance" then
-        quote, err = E.quote({base=record.base,levels=record.levels,actual=I.target(item,record.base,record.levels,cfg)}, args.attribute, args.boost, cfg)
+        quote, err = E.quote(record, args.attribute, args.boost, cfg)
         if not quote then return response(false, err, opId) end
         cost = quote.cost
     elseif action == "repair" then
@@ -433,6 +432,7 @@ function S:performAction(player, args)
         if I.full(snapshot.durability) then return response(false, "EquipmentAlreadyFull", opId) end
         cost = cfg.EquipmentRepairCost
     elseif action == "retrieve" then
+        if not record.durability then return response(false, "EquipmentUnsupported", opId) end
         cost = self:retrieveCost(record.fullType, cfg)
         if not cost then return response(false, "EquipmentCostInvalid", opId) end
     elseif action == "rename" then
@@ -465,12 +465,11 @@ function S:performAction(player, args)
             -- slot or revision could be changed.
             working = E.copy(bindRecord)
             changedItem = item
-            if not I.write(item, snapshot.raw, true) or not I.mark(item, root, working) then return false, "EquipmentApplyFailed" end
+            if not I.mark(item, root, working) then return false, "EquipmentApplyFailed" end
             result = response(true, "EquipmentBound", opId)
         elseif action == "unbind" then
             if present then
                 changedItem = item
-                if not I.apply(item, record.base, nil) then return false, "EquipmentApplyFailed" end
                 I.value(item, "getModData")[E.ItemKey] = nil
             end
             working.state, working.levels, working.revision = "retired", {}, record.revision + 1
@@ -482,8 +481,7 @@ function S:performAction(player, args)
             local won = roll < quote.chanceBP
             working.levels[args.attribute] = won and quote.level + 1 or math.max(0, quote.level - 1)
             changedItem = item
-            if not I.apply(item, working.base, working.levels, cfg) then return false, "EquipmentApplyFailed" end
-            if not I.held(player, item) and not I.apply(item, working.base, nil) then return false, "EquipmentApplyFailed" end
+            if args.attribute=="impact" then GodSystemEquipmentImpact.reset(working) end
             working.revision = working.revision + 1
             result = response(true, won and "EquipmentEnhanced" or "EquipmentEnhanceFailed", opId)
         elseif action == "repair" then
@@ -508,7 +506,7 @@ function S:performAction(player, args)
             newItem = self.adapter.create(record.fullType)
             if not newItem or not I.isWeapon(newItem) or I.value(newItem, "getFullType") ~= record.fullType then return false, "EquipmentCreateFailed" end
             if not I.emptyRecovery(newItem) or not I.setDurability(newItem, record.durability, true, false)
-                or not I.apply(newItem, record.base, nil) then return false, "EquipmentCreateFailed" end
+                then return false, "EquipmentCreateFailed" end
             local newId = I.id(newItem)
             if not newId or newId == record.itemId or index.byId[newId] or self.knownIds[newId] then return false, "EquipmentIdentityInvalid" end
             working.itemId, working.generation, working.revision = newId, record.generation + 1, record.revision + 1
@@ -520,7 +518,7 @@ function S:performAction(player, args)
         end
         if working and working.state == "active" and changedItem then
             working.durability = I.durability(changedItem)
-            if not working.durability or not I.mark(changedItem, root, working) then return false, "EquipmentApplyFailed" end
+            if not I.mark(changedItem, root, working) then return false, "EquipmentApplyFailed" end
         end
         if changedItem and not I.owned(player,changedItem) then return false, "EquipmentInventoryChanged" end
         return true
@@ -567,9 +565,41 @@ function S:performAction(player, args)
             rollback = ok and refunded ~= false
         end
         account.inFlight = nil
+        -- Rename is free and changes only the item's display fields. If the
+        -- engine accepted part of a rename but cannot restore the old name,
+        -- reconcile the authoritative record to the observed real item. Do
+        -- this only while the original bound identity is still unambiguous.
+        local renameReconciled = false
+        if not rollback and action == "rename" and cost == 0 and item and record
+            and I.owned(player, item) and I.matches(item, root, record) then
+            local observedName, observedCustom = I.name(item), I.customName(item)
+            if type(observedName) == "string" and observedName ~= "" then
+                local reconciled = E.copy(record)
+                reconciled.name = observedName
+                reconciled.customName = observedCustom and observedName or nil
+                reconciled.revision = record.revision + 1
+                if E.validRecord(reconciled, account.ownerKey) and I.mark(item, root, reconciled) then
+                    root.records[reconciled.id] = reconciled
+                    account.revision = account.revision + 1
+                    self:forgetRecord(reconciled.id)
+                    self:observe(item, root)
+                    record = reconciled
+                    renameReconciled = true
+                    print("[GodSystem] equipment rename reconciled after rollback failure op=" .. tostring(opId))
+                end
+            end
+        end
         if not rollback then
-            account.uncertainOp, receipt.status = opId, "unknown"
-            result = response(false, "EquipmentUnknown", opId)
+            if renameReconciled then
+                result = response(false, "EquipmentApplyFailed", opId)
+                result.revision = account.revision
+                receipt.status, receipt.result = "done", E.copy(result)
+            else
+                account.uncertainOp, receipt.status = opId, "unknown"
+                result = response(false, "EquipmentUnknown", opId)
+                print("[GodSystem] equipment rollback uncertain action=" .. tostring(action)
+                    .. " op=" .. tostring(opId) .. " failure=" .. tostring(failure))
+            end
         else
             local code = tostring(failure):match("(Equipment[%w]+)$") or "EquipmentApplyFailed"
             result = response(false, code, opId)

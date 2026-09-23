@@ -1,3 +1,5 @@
+require "GodSystem_ConversionRelations"
+
 GodSystemItemConfig = GodSystemItemConfig or {}
 
 local function clampNumber(value, minimum, maximum, integer)
@@ -89,10 +91,16 @@ end
 function GodSystemItemConfig.normalize(input)
     input = type(input) == "table" and input or {}
     return {
-        migrationVersion = math.max(1, math.floor(tonumber(input.migrationVersion) or 1)),
+        migrationVersion = math.max(2, math.floor(tonumber(input.migrationVersion) or 2)),
         itemOverrides = GodSystemItemConfig.sanitizeItemOverrides(input.itemOverrides),
         shopVariantOverrides = GodSystemItemConfig.sanitizeShopVariantOverrides(input.shopVariantOverrides),
         economyRevision = math.max(1, math.floor(tonumber(input.economyRevision) or 1)),
+        conversionRelations = copyTable(input.conversionRelations),
+        conversionBuiltinOverrides = copyTable(input.conversionBuiltinOverrides),
+        conversionBuiltinDisabled = copyTable(input.conversionBuiltinDisabled),
+        conversionBuiltinRemoved = copyTable(input.conversionBuiltinRemoved),
+        conversionSequence = math.max(0, math.floor(tonumber(input.conversionSequence) or 0)),
+        conversionRevision = math.max(1, math.floor(tonumber(input.conversionRevision) or 1)),
     }
 end
 
@@ -100,31 +108,50 @@ function GodSystemItemConfig.migrate(target, legacy)
     target = type(target) == "table" and target or {}
     if math.floor(tonumber(target.migrationVersion) or 0) >= 1 then
         local normalized = GodSystemItemConfig.normalize(target)
-        target.migrationVersion = normalized.migrationVersion
+        target.migrationVersion = 2
         target.itemOverrides = normalized.itemOverrides
         target.shopVariantOverrides = normalized.shopVariantOverrides
         target.economyRevision = normalized.economyRevision
+        target.conversionRelations = normalized.conversionRelations
+        target.conversionBuiltinOverrides = normalized.conversionBuiltinOverrides
+        target.conversionBuiltinDisabled = normalized.conversionBuiltinDisabled
+        target.conversionBuiltinRemoved = normalized.conversionBuiltinRemoved
+        target.conversionSequence = normalized.conversionSequence
+        target.conversionRevision = normalized.conversionRevision
         return target
     end
     legacy = type(legacy) == "table" and legacy or {}
-    target.migrationVersion = 1
+    target.migrationVersion = 2
     target.itemOverrides = GodSystemItemConfig.sanitizeItemOverrides(legacy.itemOverrides)
     target.shopVariantOverrides = GodSystemItemConfig.sanitizeShopVariantOverrides(legacy.shopVariantOverrides)
     target.economyRevision = math.max(1, math.floor(tonumber(legacy.economyRevision) or 1))
+    target.conversionRelations = copyTable(legacy.conversionRelations)
+    target.conversionBuiltinOverrides = copyTable(legacy.conversionBuiltinOverrides)
+    target.conversionBuiltinDisabled = copyTable(legacy.conversionBuiltinDisabled)
+    target.conversionBuiltinRemoved = copyTable(legacy.conversionBuiltinRemoved)
+    target.conversionSequence = math.max(0, math.floor(tonumber(legacy.conversionSequence) or 0))
+    target.conversionRevision = math.max(1, math.floor(tonumber(legacy.conversionRevision) or 1))
     return target
 end
 
-function GodSystemItemConfig.applyRuntime(itemOverrides, shopVariantOverrides, economyRevision)
+function GodSystemItemConfig.applyRuntime(itemOverrides, shopVariantOverrides, economyRevision, conversionData)
     local merged = GodSystemItemConfig.sanitizeItemOverrides(
         GodSystemConfig and GodSystemConfig.ItemOverrides or {}
     )
     local dynamic = GodSystemItemConfig.sanitizeItemOverrides(itemOverrides)
     for fullType, override in pairs(dynamic) do merged[fullType] = override end
     GodSystemItemConfig.Current = {
-        migrationVersion = 1,
+        migrationVersion = 2,
         itemOverrides = merged,
         shopVariantOverrides = GodSystemItemConfig.sanitizeShopVariantOverrides(shopVariantOverrides),
         economyRevision = math.max(1, math.floor(tonumber(economyRevision) or 1)),
+        conversionRelations = copyTable(conversionData and conversionData.conversionRelations),
+        conversionBuiltinOverrides = copyTable(conversionData and conversionData.conversionBuiltinOverrides),
+        conversionBuiltinDisabled = copyTable(conversionData and conversionData.conversionBuiltinDisabled),
+        conversionBuiltinRemoved = copyTable(conversionData and conversionData.conversionBuiltinRemoved),
+        conversionSequence = math.max(0, math.floor(tonumber(conversionData and conversionData.conversionSequence) or 0)),
+        conversionRevision = math.max(1, math.floor(tonumber(conversionData and conversionData.conversionRevision) or 1)),
+        conversionFloors = copyTable(conversionData and conversionData.conversionFloors),
     }
     return GodSystemItemConfig.Current
 end
@@ -166,12 +193,24 @@ function GodSystemItemConfig.publicSnapshot()
         itemOverrides = itemOverrides,
         shopVariantOverrides = copyTable(current.shopVariantOverrides),
         economyRevision = current.economyRevision,
+        conversionRevision = current.conversionRevision,
+        conversionFloors = copyTable(current.conversionFloors),
     }
 end
 
 function GodSystemItemConfig.getItemOverride(fullType)
     local current = GodSystemItemConfig.Current or GodSystemItemConfig.applyRuntime({}, {}, 1)
     return current.itemOverrides[tostring(fullType or "")]
+end
+
+function GodSystemItemConfig.getConversionFloor(fullType)
+    local current = GodSystemItemConfig.Current or GodSystemItemConfig.applyRuntime({}, {}, 1)
+    return math.max(0, math.floor(tonumber((current.conversionFloors or {})[tostring(fullType or "")]) or 0))
+end
+
+function GodSystemItemConfig.getConversionRevision()
+    local current = GodSystemItemConfig.Current or GodSystemItemConfig.applyRuntime({}, {}, 1)
+    return math.max(1, math.floor(tonumber(current.conversionRevision) or 1))
 end
 
 function GodSystemItemConfig.getItemOverrides()
@@ -217,4 +256,132 @@ function GodSystemItemConfig.applyCategory(fullType, category)
     local override = GodSystemItemConfig.getItemOverride(fullType)
     if override and override.category and override.category ~= "" then return override.category end
     return category
+end
+
+GodSystemItemConfig.PRESET_DEFAULT = "default"
+GodSystemItemConfig.PRESET_LIMIT = 32
+GodSystemItemConfig.PRESET_NAME_MAX = 32
+
+local PRESET_CONTENT_KEYS = {
+    "itemOverrides",
+    "shopVariantOverrides",
+    "conversionRelations",
+    "conversionBuiltinOverrides",
+    "conversionBuiltinDisabled",
+    "conversionBuiltinRemoved",
+    "conversionSequence",
+}
+
+function GodSystemItemConfig.sanitizePresetName(input)
+    local name = sanitizeText(input, GodSystemItemConfig.PRESET_NAME_MAX)
+    if name == "" then return nil end
+    if name == GodSystemItemConfig.PRESET_DEFAULT then return nil end
+    if name:lower() == GodSystemItemConfig.PRESET_DEFAULT then return nil end
+    return name
+end
+
+function GodSystemItemConfig.ensurePresets(data)
+    if type(data) ~= "table" then return nil end
+    local store = data.itemConfigPresets
+    if type(store) ~= "table" then
+        store = { order = {}, presets = {}, active = GodSystemItemConfig.PRESET_DEFAULT }
+        data.itemConfigPresets = store
+    end
+    if type(store.order) ~= "table" then store.order = {} end
+    if type(store.presets) ~= "table" then store.presets = {} end
+    local seen = {}
+    local order = {}
+    for _, name in ipairs(store.order) do
+        name = tostring(name)
+        if type(store.presets[name]) == "table" and not seen[name] then
+            seen[name] = true
+            order[#order + 1] = name
+        end
+    end
+    store.order = order
+    if type(store.active) ~= "string" or store.active == "" then
+        store.active = GodSystemItemConfig.PRESET_DEFAULT
+    end
+    if store.active ~= GodSystemItemConfig.PRESET_DEFAULT and not seen[store.active] then
+        store.active = GodSystemItemConfig.PRESET_DEFAULT
+    end
+    return store
+end
+
+function GodSystemItemConfig.presetSnapshot(data)
+    local normalized = GodSystemItemConfig.normalize(data)
+    local snapshot = {}
+    for _, key in ipairs(PRESET_CONTENT_KEYS) do
+        snapshot[key] = normalized[key]
+    end
+    return snapshot
+end
+
+function GodSystemItemConfig.presetListPayload(data)
+    local store = GodSystemItemConfig.ensurePresets(data)
+    if not store then return { order = {}, active = GodSystemItemConfig.PRESET_DEFAULT } end
+    local order = {}
+    for index, name in ipairs(store.order) do order[index] = name end
+    return { order = order, active = store.active }
+end
+
+local function writePresetContent(data, snapshot)
+    for _, key in ipairs(PRESET_CONTENT_KEYS) do
+        data[key] = copyTable(snapshot[key])
+    end
+    data.economyRevision = math.max(1, math.floor(tonumber(data.economyRevision) or 1)) + 1
+    data.conversionRevision = math.max(1, math.floor(tonumber(data.conversionRevision) or 1)) + 1
+end
+
+function GodSystemItemConfig.savePreset(data, name)
+    local store = GodSystemItemConfig.ensurePresets(data)
+    if not store then return nil, "Invalid" end
+    name = GodSystemItemConfig.sanitizePresetName(name)
+    if not name then return nil, "Invalid" end
+    if store.presets[name] == nil and #store.order >= GodSystemItemConfig.PRESET_LIMIT then
+        return nil, "Limit"
+    end
+    store.presets[name] = GodSystemItemConfig.presetSnapshot(data)
+    local found = false
+    for _, existing in ipairs(store.order) do
+        if existing == name then
+            found = true
+            break
+        end
+    end
+    if not found then store.order[#store.order + 1] = name end
+    store.active = name
+    return store
+end
+
+function GodSystemItemConfig.deletePreset(data, name)
+    local store = GodSystemItemConfig.ensurePresets(data)
+    if not store then return nil end
+    name = tostring(name or "")
+    if name == GodSystemItemConfig.PRESET_DEFAULT then return nil end
+    if type(store.presets[name]) ~= "table" then return nil end
+    store.presets[name] = nil
+    local order = {}
+    for _, existing in ipairs(store.order) do
+        if existing ~= name then order[#order + 1] = existing end
+    end
+    store.order = order
+    if store.active == name then store.active = GodSystemItemConfig.PRESET_DEFAULT end
+    return store
+end
+
+function GodSystemItemConfig.applyPreset(data, name)
+    local store = GodSystemItemConfig.ensurePresets(data)
+    if not store then return nil end
+    name = tostring(name or "")
+    if name == GodSystemItemConfig.PRESET_DEFAULT then
+        writePresetContent(data, GodSystemItemConfig.normalize({}))
+        store.active = GodSystemItemConfig.PRESET_DEFAULT
+        return store
+    end
+    local snapshot = store.presets[name]
+    if type(snapshot) ~= "table" then return nil end
+    writePresetContent(data, GodSystemItemConfig.normalize(snapshot))
+    store.active = name
+    return store
 end

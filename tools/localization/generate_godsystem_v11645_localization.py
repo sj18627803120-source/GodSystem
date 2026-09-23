@@ -8,6 +8,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LUA_ROOT = ROOT / "Contents" / "mods" / "GodSystem" / "42" / "media" / "lua"
 SOURCE = Path(__file__).with_name("godsystem_v11645_localization.yml")
+EN_CARRY_SOURCE = Path(__file__).with_name("godsystem_carry_en.yml")
+EN_MIMIC_SOURCE = Path(__file__).with_name("godsystem_mimic_en.yml")
+EN_SPLASH_SOURCE = Path(__file__).with_name("godsystem_splash_en.yml")
+EN_UTILITY_GENERATOR_SOURCE = Path(__file__).with_name("godsystem_utilitygenerator_en.yml")
+EN_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "IG_UI_EN.txt"
 CN_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "IG_UI_CN.txt"
 CH_PATH = LUA_ROOT / "shared" / "Translate" / "CH" / "IG_UI_CH.txt"
 CN_ITEMS_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "Items_CN.txt"
@@ -16,13 +21,25 @@ CN_ITEM_JSON_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "ItemName.json"
 CH_ITEM_JSON_PATH = LUA_ROOT / "shared" / "Translate" / "CH" / "ItemName.json"
 CN_TOOLTIP_JSON_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "Tooltip.json"
 CH_TOOLTIP_JSON_PATH = LUA_ROOT / "shared" / "Translate" / "CH" / "Tooltip.json"
+EN_ITEMS_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "Items_EN.txt"
+EN_ITEM_JSON_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "ItemName.json"
+EN_TOOLTIP_JSON_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "Tooltip.json"
 OVERRIDE_PATH = LUA_ROOT / "shared" / "GodSystem_Localization_Override.lua"
 ITEM_FALLBACK_PATH = LUA_ROOT / "shared" / "GodSystem_Localization.lua"
 ITEM_SCRIPT_PATH = LUA_ROOT.parent / "scripts" / "GodSystem_Items.txt"
 SANDBOX_OPTIONS_PATH = LUA_ROOT.parent / "sandbox-options.txt"
 CN_SANDBOX_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "Sandbox.json"
 CH_SANDBOX_PATH = LUA_ROOT / "shared" / "Translate" / "CH" / "Sandbox.json"
+EN_SANDBOX_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "Sandbox.json"
 REMOVED_UI_KEYS = {
+    # 3.15 removed the restore-default action; built-in relations are now
+    # disabled or deleted, and switching presets brings them back.
+    "ConversionRisk_Restore",
+    "ConversionRisk_Restored",
+    "NotifyMP_ConversionRelationRestored",
+    # 3.14 replaced the raw full-type editor with the model-driven picker UI;
+    # the single Disable/Delete button became dynamic Disable/Delete titles.
+    "ConversionRisk_DisableDelete",
     "Companion_VisualHuman",
     "Companion_VisualOrb",
     "Companion_SwitchHuman",
@@ -45,6 +62,16 @@ REMOVED_UI_KEYS = {
     # 3.4 now uses generic increase/decrease Tooltip templates for every
     # registered persistent attribute; retain the dedicated freeze template.
     "Equipment_TooltipDamage",
+    # 3.6 removed the raw weapon-stat enhancement presentation.  Keep stale
+    # generated tables from reviving it when localization is regenerated.
+    "Equipment_AttributeRow",
+    "Equipment_Attr_damage",
+    "Equipment_Attr_wear",
+    "Equipment_Attr_speed",
+    "Equipment_Attr_accuracy",
+    "Equipment_Attr_recoil",
+    "Equipment_BaseNote",
+    "Equipment_GrowthRule",
 }
 
 
@@ -120,7 +147,7 @@ def parse_translate(path: Path) -> dict[str, str]:
     return entries
 
 
-def write_sandbox_files(entries: dict[str, str]) -> int:
+def write_sandbox_files(entries: dict[str, str], english_entries: dict[str, str]) -> int:
     """Generate sandbox translations from the live schema and YAML source text.
 
     The sandbox schema is now maintained directly in sandbox-options.txt.  This
@@ -147,6 +174,16 @@ def write_sandbox_files(entries: dict[str, str]) -> int:
             output[f"Sandbox_GodSystem_{key}"] = entries[f"AdminSetting_{key}"]
             output[f"Sandbox_GodSystem_{key}_tooltip"] = entries[f"AdminSetting_{key}_Desc"]
         output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    existing = json.loads(EN_SANDBOX_PATH.read_text(encoding="utf-8"))
+    pages = sorted({row["page"] for row in rows})
+    output = {f"Sandbox_{page}": existing.get(f"Sandbox_{page}", page) for page in pages}
+    for row in rows:
+        key = row["key"]
+        output[f"Sandbox_GodSystem_{key}"] = english_entries.get(
+            f"AdminSetting_{key}", existing.get(f"Sandbox_GodSystem_{key}", key))
+        output[f"Sandbox_GodSystem_{key}_tooltip"] = english_entries.get(
+            f"AdminSetting_{key}_Desc", existing.get(f"Sandbox_GodSystem_{key}_tooltip", ""))
+    EN_SANDBOX_PATH.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return len(rows)
 
 
@@ -155,12 +192,12 @@ def translate_line(key: str, value: str) -> str:
     return f'    IGUI_GodSystem_{key} = "{escaped}",'
 
 
-def update_translate(path: Path, entries: dict[str, str]) -> None:
+def update_translate(path: Path, entries: dict[str, str], remove_obsolete: bool = True) -> None:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     lines = [
         line for line in lines
-        if not any(re.match(rf'\s*IGUI_GodSystem_{re.escape(key)}\s*=', line) for key in REMOVED_UI_KEYS)
+        if not remove_obsolete or not any(re.match(rf'\s*IGUI_GodSystem_{re.escape(key)}\s*=', line) for key in REMOVED_UI_KEYS)
     ]
     existing_keys = set()
     for idx, line in enumerate(lines):
@@ -318,6 +355,17 @@ def main() -> None:
     validate_item_entries(item_entries)
     update_translate(CN_PATH, ui_entries)
     update_translate(CH_PATH, ui_entries)
+    # Carry English text is source-controlled alongside the Chinese YAML.
+    # Preserve unrelated legacy English entries until their own migration.
+    update_translate(EN_PATH, parse_flat_yaml(EN_CARRY_SOURCE), remove_obsolete=False)
+    en_mimic_entries = parse_flat_yaml(EN_MIMIC_SOURCE)
+    update_translate(EN_PATH, {key: value for key, value in en_mimic_entries.items() if not key.startswith(("ItemName_", "Tooltip_GodSystem_"))}, remove_obsolete=False)
+    update_translate(EN_PATH, parse_flat_yaml(EN_SPLASH_SOURCE), remove_obsolete=False)
+    en_utility_entries = parse_flat_yaml(EN_UTILITY_GENERATOR_SOURCE)
+    update_translate(EN_PATH, {key: value for key, value in en_utility_entries.items() if not key.startswith(("ItemName_", "Tooltip_GodSystem_"))}, remove_obsolete=False)
+    write_json(EN_PATH.with_name("IG_UI.json"), {
+        "IGUI_GodSystem_" + key: value for key, value in parse_translate(EN_PATH).items()
+    })
     # B42 uses JSON translation categories. Retain the legacy tables and
     # generate the matching complete IGUI dictionaries from those same keys.
     for path in (CN_PATH, CH_PATH):
@@ -340,9 +388,14 @@ def main() -> None:
     write_json(CH_ITEM_JSON_PATH, item_name_json)
     write_json(CN_TOOLTIP_JSON_PATH, tooltip_json)
     write_json(CH_TOOLTIP_JSON_PATH, tooltip_json)
+    en_item_entries = {key: value for key, value in en_mimic_entries.items() if key.startswith(("ItemName_", "Tooltip_GodSystem_"))}
+    en_item_entries.update({key: value for key, value in en_utility_entries.items() if key.startswith(("ItemName_", "Tooltip_GodSystem_"))})
+    update_item_translate(EN_ITEMS_PATH, en_item_entries)
+    write_json(EN_ITEM_JSON_PATH, {key[len("ItemName_"):]: value for key, value in en_item_entries.items() if key.startswith("ItemName_")})
+    write_json(EN_TOOLTIP_JSON_PATH, {key: value for key, value in en_item_entries.items() if key.startswith("Tooltip_GodSystem_")})
     update_item_fallback(ITEM_FALLBACK_PATH, item_entries)
     update_override(OVERRIDE_PATH, ui_entries)
-    sandbox_count = write_sandbox_files(entries)
+    sandbox_count = write_sandbox_files(entries, en_utility_entries)
     print(f"updated {len(ui_entries)} UI keys, {len(item_entries)} item keys, and {sandbox_count} sandbox options")
 
 

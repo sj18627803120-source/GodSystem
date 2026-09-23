@@ -6,3 +6,5 @@ Thumbs.db
 .DS_Store
 .test-runtime/
 __pycache__/
+.qoder/
+tools/tests/*.log

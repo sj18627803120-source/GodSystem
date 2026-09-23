@@ -2,13 +2,22 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20_3.5"
+GodSystemConfig.Version = "42.20_3.18.1"
+-- Default-off aggregate instrumentation for local profiling.  It records no
+-- per-frame log lines and is intentionally not part of saved player data.
+GodSystemConfig.EnablePerformanceDiagnostics = false
 
 GodSystemConfig.EnableEquipment = true
 GodSystemConfig.EquipmentMaxSlots = 3
 GodSystemConfig.EquipmentSlotTaskBase = 25
 GodSystemConfig.EquipmentSlotTaskMultiplier = 2
-GodSystemConfig.EnableEquipmentFreeze = false
+GodSystemConfig.EnableEquipmentFreeze = true
+GodSystemConfig.EnableEquipmentSplash = true
+GodSystemConfig.EnableUtilityGenerator = true
+GodSystemConfig.EnableUtilityGeneratorWater = true
+GodSystemConfig.EnableUtilityGeneratorElectricity = true
+GodSystemConfig.UtilityGeneratorWaterPricePer100L = 20
+GodSystemConfig.UtilityGeneratorElectricityPricePerFuelUnit = 5
 GodSystemConfig.EquipmentFreezeRadius = 3
 GodSystemConfig.EquipmentFreezeSeconds = 3
 GodSystemConfig.EquipmentFreezeVisuals = true
@@ -69,6 +78,7 @@ GodSystemConfig.RefreshTaskCost = 30
 GodSystemConfig.DefaultTaskLimitHours = 24
 GodSystemConfig.MedicalCheckInfectionCost = 50
 GodSystemConfig.MedicalHealInjuriesCost = 5000
+GodSystemConfig.DeathProtectionCost = 20000
 GodSystemConfig.MedicalCureInfectionCost = 2000
 GodSystemConfig.HistoryLimit = 40
 GodSystemConfig.EnableDebugTools = false
@@ -131,6 +141,9 @@ GodSystemConfig.AutoUnlockShopFromRecycle = true
 GodSystemConfig.AutoShopAllowAnyModule = true
 GodSystemConfig.AutoShopListOnlyCostRatio = 0.5
 GodSystemConfig.AutoShopListOnlyMinCost = 50
+GodSystemConfig.EnableShopDynamicInflation = true
+GodSystemConfig.ShopDynamicInflationPercent = 10
+GodSystemConfig.ShopDynamicInflationHours = 24
 GodSystemConfig.RecycleSellRatio = 0.05
 GodSystemConfig.ModCategoryBuyPrices = {
     accessory = 180,
@@ -159,7 +172,7 @@ GodSystemConfig.ModCategoryBuyPrices = {
 GodSystemConfig.UnknownModItemRecycleValue = 1
 GodSystemConfig.EconomyConversionSafetyMargin = 0.10
 GodSystemConfig.EconomyUnknownDynamicOutputCount = 500
-GodSystemConfig.EconomyPolicyVersion = "42.20.2.2"
+GodSystemConfig.EconomyPolicyVersion = "42.20.3.18.1"
 GodSystemConfig.DailyRecycleSoftCap = 0
 GodSystemConfig.DiminishedRecyclePayout = 1
 GodSystemConfig.PositiveTraitCostPerPoint = 800
@@ -308,6 +321,8 @@ GodSystemConfig.AutoShopBlacklist = {
     ["GodSystem.SystemRepairKit"] = true,
     ["GodSystem.DurabilityCore"] = true,
     ["GodSystem.SystemVehicleRepairModule"] = true,
+    ["GodSystem.MimicKey"] = true,
+    ["GodSystem.UtilityGenerator"] = true,
     ["GodSystem.SystemSpaceTerminal"] = true,
     ["GodSystem.SystemTerminalRelief"] = true,
     ["GodSystem.SystemAutoLoader"] = true,
@@ -332,9 +347,9 @@ GodSystemConfig.RecycleBlacklist = {
 }
 
 GodSystemConfig.ItemOverrides = {
-    ["GodSystem.StorageContainer"] = { buyPrice = 100, shopMode = "forced" },
-    ["GodSystem.LotteryTicketRandom"] = { buyPrice = 200, shopMode = "forced" },
-    ["GodSystem.LotteryTicketTenRandom"] = { buyPrice = 1800, shopMode = "forced" },
+    ["GodSystem.StorageContainer"] = { shopMode = "forced" },
+    ["GodSystem.LotteryTicketRandom"] = { shopMode = "forced" },
+    ["GodSystem.LotteryTicketTenRandom"] = { shopMode = "forced" },
 }
 
 -- Keep the MOD's own configurable goods visible even when ScriptManager's
@@ -343,6 +358,8 @@ GodSystemConfig.ItemConfigPinnedFullTypes = {
     "GodSystem.SystemRepairKit",
     "GodSystem.DurabilityCore",
     "GodSystem.SystemVehicleRepairModule",
+    "GodSystem.MimicKey",
+    "GodSystem.UtilityGenerator",
     "GodSystem.StorageContainer",
     "GodSystem.SystemAutoLoader",
     "GodSystem.LotteryTicketRandom",
@@ -353,116 +370,107 @@ GodSystemConfig.ShopItems = {
     {
         id = "bandage_single",
         group = "medical",
-        price = 20,
         items = { { fullType = "Base.Bandage", count = 1 } }
     },
     {
         id = "bandaid_single",
         group = "medical",
-        price = 12,
         items = { { fullType = "Base.Bandaid", count = 1 } }
     },
     {
         id = "alcohol_wipes_single",
         group = "medical",
-        price = 25,
         items = { { fullType = "Base.AlcoholWipes", count = 1 } }
     },
     {
         id = "vitamins_single",
         group = "medical",
-        price = 70,
         items = { { fullType = "Base.PillsVitamins", count = 1 } }
     },
     {
         id = "hammer_single",
         group = "tool",
-        price = 120,
         items = { { fullType = "Base.Hammer", count = 1 } }
     },
     {
         id = "saw_single",
         group = "tool",
-        price = 140,
         items = { { fullType = "Base.Saw", count = 1 } }
     },
     {
         id = "screwdriver_single",
         group = "tool",
-        price = 80,
         items = { { fullType = "Base.Screwdriver", count = 1 } }
     },
     {
         id = "nails_box_single",
         group = "material",
-        price = 120,
         items = { { fullType = "Base.NailsBox", count = 1 } }
     },
     {
         id = "plank_single",
         group = "material",
-        price = 20,
         items = { { fullType = "Base.Plank", count = 1 } }
     },
     {
         id = "duct_tape_single",
         group = "material",
-        price = 55,
         items = { { fullType = "Base.DuctTape", count = 1 } }
     },
     {
         id = "garbage_bag_single",
         group = "material",
-        price = 25,
         items = { { fullType = "Base.Garbagebag", count = 1 } }
     },
     {
         id = "tin_opener_single",
         group = "tool",
-        price = 60,
         items = { { fullType = "Base.TinOpener", count = 1 } }
     },
     {
         id = "water_bottle_single",
         group = "survival",
-        price = 35,
         items = { { fullType = "Base.WaterBottle", count = 1 } }
     },
     {
         id = "system_repair_kit",
         group = "tool",
-        price = 300,
         items = { { fullType = "GodSystem.SystemRepairKit", count = 1 } }
     },
     {
         id = "system_vehicle_repair_module",
         group = "vehicle",
-        price = 5000,
         items = { { fullType = "GodSystem.SystemVehicleRepairModule", count = 1 } }
+    },
+    {
+        id = "mimic_key",
+        group = "tool",
+        items = { { fullType = "GodSystem.MimicKey", count = 1 } }
+    },
+    {
+        id = "utility_generator",
+        group = "tool",
+        items = { { fullType = "GodSystem.UtilityGenerator", count = 1 } }
     },
     {
         id = "system_auto_loader",
         group = "tool",
-        price = 1000,
         featureKey = "EnableAutoLoaderShop",
         items = { { fullType = "GodSystem.SystemAutoLoader", count = 1 } }
     },
     {
         id = "storage_container",
         group = "tool",
-        price = 100,
         items = { { fullType = "GodSystem.StorageContainer", count = 1 } }
     },
     {
         id = "lottery_ticket_random",
         group = "lottery",
-        price = 200,
         items = { { fullType = "GodSystem.LotteryTicketRandom", count = 1 } }
     },
     {
         id = "lottery_ticket_ten_random",
         group = "lottery",
-        price = 1800,
         items = { { fullType = "GodSystem.LotteryTicketTenRandom", count = 1 } }
     },
 }

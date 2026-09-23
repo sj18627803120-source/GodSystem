@@ -1,8 +1,13 @@
 -- Auto-generated from Project Zomboid Build 42 item scripts placed in outputs/PZ_VanillaFiles/scripts/generated/items.
 -- Purchase prices are intentionally conservative; sell prices are derived at runtime.
 GodSystemConfig = GodSystemConfig or {}
-GodSystemConfig.PriceTableVersion = "B42.19-generated-2026-06-14"
+GodSystemConfig.PriceTableVersion = "B42.20.4-reviewed-2026-09-21"
 GodSystemConfig.VanillaItemBuyPrices = {
+    ["GodSystem.MimicKey"] = 1000,
+    ["GodSystem.UtilityGenerator"] = 200,
+    ["GodSystem.StorageContainer"] = 100,
+    ["GodSystem.LotteryTicketRandom"] = 200,
+    ["GodSystem.LotteryTicketTenRandom"] = 1800,
     ["GodSystem.SystemRepairKit"] = 300,
     ["GodSystem.DurabilityCore"] = 1200,
     ["GodSystem.SystemVehicleRepairModule"] = 5000,

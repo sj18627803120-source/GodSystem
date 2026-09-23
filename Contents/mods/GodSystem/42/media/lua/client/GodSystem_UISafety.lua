@@ -54,7 +54,27 @@ function S.clearList(list)
     S.syncListGeometry(list)
 end
 
--- Clip at UTF-8 character boundaries. Cache the result on the visible row;
+-- Kahlua indexes Java UTF-16 code units; stock Lua 5.1 indexes UTF-8 bytes.
+-- The compiler decodes this escaped UTF-8 literal in Kahlua (length 1).
+-- Keep surrogate pairs / multibyte characters intact in both runtimes.
+local usesUTF16 = #"\228\184\173" == 1
+function S.nextTextIndex(text, pos)
+    local unit = string.byte(text, pos)
+    if not unit then return pos + 1 end
+    if usesUTF16 then
+        local following = string.byte(text, pos + 1)
+        if unit >= 55296 and unit <= 56319 and following and following >= 56320 and following <= 57343 then return pos + 2 end
+        return pos + 1
+    end
+    local size = unit >= 240 and unit <= 244 and 4 or unit >= 224 and unit <= 239 and 3 or unit >= 194 and unit <= 223 and 2 or 1
+    for offset = 1, size - 1 do
+        local following = string.byte(text, pos + offset)
+        if not following or following < 128 or following > 191 then return pos + 1 end
+    end
+    return pos + size
+end
+
+-- Clip at native character boundaries. Cache the result on the visible row;
 -- drawing must never search inventory, request state, or rebuild a quote.
 function S.fitText(text, font, width)
     text = tostring(text or "")
@@ -65,9 +85,7 @@ function S.fitText(text, font, width)
     if manager:MeasureStringX(font, suffix) > width then return "" end
     local ends, pos = {}, 1
     while pos <= #text do
-        local byte = string.byte(text, pos)
-        local size = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 192 and 2 or 1
-        pos = math.min(#text + 1, pos + size)
+        pos = S.nextTextIndex(text, pos)
         ends[#ends + 1] = pos - 1
     end
     local low, high, best = 0, #ends, suffix

@@ -473,10 +473,22 @@ function GodSystemTaskTracker:enforceMinimumSize()
     end
 end
 
+function GodSystemTaskTracker:populateTasks()
+    if not self:getIsVisible() then self.taskRowsAt = nil; return end
+    self.taskRows = gsGetActiveTaskRows()
+    self.taskRowsAt = getTimestampMs and getTimestampMs() or 0
+end
+
+function GodSystemTaskTracker:update()
+    if not self:getIsVisible() then return end
+    local now = getTimestampMs and getTimestampMs() or 0
+    if not self.taskRowsAt or now - self.taskRowsAt >= 750 then self:populateTasks() end
+end
+
 function GodSystemTaskTracker:prerender()
     ISPanel.prerender(self)
     self:enforceMinimumSize()
-    local rows = gsGetActiveTaskRows()
+    local rows = self.taskRows or {}
     local rowH = 22
     local grip = self.resizeGripSize or 14
     local background = gsThemeColor("trackerBackground")

@@ -40,6 +40,12 @@ def main():
             # constraint for every behavior spec, including SP/MP adapters.
             spec_vm.execute("next = nil")
             spec_vm.globals().readSource = read_source
+            def read_fixture(name):
+                path = (ROOT / 'tools/tests' / name).resolve()
+                if not path.is_relative_to((ROOT / 'tools/tests').resolve()):
+                    raise ValueError('Fixture path must remain under tools/tests')
+                return path.read_text(encoding='utf-8-sig')
+            spec_vm.globals().readFixture = read_fixture
             print(f"Running {spec.name}", flush=True)
             spec_vm.execute(spec.read_text(encoding="utf-8"))
 

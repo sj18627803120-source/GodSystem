@@ -1,7 +1,7 @@
 require "GodSystem_ItemCatalog"
 
 local service = GodSystemApp.getService("itemConfig") or GodSystemApp.createService("itemConfig")
-service.MAX_RESULTS = 8
+service.MAX_RESULTS = 20
 local state = { search = "" }
 
 local function isMultiplayer()
@@ -105,13 +105,14 @@ service:setExecutor(function(playerNum, intent, payload, callback)
         return "details"
     elseif intent == "set" then
         local sent = GodSystemApp.services.runtime.saveEconomyOverride(
-            payload.fullType, payload.override, payload.variantKey, payload.worldSprite, payload.shopMode
+            payload.fullType, payload.override, payload.variantKey, payload.worldSprite, payload.shopMode,
+            payload.expectedRevision, payload.acknowledgeRisk
         )
         if sent and not isMultiplayer() then service:handleChanged() end
         if callback then callback(result(sent == true, sent and "ItemOverrideQueued" or "ItemOverrideInvalid")) end
         return sent and "set" or nil
     elseif intent == "clear" then
-        local sent = GodSystemApp.services.runtime.clearEconomyOverride(payload.fullType, payload.variantKey)
+        local sent = GodSystemApp.services.runtime.clearEconomyOverride(payload.fullType, payload.variantKey, payload.expectedRevision)
         if sent and not isMultiplayer() then service:handleChanged() end
         if callback then callback(result(sent == true, sent and "ItemOverrideClearQueued" or "ItemFullTypeRequired")) end
         return sent and "clear" or nil

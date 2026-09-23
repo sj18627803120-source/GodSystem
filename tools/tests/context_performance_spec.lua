@@ -292,6 +292,12 @@ test("shop pagination: 101/121 listings expose page 6/7 without a fixed cap", fu
         local listings = {}; for i = 1, n do listings[i] = { fullType = "Base.Item" .. i, id = i } end
         e.runtime.getUnlockedShopItemsList = function() return listings end
         e.runtime.getShopPrimaryCategory = function() return { key = "all", label = "All" } end
+        local rows = {}; for i = 1, #listings do rows[i] = { item = listings[i], key = tostring(listings[i].id), category = { key = "all", label = "All" }, favoriteRank = 0, order = i } end
+        e.GodSystemShopCatalog = {
+            view = function() return rows end,
+            price = function() return 1 end,
+            snapshot = { categories = {} },
+        }
         e.runtime.getShopLabel = function(v) return v.fullType end
         e.runtime.getShopItemUnitPrice = function() return 1 end
         e.gsSetButtonTitle, e.gsIsMultiplayer = noop, function() return false end
@@ -379,6 +385,7 @@ local function transactionFixture(mp, count)
         e.itemSellPrice, e.autoShopListOnlyCost = e.runtime.getItemSellPrice, e.runtime.getAutoShopListOnlyCost
         e.spendCurrency = function(_, _, amount) return e.runtime.spendCurrency(amount) end
         e.unlockAutoShopItem = function(_, ...) return e.runtime.unlockAutoShopItem(...) end
+        load(e, "shared/GodSystem_RecycleFingerprint.lua")
         load(e, "server/GodSystem_TransactionOps.lua")
         load(e, "server/GodSystem_ServerRuntime_Commerce.lua")
         e.GodSystemServerRuntimeInstallers.GodSystem_ServerRuntime_Commerce(e)

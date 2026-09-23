@@ -549,7 +549,9 @@ function GodSystemWindow:createChildren()
         core = GodSystemApp.services.runtime.text("Nav_Group_Core", "CORE"),
         systems = GodSystemApp.services.runtime.text("Nav_Group_Systems", "SYSTEMS"),
     }
-    self.shopCategoryKey = "all"
+    local shopView = GodSystemApp.services.runtime.getData().ui and GodSystemApp.services.runtime.getData().ui.shopView or {}
+    self.shopCategoryKey = tostring(shopView.category or "all")
+    self.shopSearchText = tostring(shopView.search or "")
     self.shopCategories = {}
 
     self.shopSearchLabel = ISLabel:new(self.mainX + self:S(168), self.actionY + self:S(18), 18, GodSystemApp.services.runtime.text("Search_Label", "Search"), 0.78, 0.78, 0.78, 1, UIFont.Small, true)

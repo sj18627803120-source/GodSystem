@@ -219,8 +219,9 @@ end
 function GodSystemApp.services.runtime.removeAddedItems(addedItems)
     local player = gsPlayer()
     if not player or not addedItems then
-        return
+        return false
     end
+    local removedAll = true
     for i = 1, #addedItems do
         local item = addedItems[i]
         if item then
@@ -231,13 +232,12 @@ function GodSystemApp.services.runtime.removeAddedItems(addedItems)
                     container = found
                 end
             end
-            if container and container.Remove then
-                pcall(function() container:Remove(item) end)
-            else
-                pcall(function() player:getInventory():Remove(item) end)
-            end
+            container = container or player:getInventory()
+            local ok = pcall(function() container:Remove(item) end)
+            removedAll = removedAll and ok and not GodSystemApp.services.runtime.containerContainsItem(container, item)
         end
     end
+    return removedAll
 end
 
 function gsSafeGetText(key)

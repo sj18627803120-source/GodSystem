@@ -13,7 +13,7 @@ local L, I = GodSystemEquipmentLifecycle, GodSystemEquipmentItems
 function L.install(key, hooks)
     L.instances = L.instances or {}
     if L.instances[key] then return L.instances[key] end
-    local state = { hands = {}, swingAt = {}, dirty = false, lastMs = 0, hooks = hooks }
+    local state = { hands = {}, swingAt = {}, combatSeq = {}, dirty = false, lastMs = 0, hooks = hooks }
     L.instances[key] = state
     state.track=function(player)
         if player then state.hands[player]={I.value(player,"getPrimaryHandItem"),I.value(player,"getSecondaryHandItem")} end
@@ -33,25 +33,29 @@ function L.install(key, hooks)
     event("OnEquipPrimary", hands)
     event("OnEquipSecondary", hands)
     event("OnCreatePlayer", function(_,player) if hooks.player then hooks.player(player) end; hands(player) end)
-    -- B42 can emit different combat callbacks for an empty swing, a hit and
-    -- the end of an attack.  Route all of them through one short debounce so
-    -- a valid melee swing never depends on one callback variant, while a
-    -- multi-target hit still creates exactly one special-effect pulse.
-    local function swing(player,weapon)
+    -- Begin, native zombie-hit and completed-attack callbacks form one ledger.
+    -- Do not debounce them together: a whiff has no hit callback and one
+    -- multi-target attack may legitimately emit several hit callbacks.
+    local function begin(player,weapon)
         if not player then return end
         state.track(player)
         weapon = weapon or I.value(player,"getPrimaryHandItem")
         hooks.item(player,weapon,false)
-        if not hooks.swing then return end
         local now=GodSystemScheduler.nowMs()
         local old=state.swingAt[player]
         if old and now>=old and now-old<250 then return end
         state.swingAt[player]=now
-        hooks.swing(player,weapon)
+        state.combatSeq[player]=(state.combatSeq[player] or 0)+1
+        if hooks.swing then hooks.swing(player,weapon) end
+        if hooks.begin then hooks.begin(player,weapon,state.combatSeq[player]) end
     end
-    event("OnWeaponSwing", swing)
-    event("OnWeaponSwingHitPoint", swing)
-    event("OnPlayerAttackFinished", swing)
+    event("OnWeaponSwing", begin)
+    event("OnHitZombie",function(zombie,wielder,_,weapon)
+        if hooks.hit then hooks.hit(zombie,wielder,weapon) end
+    end)
+    event("OnPlayerAttackFinished",function(player,weapon)
+        if hooks.finish then hooks.finish(player,weapon,state.combatSeq[player]) end
+    end)
     event("OnContainerUpdate", function() state.dirty = true end)
     event("EveryOneMinute", function()
         local now = GodSystemScheduler.nowMs()
@@ -69,7 +73,7 @@ function L.install(key, hooks)
     end)
     local function reset()
         if hooks.flush then hooks.flush() end
-        state.hands, state.swingAt, state.lastMs = {}, {}, 0
+        state.hands, state.swingAt, state.combatSeq, state.lastMs = {}, {}, {}, 0
         if hooks.reset then hooks.reset() end
     end
     event("OnDisconnect", reset)

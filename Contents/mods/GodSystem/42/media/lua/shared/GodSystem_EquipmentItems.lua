@@ -3,28 +3,11 @@ require "GodSystem_B42JavaCalls"
 
 GodSystemEquipmentItems = GodSystemEquipmentItems or {}
 local I, E, Bridge = GodSystemEquipmentItems, GodSystemEquipment, GodSystemB42JavaCalls
-I.metrics=I.metrics or {applications=0,lastApplyMs=0}
+I.metrics=I.metrics or {}
 -- Explicit colon calls are required for Kahlua Java userdata.
 local callers = {
-    getMinDamage = function(o) return o:getMinDamage() end,
-    getMaxDamage = function(o) return o:getMaxDamage() end,
-    getSharpnessMultiplier = function(o) return o:getSharpnessMultiplier() end,
-    getMaxSharpness = function(o) return o:getMaxSharpness() end,
-    getConditionLowerChance = function(o) return o:getConditionLowerChance() end,
-    getBaseSpeed = function(o) return o:getBaseSpeed() end,
-    getHitChance = function(o) return o:getHitChance() end,
-    getRecoilDelay = function(o) return o:getRecoilDelay() end,
-    getAllWeaponParts = function(o) return o:getAllWeaponParts() end,
-    getDamage = function(o) return o:getDamage() end,
     isRanged = function(o) return o:isRanged() end,
     getOnBreak = function(o) return o:getOnBreak() end,
-    setMinDamage = function(o,v) return o:setMinDamage(v) end,
-    setMaxDamage = function(o,v) return o:setMaxDamage(v) end,
-    setConditionLowerChance = function(o,v) return o:setConditionLowerChance(v) end,
-    setBaseSpeed = function(o,v) return o:setBaseSpeed(v) end,
-    setHitChance = function(o,v) return o:setHitChance(v) end,
-    setRecoilDelay = function(o,v) return o:setRecoilDelay(v) end,
-    clearAllWeaponParts = function(o) return o:clearAllWeaponParts() end,
     setContainsClip = function(o,v) return o:setContainsClip(v) end,
     setRoundChambered = function(o,v) return o:setRoundChambered(v) end,
     setSpentRoundCount = function(o,v) return o:setSpentRoundCount(v) end,
@@ -89,115 +72,34 @@ function I.owned(player, item)
     end
     return false
 end
-local getters = { minDamage = "getMinDamage", maxDamage = "getMaxDamage", wear = "getConditionLowerChance",
-    speed = "getBaseSpeed", accuracy = "getHitChance", recoil = "getRecoilDelay" }
-local setters = { minDamage = "setMinDamage", maxDamage = "setMaxDamage", wear = "setConditionLowerChance",
-    speed = "setBaseSpeed", accuracy = "setHitChance", recoil = "setRecoilDelay" }
-local order = { "minDamage", "maxDamage", "wear", "speed", "accuracy", "recoil" }
-function I.raw(item)
-    local v = { ranged = I.value(item, "isRanged", false) == true }
-    for key, getter in pairs(getters) do v[key] = E.number(I.value(item, getter)) end
-    -- B42.20.4: effectiveMax = min + (rawMax-min)*sharpnessMultiplier.
-    if I.value(item, "hasSharpness", false) and v.minDamage and v.maxDamage and v.maxDamage > v.minDamage then
-        local multiplier = E.number(I.value(item, "getSharpnessMultiplier", 1))
-        if not multiplier or multiplier <= 0 then return nil end
-        v.maxDamage = v.minDamage + (v.maxDamage - v.minDamage) / multiplier
-    end
-    return v
-end
-function I.parts(item)
-    local parts = { minDamage = 0, maxDamage = 0, accuracy = 0, recoil = 0 }
-    local ok, list = I.call(item, "getAllWeaponParts")
-    if not ok or not list then return nil end
-    local count = E.integer(I.value(list, "size"), 0, 64)
-    if not count then return nil end
-    for index = 0, count - 1 do
-        local part = I.value(list, "get", nil, index)
-        if not part then return nil end
-        local damage = E.number(I.value(part, "getDamage"))
-        local accuracy = E.number(I.value(part, "getHitChance"))
-        local recoil = E.number(I.value(part, "getRecoilDelay"))
-        if not damage or not accuracy or not recoil then return nil end
-        parts.minDamage, parts.maxDamage = parts.minDamage + damage, parts.maxDamage + damage
-        parts.accuracy, parts.recoil = parts.accuracy + accuracy, parts.recoil + recoil
-    end
-    return parts
-end
-function I.base(item)
-    if not I.isWeapon(item) then return nil, "EquipmentUnsupported" end
-    local raw, parts = I.raw(item), I.parts(item)
-    if not raw or not parts then return nil, "EquipmentUnsupported" end
-    local base = E.copy(raw)
-    for key, value in pairs(parts) do if base[key] then base[key] = base[key] - value end end
-    if not base.minDamage or not base.maxDamage or base.minDamage < 0 or base.maxDamage < base.minDamage then
-        return nil, "EquipmentUnsupported"
-    end
-    if not base.wear or base.wear <= 0 then base.wear = nil end
-    if not base.speed or base.speed <= 0 then base.speed = nil end
-    if not base.accuracy or base.accuracy <= 0 then base.accuracy = nil end
-    if not base.recoil or base.recoil <= 0 then base.recoil = nil end
-    if parts.recoil ~= math.floor(parts.recoil) then base.recoil = nil end -- Native integer truncation is not invertible.
-    return base
-end
+-- 42.20_3.6 deliberately has no per-instance combat-stat helpers here.
+-- Equipment effects must not read, derive or overwrite weapon damage, speed,
+-- wear chance, accuracy or recoil values owned by vanilla/other mods.
 function I.near(a,b)
-    return E.number(a) and E.number(b) and math.abs(a-b) <= math.max(0.00001, math.abs(b)*0.00001)
-end
-function I.write(item, target, force)
-    local before = I.raw(item)
-    if not before then return false end
-    for _, key in ipairs(order) do
-        local value = target[key]
-        if value ~= nil then
-            if not E.number(value) or math.abs(value) > E.MaxMoney then return false end
-            if force or not I.near(before[key], value) then
-                if not I.call(item, setters[key], value) then return false end
-            end
-        end
-    end
-    local after = I.raw(item)
-    if not after then return false end
-    for _, key in ipairs(order) do if target[key] ~= nil and not I.near(after[key], target[key]) then return false end end
-    return true
-end
-function I.target(item, base, levels, cfg)
-    local parts, target = I.parts(item), E.values(base, levels, cfg)
-    if not parts then return nil end
-    for key, value in pairs(parts) do if target[key] ~= nil then target[key] = target[key] + value end end
-    if target.accuracy then target.accuracy = math.floor(target.accuracy + 0.5) end
-    if target.recoil then target.recoil = math.floor(target.recoil + 0.5) end
-    if levels and (levels.accuracy or 0)>0 and target.accuracy then target.accuracy=math.min(100,target.accuracy) end
-    if levels and (levels.recoil or 0)>0 and target.recoil then target.recoil=math.max(1,target.recoil) end
-    return target
-end
-function I.apply(item, base, levels, cfg)
-    local started=getTimestampMs and getTimestampMs() or 0
-    I.metrics.applications=I.metrics.applications+1
-    local target=I.target(item,base,levels,cfg)
-    if not target then return false end
-    local result=I.write(item, target)
-    I.metrics.lastApplyMs=(getTimestampMs and getTimestampMs() or started)-started
-    return result
+    return E.number(a) and E.number(b) and math.abs(a-b)<=math.max(0.00001,math.abs(b)*0.00001)
 end
 function I.durability(item)
     local d = { condition = E.number(I.value(item, "getCondition")), conditionMax = E.number(I.value(item, "getConditionMax")),
         hasHead = I.value(item, "hasHeadCondition", false) == true,
         hasSharpness = I.value(item, "hasSharpness", false) == true }
-    if not d.condition or not d.conditionMax or d.conditionMax < 1 then return nil end
+    -- Binding records only the identity and recovery fields used by this
+    -- system. Combat statistics remain deliberately outside this check.
+    if not E.integer(d.conditionMax,1,127) or not E.integer(d.condition,0,d.conditionMax) then return nil, "EquipmentBindMissingBody" end
     if d.hasHead then
         d.headCondition = E.number(I.value(item, "getHeadCondition"))
         d.headConditionMax = E.number(I.value(item, "getHeadConditionMax"))
-        if not d.headCondition or not d.headConditionMax or d.headConditionMax < 1 then return nil end
+        if not E.integer(d.headConditionMax,1,E.MaxMoney) or not E.integer(d.headCondition,0,d.headConditionMax) then return nil, "EquipmentBindMissingHead" end
     end
     if d.hasSharpness then
         d.sharpness = E.number(I.value(item, "getSharpness"))
         d.maxSharpness = E.number(I.value(item, "getMaxSharpness"))
-        if not d.sharpness or not d.maxSharpness then return nil end
+        if not d.sharpness or d.sharpness < 0 or d.sharpness > 1 or not d.maxSharpness then return nil, "EquipmentBindMissingSharpness" end
     end
     return d
 end
 function I.full(d)
-    return d and d.condition >= d.conditionMax and (not d.hasHead or d.headCondition >= d.headConditionMax)
-        and (not d.hasSharpness or d.sharpness >= 0.99999)
+    return d and E.number(d.condition) and E.number(d.conditionMax) and d.condition >= d.conditionMax and (not d.hasHead or (E.number(d.headCondition) and E.number(d.headConditionMax) and d.headCondition >= d.headConditionMax))
+        and (not d.hasSharpness or (E.number(d.sharpness) and d.sharpness >= 0.99999))
 end
 function I.canRepair(item,d)
     d=d or I.durability(item)
@@ -211,7 +113,7 @@ function I.canRepair(item,d)
 end
 function I.setDurability(item, d, recover, repair)
     local current = I.durability(item)
-    if not current or current.hasHead ~= d.hasHead or current.hasSharpness ~= d.hasSharpness then return false end
+    if not d or not current or current.hasHead ~= d.hasHead or current.hasSharpness ~= d.hasSharpness then return false end
     -- Never restore an obsolete ConditionMax or manufacture a zero-condition composite.
     local condition = repair and current.conditionMax or math.min(current.conditionMax, d.condition)
     if recover then condition = math.max(1, condition) end
@@ -233,9 +135,9 @@ function I.setDurability(item, d, recover, repair)
     return after and I.near(after.condition, condition) and (not head or I.near(after.headCondition, head))
         and (not sharpness or I.near(after.sharpness, sharpness)) or false
 end
-function I.snapshot(item)
-    local raw, d = I.raw(item), I.durability(item)
-    if not raw or not d then return nil end
+function I.snapshot(item, restoreDurability)
+    local d = I.durability(item)
+    if restoreDurability and not d then return nil end
     local source,marker=I.marker(item),nil
     if source then
         marker={}
@@ -246,17 +148,16 @@ function I.snapshot(item)
         end
     end
     local custom = I.value(item, "isCustomName", nil)
-    return { raw = raw, durability = d, marker = marker,
+    return { durability = d, marker = marker, restoreDurability = restoreDurability == true,
         name = custom ~= nil and I.name(item) or nil, customName = custom == true }
 end
 function I.restore(item, snapshot)
     if not snapshot then return false end
-    local attributes = I.write(item, snapshot.raw)
-    local durability = I.setDurability(item, snapshot.durability, false, false)
+    local durability = not snapshot.restoreDurability or I.setDurability(item, snapshot.durability, false, false)
     local md = I.value(item, "getModData")
     if md then md[E.ItemKey] = E.copy(snapshot.marker) end
     local named = type(snapshot.name) ~= "string" or I.setName(item, snapshot.name, snapshot.customName == true)
-    return attributes and durability and named and md ~= nil
+    return durability and named and md ~= nil
 end
 function I.mark(item, root, record)
     local md = I.value(item, "getModData")
@@ -264,7 +165,7 @@ function I.mark(item, root, record)
     md[E.ItemKey] = { schema = E.Schema, worldId = root.worldId, equipmentId = record.id,
         generation = record.generation, revision = record.revision, ownerKey = record.ownerKey,
         itemId = I.id(item), fullType = I.value(item, "getFullType"),
-        base = E.copy(record.base), durability = E.copy(record.durability) }
+        durability = E.copy(record.durability) }
     return true
 end
 function I.matches(item, root, record)

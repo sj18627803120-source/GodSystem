@@ -136,6 +136,8 @@ function GodSystemUI.createTaskTracker()
     local w = math.max(260, math.floor(tonumber(data.ui.taskTrackerW) or 340))
     local h = math.max(70, math.floor(tonumber(data.ui.taskTrackerH) or defaultH))
     local tracker = GodSystemTaskTracker:new(x, y, w, h)
+    tracker.taskRows = rows
+    tracker.taskRowsAt = getTimestampMs and getTimestampMs() or 0
     tracker:initialise()
     GodSystemUI.presentOverlay(tracker)
     GodSystemUI.taskTracker = tracker

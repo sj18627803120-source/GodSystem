@@ -163,6 +163,7 @@ function GodSystemWindow:updateDetail()
     if self.mode == "attribute" then
         self:applyAttributeActionBar(payload)
     end
+    if self.terminalOwnsDetail then return end
     if not payload then
         if self.mode == "recycle" then
             self:setDetailText(GodSystemApp.services.runtime.text("Hint_Recycle", "Click an item to view prices. Use button or right click to sell."))
@@ -280,6 +281,8 @@ function GodSystemWindow:updateDetail()
     elseif payload.kind == "upgrade" then
         local upgradeType = payload.data and payload.data.upgradeType
         self:setDetailText(GodSystemApp.services.runtime.getSystemUpgradeDetailText(upgradeType))
+    elseif payload.kind == "deathProtection" then
+        self:setDetailText(GodSystemApp.services.runtime.text("DeathProtection_Description", "Single-player death protection.") .. "\n\n" .. tostring(payload.detail or ""))
     elseif payload.kind == "medicalService" then
         local info = payload.data or {}
         self:setDetailText(tostring(info.desc or "") .. " | " .. GodSystemApp.services.runtime.text("Upgrade_Cost", "Cost") .. " " .. tostring(info.cost or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c"))

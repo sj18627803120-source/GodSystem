@@ -3,19 +3,15 @@ if not (isServer and isServer()) then return end
 GodSystemTransactionOps = GodSystemTransactionOps or {}
 GodSystemTransactionOps.normalized = GodSystemTransactionOps.normalized or {}
 
+local RecycleFingerprint = GodSystemRecycleFingerprint
+assert(RecycleFingerprint, "GodSystem recycle fingerprint helper missing")
+
 local MAX_RESULTS = 64
 
 local function validOpId(args)
     local opId = args and tostring(args.opId or "") or ""
     if #opId > 96 or not string.match(opId, "^gs%-%d+%-%d+%-%d+$") then return nil end
     return opId
-end
-
-local function sortedValues(values)
-    local result = {}
-    for i = 1, #(values or {}) do result[#result + 1] = tostring(values[i] or "") end
-    table.sort(result)
-    return result
 end
 
 local function sortedUniqueNonEmptyValues(values)
@@ -41,10 +37,17 @@ function GodSystemTransactionOps.fingerprint(kind, args)
             "buyShop",
             tostring(args.id or ""),
             "q:" .. tostring(math.max(1, math.floor(tonumber(args.quantity) or 1))),
+            "quote:" .. tostring(args.quoteId or ""),
         }, "|")
     end
     if kind == "useLotteryTicket" then
         return "lottery|" .. tostring(args.itemId or "")
+    end
+    if kind == "useMimicKey" then
+        return GodSystemMimicKey.fingerprint(args)
+    end
+    if kind == "utilityGenerator" then
+        return GodSystemUtilityGenerator.fingerprint(args)
     end
     if kind == "listOnlyAutoShop" then
         return table.concat({
@@ -54,22 +57,7 @@ function GodSystemTransactionOps.fingerprint(kind, args)
         }, "|")
     end
     if kind == "recycleSelectedItems" then
-        local parts = {
-            "recycle",
-            tostring(args.mode or ""),
-            args.allowDestroyContents == true and "1" or "0",
-        }
-        local ids = sortedValues(args.itemIds)
-        for i = 1, #ids do parts[#parts + 1] = "i:" .. ids[i] end
-        local signatures = type(args.containerContentSignatures) == "table" and args.containerContentSignatures or {}
-        local signatureIds = {}
-        for id in pairs(signatures) do signatureIds[#signatureIds + 1] = tostring(id) end
-        table.sort(signatureIds)
-        for i = 1, #signatureIds do
-            local id = signatureIds[i]
-            parts[#parts + 1] = "s:" .. id .. "=" .. tostring(signatures[id] or "")
-        end
-        return table.concat(parts, "|")
+        return RecycleFingerprint.fingerprint(args)
     end
     if kind == "setShopItemsHidden" then
         local parts = { "shopHidden", args.hidden == true and "1" or "0" }
@@ -97,6 +85,9 @@ function GodSystemTransactionOps.bucket(root, owner, kind, create)
         bucket.order = type(bucket.order) == "table" and bucket.order or {}
         if GodSystemTransactionOps.normalized[bucket] ~= true then
             for _, result in pairs(bucket.results) do
+                if kind == "recycleSelectedItems" and type(result) == "table" and result.fingerprint then
+                    result.fingerprint = RecycleFingerprint.compactLegacy(result.fingerprint)
+                end
                 if type(result) == "table" and result.status == "processing" then
                     result.status = "unknown"
                     result.ok = false

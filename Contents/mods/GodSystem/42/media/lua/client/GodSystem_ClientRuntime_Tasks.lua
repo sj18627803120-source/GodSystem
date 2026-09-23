@@ -394,6 +394,33 @@ function GodSystemApp.services.runtime.abandonTask(task)
     return GodSystemApp.services.runtime.failTask(task, false, "History_AbandonTask")
 end
 
+function GodSystemApp.services.runtime.grantTaskRewards(task)
+    local r = GodSystemApp.services.runtime
+    if task.rewardReceipt == "done" then return true end
+    if task.rewardReceipt then return false end
+    task.rewardReceipt = "processing"
+    local added = {}
+    local ok, granted = pcall(function()
+        local expected = 0
+        for i=1,#(task.rewardItems or {}) do expected=expected+math.max(1,math.floor(task.rewardItems[i].count or 1)) end
+        local count, _, items = r.giveItems(task.rewardItems, true)
+        added = items or {}
+        if (count or 0) < expected then return false end
+        if (task.rewardPoints or 0)>0 and not r.addPoints(task.rewardPoints) then return false end
+        return true
+    end)
+    if not ok or not granted then
+        local removed = r.removeAddedItems(added)
+        task.rewardReceipt = "unknown"
+        if ok and removed then task.rewardReceipt=nil end
+        r.notify(r.text("Notify_ItemGrantFailed","Failed to give item"))
+        r.save()
+        return false
+    end
+    task.rewardReceipt="done"
+    return true
+end
+
 function GodSystemApp.services.runtime.claimTask(task, silent)
     if GodSystemApp.services.runtime.isFeatureEnabled("EnableTasks") == false then
         GodSystemApp.services.runtime.notify("Tasks disabled")
@@ -421,10 +448,7 @@ function GodSystemApp.services.runtime.claimTask(task, silent)
     end
 
     local data = GodSystemApp.services.runtime.getData()
-    if (task.rewardPoints or 0) > 0 then
-        GodSystemApp.services.runtime.addPoints(task.rewardPoints)
-    end
-    GodSystemApp.services.runtime.giveItems(task.rewardItems)
+    if not GodSystemApp.services.runtime.grantTaskRewards(task) then return false end
     task.status = "claimed"
     task.claimedAt = gsNowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
@@ -441,6 +465,7 @@ function GodSystemApp.services.runtime.submitTurnInTask(task, itemIds)
     if not isTurnInTask(task) or not task or task.status ~= "active" then
         return false
     end
+    if task.rewardReceipt or GodSystemApp.services.runtime.isTaskExpired(task) then return false end
     local target = math.max(1, math.floor(tonumber(task.target) or 1))
     if type(itemIds) ~= "table" or #itemIds ~= target then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_TaskTurnInSelectionInvalid", "Select exactly {1} matching items"):gsub("{1}", tostring(target)))
@@ -492,8 +517,13 @@ function GodSystemApp.services.runtime.submitTurnInTask(task, itemIds)
         removed[#removed + 1] = row
     end
     local data = GodSystemApp.services.runtime.getData()
-    if (task.rewardPoints or 0) > 0 then GodSystemApp.services.runtime.addPoints(task.rewardPoints) end
-    GodSystemApp.services.runtime.giveItems(task.rewardItems)
+    if not GodSystemApp.services.runtime.grantTaskRewards(task) then
+        for i=1,#removed do
+            local ok = pcall(function() removed[i].container:AddItem(removed[i].item) end)
+            if not ok then task.rewardReceipt="unknown" end
+        end
+        return false
+    end
     task.status = "claimed"
     task.claimedAt = gsNowHours()
     data.stats.completedTasks = (data.stats.completedTasks or 0) + 1
@@ -723,6 +753,11 @@ function GodSystemApp.services.runtime.onPlayerUpdate(player)
     if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
     local now = GodSystemScheduler.nowMs()
     if not GodSystemScheduler.due("client.sp.core.fast", 1000, now) then return end
+    GodSystemShopInflation.advance(GodSystemApp.services.runtime.getData(), GodSystemRuntimeConfig.Current, math.floor(gsNowHours() * 60), true)
+    if GodSystemScheduler.due("client.sp.inflation.cleanup", 30000, now) then
+        GodSystemShopInflation.sweep(GodSystemApp.services.runtime.getData(), 8)
+    end
+    GodSystemApp.services.runtime.restoreCarryCapacity(player)
     GodSystemApp.services.runtime.updateMoveDistance(player)
     GodSystemApp.services.runtime.generateDailyTasks(false)
     GodSystemApp.services.runtime.updateKillRewards()
@@ -747,13 +782,23 @@ function GodSystemApp.services.runtime.onPlayerDeath(player)
 end
 
 function GodSystemApp.services.runtime.onGameStart()
+    if GodSystemShopCatalog then GodSystemShopCatalog.clear() end
     GodSystemScheduler.reset("client.sp.")
+    if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer) then
+        GodSystemShopInflation.pause(GodSystemApp.services.runtime.getData(), GodSystemRuntimeConfig.Current, math.floor(gsNowHours() * 60))
+    end
     GodSystemApp.services.runtime.ensureCurrencyInitialized()
     GodSystemApp.services.runtime.generateDailyTasks(false)
+    GodSystemCarryCapacity.scheduleRecheck(gsPlayer())
+    GodSystemApp.services.runtime.restoreCarryCapacity(gsPlayer())
 end
 
 function GodSystemApp.services.runtime.onCreatePlayer(_, player)
     if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
+    if player then
+        GodSystemCarryCapacity.scheduleRecheck(player)
+        GodSystemApp.services.runtime.restoreCarryCapacity(player)
+    end
 end
 
 function GodSystemApp.services.runtime.onInitGlobalModData()

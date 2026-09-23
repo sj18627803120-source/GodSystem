@@ -63,6 +63,32 @@ function GodSystemShopVariants.normalizeUnlocked(data, configuredKeys)
     return migrated, removedConfigured, mergedDuplicates
 end
 
+function GodSystemShopVariants.ensureCatalogMeta(data, configuredKeys)
+    if type(data) ~= "table" then return 0 end
+    if tonumber(data.shopCatalogSchemaVersion) ~= 1 then
+        -- This is deliberately the only full normalization migration.  Later
+        -- reads only trust the maintained count/revision fields.
+        GodSystemShopVariants.normalizeUnlocked(data, configuredKeys)
+        local count = 0
+        for _ in pairs(data.unlockedShopItems or {}) do count = count + 1 end
+        data.shopCatalogSchemaVersion = 1
+        data.shopCatalogCount = count
+        data.shopCatalogRevision = math.max(1, math.floor(tonumber(data.shopCatalogRevision) or 0) + 1)
+    else
+        data.unlockedShopItems = type(data.unlockedShopItems) == "table" and data.unlockedShopItems or {}
+        data.shopCatalogCount = math.max(0, math.floor(tonumber(data.shopCatalogCount) or 0))
+        data.shopCatalogRevision = math.max(1, math.floor(tonumber(data.shopCatalogRevision) or 1))
+    end
+    return data.shopCatalogCount
+end
+
+function GodSystemShopVariants.touchCatalog(data, delta)
+    if type(data) ~= "table" then return end
+    GodSystemShopVariants.ensureCatalogMeta(data)
+    data.shopCatalogCount = math.max(0, data.shopCatalogCount + math.floor(tonumber(delta) or 0))
+    data.shopCatalogRevision = math.max(1, math.floor(tonumber(data.shopCatalogRevision) or 0) + 1)
+end
+
 function GodSystemShopVariants.removeMatchingUnlocked(data, fullType, variantKey)
     local unlocked = type(data) == "table" and data.unlockedShopItems or nil
     if type(unlocked) ~= "table" then return 0 end
@@ -80,6 +106,7 @@ function GodSystemShopVariants.removeMatchingUnlocked(data, fullType, variantKey
             removed = removed + 1
         end
     end
+    if removed > 0 then GodSystemShopVariants.touchCatalog(data, -removed) end
     return removed
 end
 
@@ -101,6 +128,7 @@ function GodSystemShopVariants.setHidden(data, variantKey, hidden)
     local changed = row.hidden ~= target
     row.hidden = target
     row.variantKey = key
+    if changed then GodSystemShopVariants.touchCatalog(data, 0) end
     return true, changed, row
 end
 
@@ -111,6 +139,7 @@ function GodSystemShopVariants.deleteUnlocked(data, variantKey)
     if type(row) ~= "table" then return false, nil end
     unlocked[key] = nil
     row.variantKey = key
+    GodSystemShopVariants.touchCatalog(data, -1)
     return true, row
 end
 

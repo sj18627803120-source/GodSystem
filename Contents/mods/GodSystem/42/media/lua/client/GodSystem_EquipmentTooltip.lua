@@ -21,17 +21,21 @@ local function lines(item)
     if not projection or projection.valid~=true or type(projection.levels)~="table" then return nil end
     local cfg=projection.config
     if type(cfg)~="table" then return nil end
-    local raw=I.raw(item)
-    if not raw or not E.supports(raw,"damage") then return nil end
     local result={}
-    for _, entry in ipairs(E.tooltipEntries(raw,projection.levels,cfg)) do
-        local label=C.text("Equipment_Attr_"..entry.attribute,entry.attribute)
+    local record={weaponKind=I.value(item,"isRanged",false) and "ranged" or "melee",levels=projection.levels,effectState=projection.effectState}
+    for _, entry in ipairs(E.tooltipEntries(record,cfg)) do
         if entry.direction=="freeze" then
             result[#result+1]=format("Equipment_TooltipFreeze","Slow Lv.{1}, -{2}% zombie movement speed",entry.level,percent(entry.percent))
-        elseif entry.direction=="decrease" then
-            result[#result+1]=format("Equipment_TooltipDecrease","{1} Lv.{2}, -{3}% {1}",label,entry.level,percent(entry.percent))
-        else
-            result[#result+1]=format("Equipment_TooltipIncrease","{1} Lv.{2}, +{3}% {1}",label,entry.level,percent(entry.percent))
+        elseif entry.direction=="impact" then
+            local state=entry.state or {}; local suffix=state.ready and C.text("Equipment_ImpactReady","Ready")
+                or ((entry.rule and tostring(state.attackCount or 0).."/"..tostring(entry.rule.attacks)) or "")
+            result[#result+1]=format("Equipment_TooltipImpact","Impact Lv.{1}, {2}",entry.level,suffix)
+        elseif entry.direction=="splash" then
+            local suffix=entry.active and "" or (" ("..C.text("Equipment_Disabled","disabled")..")")
+            result[#result+1]=format("Equipment_TooltipSplash",
+                "Splash Lv.{1}, {2}% of average weapon base damage within {3} tiles to up to {4} nearby zombies{5}",
+                entry.level,percent(entry.percent),entry.rule and entry.rule.radius or 0,
+                entry.rule and entry.rule.targets or 0,suffix)
         end
     end
     return #result>0 and result or nil

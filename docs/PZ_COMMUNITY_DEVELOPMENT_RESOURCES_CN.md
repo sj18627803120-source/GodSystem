@@ -1,6 +1,6 @@
 # Project Zomboid 社区开发资源核验
 
-核验日期：2026-07-21。目标版本：Project Zomboid Build 42.19.0。
+核验日期：2026-07-21；当时目标为 Project Zomboid Build 42.19.0。GodSystem 现目标为 B42.20.4；本页保留旧资料的来源核验结果，方法签名需在当前游戏补丁复核。当前索引见[开发技术支援](开发技术支援/参考资料索引.md)。
 
 本页核验 `PZwiki` 开发页面、`PZ Community API / SpawnerAPI` 和 `Archive.Project-Zomboid-Modding`。这些资源可以提高研究效率，但证据等级、目标版本和许可证不同，不能统称为“官方 B42.19 API”。
 

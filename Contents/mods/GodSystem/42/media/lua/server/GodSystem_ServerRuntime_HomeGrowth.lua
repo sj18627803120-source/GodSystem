@@ -177,11 +177,54 @@ function spendHomeCostCode(player, data, cost, code, args)
     return true
 end
 
+teleportSessions = {}
+teleportRequests = {}
+teleportSequence = 0
+
+function teleportExecutor(target)
+    if not Capability then return nil end
+    local function eligible(candidate)
+        local role = candidate and candidate.getRole and candidate:getRole()
+        return role and role:hasCapability(Capability.TeleportToCoordinates)
+            and (candidate == target or role:hasCapability(Capability.TeleportPlayerToAnotherPlayer))
+    end
+    if eligible(target) then return target end
+    local players = getOnlinePlayers and getOnlinePlayers()
+    if players then
+        for i=0,players:size()-1 do
+            local candidate=players:get(i)
+            if eligible(candidate) then return candidate end
+        end
+    end
+end
+
 function sendTeleportRequest(player, data, action, index, safe, history, historyArgs)
     local home = data.homeSystem or {}
+    if home.pendingTeleport then
+        checkPendingTeleport(player, data)
+        if home.pendingTeleport then return finishCode(player, false, "TeleportPending") end
+    end
+    -- Prefer the native command's anti-cheat handshake. The optional fallback
+    -- only authorizes the requesting client's movement; it cannot grant that handshake.
+    local executor = teleportExecutor(player)
+    local fallback = executor == nil
+    if fallback then
+        if GodSystemRuntimeConfig.get("EnableTeleportFallback", true) == false then
+            return finishCode(player, false, "TeleportExecutorUnavailable")
+        end
+        executor = player
+    end
+    local targetUsername = player:getUsername()
+    if not Protocol.teleportCommand({native=true,targetUsername=targetUsername,pos=safe}) then
+        return finishCode(player, false, "TeleportTargetInvalid")
+    end
+    data.taskMotion = nil
     local cost = math.max(0, floor(GodSystemConfig.HomeTravelCost, 10))
     if cost > 0 and not canAfford(player, cost, data) then return finish(player, false, "系统币不足") end
-    local requestId = tostring(math.floor(nowHours() * 1000)) .. "_" .. tostring(randomIndex(999999))
+    local paid, fromBank, fromCash = spendCurrency(player, data, cost)
+    if not paid then return finish(player, false, "系统币不足") end
+    teleportSequence = teleportSequence + 1
+    local requestId = tostring(GodSystemScheduler.nowMs()) .. "_" .. tostring(teleportSequence) .. "_" .. tostring(randomIndex(999999))
     home.pendingTeleport = {
         id = requestId,
         action = tostring(action or ""),
@@ -192,30 +235,71 @@ function sendTeleportRequest(player, data, action, index, safe, history, history
         historyArgs = historyArgs or {},
         returnPoint = action ~= "return" and currentPosition(player) or nil,
         createdHour = nowHours(),
+        createdMs = GodSystemScheduler.nowMs(),
+        fromBank = fromBank, fromCash = fromCash,
+        fallback = fallback,
     }
-    sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.Teleport) or "teleport", {
+    teleportSessions[userKey(player)] = player
+    teleportRequests[requestId] = {player=player,executor=executor,data=data}
+    print("[GodSystem] teleport start id=" .. requestId .. " path=" .. (fallback and "client" or "native"))
+    local sent, why = pcall(sendServerCommand, executor, MODULE, (Protocol.S2C and Protocol.S2C.Teleport) or "teleport", {
         id = requestId,
         pos = copyPosition(safe),
+        native = not fallback,
+        fallback = fallback and "approvedClient" or nil,
+        targetUsername = targetUsername,
     })
+    if not sent then
+        checkPendingTeleport(player, data, true)
+        print("[GodSystem] teleport dispatch failed: " .. tostring(why))
+    end
 end
 
-function Commands.teleportConfirm(_, _, player, args)
-    applyRuntimeStores()
-    if GodSystemRuntimeConfig.isFeatureEnabled("EnableTeleport") == false then return finish(player, false, "Teleport disabled") end
-    local data = playerData(player)
+function checkPendingTeleport(player, data, cancel)
     local home = data.homeSystem or {}
     local pendingTeleport = home.pendingTeleport
-    if not pendingTeleport or tostring(pendingTeleport.id or "") ~= tostring(args and args.id or "") then
-        return finish(player, false, "传送请求已失效")
+    if not pendingTeleport then return end
+    data.taskMotion = nil
+    local validSession = teleportSessions[userKey(player)] == player and not player:isDead()
+    local target = pendingTeleport.safe or {}
+    local dx, dy = player:getX() - (target.x or 0), player:getY() - (target.y or 0)
+    local arrived = dx * dx + dy * dy <= 9 and math.abs(player:getZ() - (target.z or 0)) <= 0.5
+    local failed = cancel or GodSystemScheduler.nowMs() - (pendingTeleport.createdMs or 0) > 15000
+    -- Arrival wins over a late failure acknowledgement or a timeout tick.
+    if validSession and not arrived and failed and pendingTeleport.fallback ~= true
+        and GodSystemRuntimeConfig.get("EnableTeleportFallback", true) ~= false then
+        local supersededId = pendingTeleport.id
+        teleportRequests[pendingTeleport.id] = nil
+        pendingTeleport.id = pendingTeleport.id .. "_fallback"
+        pendingTeleport.fallback = true
+        pendingTeleport.createdMs = GodSystemScheduler.nowMs()
+        teleportRequests[pendingTeleport.id] = {player=player,executor=player,data=data}
+        local sent = pcall(sendServerCommand, player, MODULE, (Protocol.S2C and Protocol.S2C.Teleport) or "teleport", {
+            id=pendingTeleport.id, pos=copyPosition(pendingTeleport.safe), native=false,
+            fallback="approvedClient", targetUsername=player:getUsername(), supersedes=supersededId,
+        })
+        print("[GodSystem] teleport fallback id=" .. tostring(pendingTeleport.id)
+            .. " reason=" .. (cancel and "executor_failed" or "timeout"))
+        -- Reuse the reservation and original departure point; fallback is attempted once.
+        if not sent then return checkPendingTeleport(player, data, true) end
+        return
     end
+    if not validSession or (failed and not arrived) then
+        print("[GodSystem] teleport cancelled id=" .. tostring(pendingTeleport.id)
+            .. " reason=" .. (not validSession and "session" or cancel and "executor_failed" or "timeout"))
+        home.pendingTeleport = nil
+        teleportRequests[pendingTeleport.id] = nil
+        teleportSessions[userKey(player)] = nil
+        GodSystemServer.refundCurrencySources(player, data, pendingTeleport.fromBank or 0, pendingTeleport.fromCash or 0)
+        return finishCode(player, false, "TeleportCancelled")
+    end
+    if not arrived then return end
+    print("[GodSystem] teleport arrived id=" .. tostring(pendingTeleport.id)
+        .. " path=" .. (pendingTeleport.fallback and "client" or "native"))
     home.pendingTeleport = nil
-    if not args or args.ok ~= true then
-        return finish(player, false, "传送未完成，未扣费")
-    end
+    teleportRequests[pendingTeleport.id] = nil
+    teleportSessions[userKey(player)] = nil
     local cost = math.max(0, floor(pendingTeleport.cost, 0))
-    if cost > 0 and not addPoints(player, -cost, data) then
-        return finish(player, false, "系统币不足")
-    end
     data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
     local finalArgs = pendingTeleport.historyArgs or {}
     finalArgs[#finalArgs + 1] = cost
@@ -226,7 +310,36 @@ function Commands.teleportConfirm(_, _, player, args)
     elseif pendingTeleport.action == "return" then
         home.returnPoint = nil
     end
-    return finish(player, true, "传送完成")
+    return finishCode(player, true, "TeleportCompleted")
+end
+
+function Commands.teleportConfirm(_, _, player, args)
+    local request = teleportRequests[tostring(args and args.id or "")]
+    if not request or request.executor ~= player then return end
+    local data = request.data
+    local pendingTeleport = data.homeSystem and data.homeSystem.pendingTeleport
+    if not pendingTeleport or tostring(pendingTeleport.id) ~= tostring(args and args.id) then return end
+    -- The movement packet can arrive after this acknowledgement. Keep the
+    -- reservation until the server observes arrival or the bounded timeout.
+    return checkPendingTeleport(request.player, data, args and args.ok == false)
+end
+
+function cleanupTeleportRequests(active)
+    for id, request in pairs(teleportRequests) do
+        if not active[userKey(request.player)] then
+            local data=request.data
+            local pendingTeleport=data.homeSystem and data.homeSystem.pendingTeleport
+            if pendingTeleport and pendingTeleport.id==id then
+                -- A disconnected inventory cannot receive a reliable cash refund.
+                -- Preserve its complete reservation in the account's bank.
+                local bank=getBank(data)
+                bank.current=(bank.current or 0)+(pendingTeleport.fromBank or 0)+(pendingTeleport.fromCash or 0)
+                data.homeSystem.pendingTeleport=nil
+            end
+            teleportSessions[userKey(request.player)]=nil
+            teleportRequests[id]=nil
+        end
+    end
 end
 
 function Commands.home(_, _, player, args)
@@ -280,20 +393,7 @@ function Commands.home(_, _, player, args)
         local safe = safeTeleportPosition(target)
         if not safe then return finish(player, false, "目标附近没有安全落点") end
         local historyArgs = action == "teleportTemp" and { index } or {}
-        do
-            return sendTeleportRequest(player, data, action, index, safe, history, historyArgs)
-        end
-        if not spendHomeCostCode(player, data, GodSystemConfig.HomeTravelCost or 10, history, historyArgs) then return finish(player, false, "系统币不足") end
-        if action ~= "return" then
-            home.returnPoint = currentPosition(player)
-            home.returnPoint.source = history
-        end
-        player:setX(safe.x); player:setY(safe.y); player:setZ(safe.z)
-        if player.setLastX then player:setLastX(safe.x) end
-        if player.setLastY then player:setLastY(safe.y) end
-        if player.setLastZ then player:setLastZ(safe.z) end
-        if action == "return" then home.returnPoint = nil end
-        return finish(player, true, "传送完成")
+        return sendTeleportRequest(player, data, action, index, safe, history, historyArgs)
     elseif action == "toggleSafeZone" then
         home.safeZone.enabled = home.safeZone.enabled ~= true
         return finish(player, true, home.safeZone.enabled and "安全区已开启" or "安全区已关闭")
@@ -355,13 +455,15 @@ function Commands.attribute(_, _, player, args)
         if not paid then return respond(false, "CurrencyNotEnough") end
 
         local before = quote.currentXp
-        local xp = player and player.getXp and player:getXp() or nil
-        if xp and xp.AddXP then
-            pcall(function() xp:AddXP(quote.info.perk, quote.actualXp, false, false, false, false) end)
-        end
+        -- Use the vanilla server XP bridge. Direct XP mutations can bypass its
+        -- multiplayer synchronization and anti-cheat bookkeeping.
+        local xpCallOk = type(addXp) == "function"
+            and pcall(addXp, player, quote.info.perk, quote.actualXp)
         local state = GodSystemAttributes.getPlayerState(player, quote.info)
         local appliedXp = state and math.max(0, state.currentXp - before) or 0
         if appliedXp <= 0 then
+            print("[GodSystem] attribute XP not applied: bridge=" .. tostring(xpCallOk)
+                .. " op=" .. tostring(opId))
             local originalSourcesRestored = GodSystemServer.refundCurrencySources(player, data, fromBank, fromCash)
             return respond(false, originalSourcesRestored and "AttributeApplyFailed" or "AttributeApplyFailedBankRefund")
         end

@@ -6,6 +6,7 @@ require "GodSystem_Scheduler"
 require "GodSystem_Maintenance"
 require "GodSystem_B42JavaCalls"
 require "GodSystem_Equipment"
+require "GodSystem_RecycleFingerprint"
 require "TimedActions/ISTimedActionQueue"
 require "ISUI/ISInventoryPane"
 
@@ -50,12 +51,43 @@ local investmentRuntimeHour = nil
 local investmentWasActive = false
 local send
 
+local function confirmShopQuote(quote)
+    if not quote or not quote.id or not quote.quoteId then return false end
+    local price = math.max(0, math.floor(tonumber(quote.price) or 0))
+    local quantity = math.max(1, math.floor(tonumber(quote.quantity) or 1))
+    local message = GodSystemApp.services.runtime.text("Shop_ConfirmQuote", "Confirm purchase of {1} item(s) for {2} coins?")
+    message = string.gsub(message, "{1}", tostring(quantity))
+    message = string.gsub(message, "{2}", tostring(price))
+    if ISModalDialog and getCore then
+        local x = math.max(80, (getCore():getScreenWidth() / 2) - 220)
+        local y = math.max(80, (getCore():getScreenHeight() / 2) - 110)
+        local playerValue = getPlayer and getPlayer() or nil
+        local playerNum = playerValue and playerValue.getPlayerNum and playerValue:getPlayerNum() or 0
+        local dialog = ISModalDialog:new(x, y, 440, 220, message, true, GodSystemNetwork,
+            GodSystemNetwork.onShopQuoteConfirm, playerNum, quote)
+        dialog:initialise()
+        if GodSystemUI and GodSystemUI.presentOverlay then GodSystemUI.presentOverlay(dialog) end
+        return true
+    end
+    return false
+end
+
+function GodSystemNetwork.onShopQuoteConfirm(_, button, quote)
+    if button and button.internal == "YES" and quote and quote.id and quote.quoteId then
+        return send((Protocol.C2S and Protocol.C2S.BuyShop) or "buyShop", {
+            id = quote.id, quantity = quote.quantity, quoteId = quote.quoteId,
+        })
+    end
+    return false
+end
+
 function GodSystemNetwork.resetInvestmentRuntime()
     investmentRuntimeHour = nil
     investmentWasActive = false
 end
 
 function GodSystemNetwork.resetSessionRuntime()
+    GodSystemCarryCapacity.resetClient()
     sentHello = false
     pendingHelloTick = true
     pendingRefresh = false
@@ -63,6 +95,11 @@ function GodSystemNetwork.resetSessionRuntime()
     nextBackgroundSyncMs = 0
     GodSystemNetwork.hasServerState = false
     GodSystemNetwork.pendingState = true
+    GodSystemNetwork.uiRevisions = nil
+    GodSystemNetwork.teleportReceipts = nil
+    GodSystemNetwork.pendingTaskTrackerRefresh = true
+    if GodSystemShopCatalog and GodSystemShopCatalog.clear then GodSystemShopCatalog.clear() end
+    if GodSystemShopListingStore and GodSystemShopListingStore.resetSession then GodSystemShopListingStore.resetSession() end
     GodSystemApp.services.runtime.serverAdmin = false
     local rangeService = GodSystemApp.getService and GodSystemApp.getService("rangeRecycle") or nil
     if rangeService and rangeService.resetSession then rangeService:resetSession() end
@@ -109,6 +146,10 @@ local function localizeStructuredArgs(code, args)
         and GodSystemApp.services.runtime and GodSystemApp.services.runtime.getItemDisplayName then
         localized[1] = GodSystemApp.services.runtime.getItemDisplayName(tostring(localized[1]))
     end
+    if (code == "CarryCapacityApplyFailed" or code == "CarryCapacityRestoreFailed") and localized[1]
+        and GodSystemApp.services.runtime and GodSystemApp.services.runtime.getCarryCapacityStateText then
+        localized[1] = GodSystemApp.services.runtime.getCarryCapacityStateText({ reason = localized[1] })
+    end
     return localized
 end
 
@@ -136,15 +177,35 @@ end
 
 local function handleTeleportPayload(args)
     local id = args and args.id
-    local pos = args and args.pos
+    if not id then return end
+    GodSystemNetwork.teleportReceipts = GodSystemNetwork.teleportReceipts or {order={},results={}}
+    local receipts=GodSystemNetwork.teleportReceipts
+    if args.supersedes then
+        local oldId = tostring(args.supersedes)
+        if receipts.results[oldId] == nil then receipts.order[#receipts.order+1] = oldId end
+        receipts.results[oldId] = false
+    end
+    if receipts.results[tostring(id)]~=nil then
+        send((Protocol.C2S and Protocol.C2S.TeleportConfirm) or "teleportConfirm", {id=id,ok=receipts.results[tostring(id)]})
+        return
+    end
     local ok = false
-    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.applyApprovedTeleport then
-        ok = GodSystemApp.services.runtime.applyApprovedTeleport(pos) == true
+    local command=Protocol.teleportCommand(args)
+    if command and SendCommandToServer then
+        ok=pcall(SendCommandToServer,command)
+    elseif args.native == false and args.fallback == "approvedClient" then
+        local p = getPlayer and getPlayer()
+        local valid = Protocol.teleportCommand({native=true,targetUsername=args.targetUsername,pos=args.pos})
+        if valid and p and p:getUsername()==args.targetUsername and not p:isDead() and not p:getVehicle() then
+            -- Only a targeted server message enters this path. Do not accept a client-chosen destination.
+            local pos=args.pos
+            ok=GodSystemB42JavaCalls.try(p,"teleportTo",math.floor(pos.x),math.floor(pos.y),math.floor(pos.z))
+        end
     end
+    receipts.results[tostring(id)]=ok
+    receipts.order[#receipts.order+1]=tostring(id)
+    while #receipts.order>64 do receipts.results[table.remove(receipts.order,1)]=nil end
     send((Protocol.C2S and Protocol.C2S.TeleportConfirm) or "teleportConfirm", { id = id, ok = ok })
-    if ok and GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify and GodSystemApp.services.runtime.formatPosition then
-        GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_HomeTeleported", "Teleported: ") .. GodSystemApp.services.runtime.formatPosition(pos))
-    end
 end
 
 local function nowMs()
@@ -220,6 +281,8 @@ local function transactionFingerprint(command, args)
     local recycleCommand = (Protocol.C2S and Protocol.C2S.Recycle) or "recycle"
     local buyShopCommand = (Protocol.C2S and Protocol.C2S.BuyShop) or "buyShop"
     local lotteryCommand = (Protocol.C2S and Protocol.C2S.UseLotteryTicket) or "useLotteryTicket"
+    local mimicKeyCommand = (Protocol.C2S and Protocol.C2S.UseMimicKey) or "useMimicKey"
+    local utilityGeneratorCommand = (Protocol.C2S and Protocol.C2S.UtilityGenerator) or "utilityGenerator"
     local listOnlyCommand = (Protocol.C2S and Protocol.C2S.ListOnlyAutoShop) or "listOnlyAutoShop"
     if command == attributeCommand then
         return table.concat({
@@ -237,10 +300,17 @@ local function transactionFingerprint(command, args)
             "buyShop",
             tostring(args.id or ""),
             "q:" .. tostring(math.max(1, math.floor(tonumber(args.quantity) or 1))),
+            "quote:" .. tostring(args.quoteId or ""),
         }, "|")
     end
     if command == lotteryCommand then
         return "lottery|" .. tostring(args.itemId or "")
+    end
+    if command == mimicKeyCommand and GodSystemMimicKey then
+        return GodSystemMimicKey.fingerprint(args)
+    end
+    if command == utilityGeneratorCommand and GodSystemUtilityGenerator then
+        return GodSystemUtilityGenerator.fingerprint(args)
     end
     if command == listOnlyCommand then
         return table.concat({
@@ -250,24 +320,7 @@ local function transactionFingerprint(command, args)
         }, "|")
     end
     if command == recycleCommand and type(args.itemIds) == "table" then
-        local parts = {
-            "recycle",
-            tostring(args.mode or ""),
-            args.allowDestroyContents == true and "1" or "0",
-        }
-        local ids = {}
-        for i = 1, #args.itemIds do ids[#ids + 1] = tostring(args.itemIds[i] or "") end
-        table.sort(ids)
-        for i = 1, #ids do parts[#parts + 1] = "i:" .. ids[i] end
-        local signatures = type(args.containerContentSignatures) == "table" and args.containerContentSignatures or {}
-        local signatureIds = {}
-        for id in pairs(signatures) do signatureIds[#signatureIds + 1] = tostring(id) end
-        table.sort(signatureIds)
-        for i = 1, #signatureIds do
-            local id = signatureIds[i]
-            parts[#parts + 1] = "s:" .. id .. "=" .. tostring(signatures[id] or "")
-        end
-        return table.concat(parts, "|")
+        return GodSystemRecycleFingerprint.fingerprint(args)
     end
     local hiddenCommand = (Protocol.C2S and Protocol.C2S.SetShopItemsHidden) or "setShopItemsHidden"
     if command == hiddenCommand and type(args.variantKeys) == "table" then
@@ -559,6 +612,10 @@ function GodSystemNetwork.isStateReady()
 end
 
 local function requestRefresh()
+    local window = GodSystemUI and GodSystemUI.window
+    if GodSystemUIRefresh and window and window.mode ~= "shop" and window.mode ~= "tasks" and window.mode ~= "equipment" then
+        GodSystemUIRefresh.mark(window, "general")
+    end
     if pendingRefresh then return end
     pendingRefresh = true
     Events.OnTick.Remove(GodSystemNetwork.refreshOnTick)
@@ -635,13 +692,15 @@ function GodSystemNetwork.refreshOnTick()
     if GodSystemUI and GodSystemUI.window and GodSystemUI.window.getIsVisible and GodSystemUI.window:getIsVisible() then
         GodSystemUI.window.waitingForServerState = false
         GodSystemUI.window.lastNetworkStateSerial = GodSystemNetwork.stateSerial or 0
-        GodSystemUI.window:populateList()
+        if GodSystemUIRefresh then GodSystemUIRefresh.flush(GodSystemUI.window)
+        else GodSystemUI.window:populateList() end
     end
     if GodSystemUI and GodSystemUI.shopHiddenWindow and GodSystemUI.shopHiddenWindow.getIsVisible and GodSystemUI.shopHiddenWindow:getIsVisible() then
         GodSystemUI.shopHiddenWindow:onServerStateChanged()
     end
-    if GodSystemUI and GodSystemUI.taskTracker and GodSystemUI.taskTracker.populateTasks then
+    if GodSystemNetwork.pendingTaskTrackerRefresh and GodSystemUI and GodSystemUI.taskTracker and GodSystemUI.taskTracker.populateTasks then
         GodSystemUI.taskTracker:populateTasks()
+        GodSystemNetwork.pendingTaskTrackerRefresh = false
     end
 end
 
@@ -655,6 +714,7 @@ function GodSystemNetwork.helloRetryOnTick()
 end
 
 function GodSystemNetwork.send(command, args, targetPlayer)
+    if GodSystemShopCatalog and GodSystemShopCatalog.note then GodSystemShopCatalog.note("network.sendRequests") end
     return send(command, args, targetPlayer)
 end
 
@@ -720,7 +780,12 @@ function GodSystemNetwork.hello()
 end
 
 local function OnServerCommand(module, command, args)
+    if module == MODULE and GodSystemShopCatalog and GodSystemShopCatalog.note then GodSystemShopCatalog.note("network.received") end
     if module ~= MODULE then return end
+    if command == ((Protocol.S2C and Protocol.S2C.CarryState) or "carryState") then
+        if GodSystemNetwork.hasServerState then GodSystemCarryCapacity.acceptSnapshot(player(), args) end
+        return
+    end
     if command == ((Protocol.S2C and Protocol.S2C.Teleport) or "teleport") then
         handleTeleportPayload(args or {})
         return
@@ -729,7 +794,14 @@ local function OnServerCommand(module, command, args)
         if args and args.snapshot and GodSystemApp.services.runtime.applyRuntimeConfigSnapshot then
             GodSystemApp.services.runtime.applyRuntimeConfigSnapshot(args.snapshot)
             BACKGROUND_SYNC_MS = Protocol.BackgroundSyncMs or BACKGROUND_SYNC_MS
+            if GodSystemUIRefresh and GodSystemUI and GodSystemUI.window then GodSystemUIRefresh.mark(GodSystemUI.window, "directory") end
             requestRefresh()
+        end
+        return
+    end
+    if command == ((Protocol.S2C and Protocol.S2C.UtilityGeneratorStatus) or "utilityGeneratorStatus") then
+        if GodSystemUtilityGeneratorContext and GodSystemUtilityGeneratorContext.receiveStatus then
+            GodSystemUtilityGeneratorContext.receiveStatus(args or {})
         end
         return
     end
@@ -738,6 +810,7 @@ local function OnServerCommand(module, command, args)
             GodSystemApp.services.runtime.applyEconomySnapshot(args.snapshot)
             local service = GodSystemApp.getService and GodSystemApp.getService("itemConfig") or nil
             if service and service.handleChanged then service:handleChanged() end
+            if GodSystemUIRefresh and GodSystemUI and GodSystemUI.window then GodSystemUIRefresh.mark(GodSystemUI.window, "directory") end
             requestRefresh()
         end
         return
@@ -747,6 +820,7 @@ local function OnServerCommand(module, command, args)
             GodSystemApp.services.runtime.applyEconomyDelta(args or {})
             local service = GodSystemApp.getService and GodSystemApp.getService("itemConfig") or nil
             if service and service.handleChanged then service:handleChanged() end
+            if GodSystemUIRefresh and GodSystemUI and GodSystemUI.window then GodSystemUIRefresh.mark(GodSystemUI.window, "directory") end
             requestRefresh()
         end
         return
@@ -754,6 +828,34 @@ local function OnServerCommand(module, command, args)
     if command == ((Protocol.S2C and Protocol.S2C.ItemConfigDetails) or "itemConfigDetails") then
         local service = GodSystemApp.getService and GodSystemApp.getService("itemConfig") or nil
         if service and service.handleDetails then service:handleDetails(args or {}) end
+        requestRefresh()
+        return
+    end
+    if command == ((Protocol.S2C and Protocol.S2C.ItemConfigRelations) or "itemConfigRelations") then
+        if GodSystemConversionRelationsUI and GodSystemConversionRelationsUI.window then
+            GodSystemConversionRelationsUI.window:apply(args or {})
+        end
+        return
+    end
+    if command == ((Protocol.S2C and Protocol.S2C.ItemConfigPresets) or "itemConfigPresets") then
+        GodSystemApp.services.runtime.itemConfigPresets = {
+            order = (args and type(args.order) == "table") and args.order or {},
+            active = (args and type(args.active) == "string" and args.active ~= "") and args.active or "default",
+        }
+        if GodSystemItemEconomyUI and GodSystemItemEconomyUI.window and GodSystemItemEconomyUI.window.applyPresets then
+            GodSystemItemEconomyUI.window:applyPresets(GodSystemApp.services.runtime.itemConfigPresets)
+        end
+        return
+    end
+    if command == ((Protocol.S2C and Protocol.S2C.ShopCatalogChunk) or "shopCatalogChunk") then
+        if not GodSystemShopListingStore or not GodSystemShopListingStore.receive(args or {}) then return end
+        if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("catalogChunk") end
+        requestRefresh()
+        return
+    end
+    if command == ((Protocol.S2C and Protocol.S2C.ShopPagePrices) or "shopPagePrices") then
+        if not GodSystemShopListingStore or not GodSystemShopListingStore.receivePrices(args or {}) then return end
+        if GodSystemShopCatalog then GodSystemShopCatalog.invalidatePrices() end
         requestRefresh()
         return
     end
@@ -782,16 +884,30 @@ local function OnServerCommand(module, command, args)
         return
     end
     if command == ((Protocol.S2C and Protocol.S2C.State) or "state") then
+        local previousRevisions = GodSystemNetwork.uiRevisions
         GodSystemApp.services.runtime.serverAdmin = args and args.admin == true
         if args and type(args.data) == "table" then
             args.data = mergeLocalTaskProgress(args.data)
             GodSystemApp.services.runtime.data = args.data
+            if GodSystemShopListingStore then GodSystemShopListingStore.onState(args.data) end
+            GodSystemNetwork.uiRevisions = args.data.uiRevisions
         end
         GodSystemNetwork.hasServerState = true
+        if args and args.carry then GodSystemCarryCapacity.acceptSnapshot(player(), args.carry) end
         GodSystemNetwork.pendingState = false
         GodSystemNetwork.stateSerial = (GodSystemNetwork.stateSerial or 0) + 1
         GodSystemNetwork.receivedStates = (GodSystemNetwork.receivedStates or 0) + 1
         GodSystemNetwork.lastStateAtMs = nowMs()
+        if GodSystemUIRefresh then
+            local window = GodSystemUI and GodSystemUI.window
+            local changed = GodSystemUIRefresh.onState(window, args and args.data and args.data.uiRevisions, previousRevisions)
+            -- Domains without revision fields retain their existing full refresh.
+            if window and window.mode ~= "shop" and window.mode ~= "tasks" and window.mode ~= "equipment" then GodSystemUIRefresh.mark(window, "general") end
+            local revisions = args and args.data and args.data.uiRevisions or nil
+            GodSystemNetwork.pendingTaskTrackerRefresh = GodSystemNetwork.pendingTaskTrackerRefresh or not revisions or (previousRevisions and revisions and previousRevisions.tasks ~= revisions.tasks) or changed == true and not previousRevisions
+        else
+            GodSystemNetwork.pendingTaskTrackerRefresh = true
+        end
         requestRefresh()
         return
     end
@@ -821,12 +937,17 @@ local function OnServerCommand(module, command, args)
         local suppressResultNotification = rangeService and rangeService.handleResult
             and rangeService:handleResult(args or {}) == true
         suppressResultNotification = suppressResultNotification or (args and args.data and args.data.lottery == true)
+        suppressResultNotification = suppressResultNotification or (args and args.payload and args.payload.kind == "shopQuote")
         GodSystemNetwork.pendingState = false
         GodSystemNetwork.lastResultOk = args and args.ok == true
         GodSystemNetwork.lastResultMessage = resultMessagePayload(args)
         GodSystemNetwork.lastResultAtMs = nowMs()
         if not suppressResultNotification and GodSystemNetwork.lastResultMessage ~= "" then
             notify(GodSystemNetwork.lastResultMessage)
+        end
+        if args and args.ok == true and args.payload and args.payload.kind == "shopQuote" then
+            confirmShopQuote(args.payload)
+            return
         end
         if args and args.ok == true and args.payload and args.payload.kind == "medicalService" then
             if GodSystemApp.services.runtime and GodSystemApp.services.runtime.applyMedicalServiceLocally then
@@ -856,7 +977,15 @@ function GodSystemNetwork.onPlayerUpdate(p)
     if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
     local currentMs = GodSystemScheduler.nowMs()
     if not GodSystemScheduler.due("client.mp.network.fast", 250, currentMs) then return end
+    if GodSystemShopListingStore then GodSystemShopListingStore.step(50, 2) end
+    if GodSystemNetwork.shopViewPending and currentMs >= (GodSystemNetwork.shopViewDue or 0) then
+        send((Protocol.C2S and Protocol.C2S.ShopPreferences) or "shopPreferences", {view=GodSystemNetwork.shopViewPending})
+        GodSystemNetwork.shopViewPending = nil
+    end
     checkPendingTimeout()
+    if GodSystemScheduler.due("client.mp.carry", 1000, currentMs) then
+        GodSystemCarryCapacity.updateClient(p or player())
+    end
     if GodSystemScheduler.due("client.mp.network.background", 1000, currentMs)
         and GodSystemApp.services.runtime and GodSystemApp.services.runtime.updateMoveDistance then
         GodSystemApp.services.runtime.updateMoveDistance(p or player())
@@ -1000,8 +1129,14 @@ if GodSystemApp.services.runtime then
 end
 Events.OnGameStart.Remove(GodSystemNetwork.hello)
 Events.OnGameStart.Add(GodSystemNetwork.hello)
+function GodSystemNetwork.onCreatePlayer(_, p)
+    if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
+    GodSystemNetwork.resetSessionRuntime()
+    GodSystemNetwork.hello()
+end
 Events.OnCreatePlayer.Remove(GodSystemNetwork.hello)
-Events.OnCreatePlayer.Add(GodSystemNetwork.hello)
+Events.OnCreatePlayer.Remove(GodSystemNetwork.onCreatePlayer)
+Events.OnCreatePlayer.Add(GodSystemNetwork.onCreatePlayer)
 Events.OnTick.Remove(GodSystemNetwork.helloRetryOnTick)
 Events.OnTick.Add(GodSystemNetwork.helloRetryOnTick)
 if Events.OnPlayerUpdate then
@@ -1088,7 +1223,23 @@ wrap("buyShopItem", function(shopItem, quantity)
     if not shopItem then return false end
     local id = shopItem.id
     if not id and shopItem.fullType then id = tostring(shopItem.fullType) end
-    return send("buyShop", { id = id, quantity = quantity or 1 })
+    return send((Protocol.C2S and Protocol.C2S.BuyShop) or "buyShop", { id = id, quantity = quantity or 1 })
+end)
+
+wrap("toggleShopFavorite", function(shopItem)
+    if not shopItem then return false end
+    local favorite, key = original.toggleShopFavorite(shopItem)
+    if key then send((Protocol.C2S and Protocol.C2S.ShopPreferences) or "shopPreferences", { key = key, favorite = favorite == true }) end
+    return favorite
+end)
+
+wrap("setShopViewPreference", function(category, search, selectedKey)
+    local view = original.setShopViewPreference(category, search, selectedKey)
+    if view then
+        GodSystemNetwork.shopViewPending = view
+        GodSystemNetwork.shopViewDue = GodSystemScheduler.nowMs() + 1000
+    end
+    return view
 end)
 
 wrap("recycleInventoryItems", function(fullType, count)

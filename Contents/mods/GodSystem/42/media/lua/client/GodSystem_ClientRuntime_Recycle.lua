@@ -4,7 +4,7 @@ GodSystemClientRuntimeInstallers["GodSystem_ClientRuntime_Recycle"] = function(r
     runtimeEnvironment.__GodSystemInstalled_GodSystem_ClientRuntime_Recycle = true
     setfenv(1, runtimeEnvironment)
 
-function GodSystemApp.services.runtime.buyShopItem(shopItem, quantity)
+function GodSystemApp.services.runtime.buyShopItem(shopItem, quantity, confirmedQuoteId)
     if GodSystemApp.services.runtime.isFeatureEnabled("EnableShop") == false then
         GodSystemApp.services.runtime.notify("Shop disabled")
         return false
@@ -34,8 +34,24 @@ function GodSystemApp.services.runtime.buyShopItem(shopItem, quantity)
         return false
     end
     quantity = math.max(1, math.floor(tonumber(quantity) or 1))
-    local unitPrice = GodSystemApp.services.runtime.getShopItemUnitPrice(shopItem)
-    local price = unitPrice * quantity
+    local key = GodSystemShopInflation.key(shopItem)
+    local minute = math.floor(gsNowHours() * 60)
+    local basePrice = GodSystemApp.services.runtime.getShopBaseUnitPrice(shopItem)
+    if not confirmedQuoteId then
+        local quote, id = GodSystemShopInflation.issueQuote(data, GodSystemRuntimeConfig.Current, minute, key, basePrice, quantity, true)
+        if not quote then
+            GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("NotifyMP_"..tostring(id), tostring(id)))
+            return false
+        end
+        confirmedQuoteId = id
+    end
+    local quote, quoteReason = GodSystemShopInflation.consumeQuote(data, GodSystemRuntimeConfig.Current, minute,
+        confirmedQuoteId, key, basePrice, quantity, true)
+    if not quote then
+        GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("NotifyMP_" .. tostring(quoteReason), tostring(quoteReason)))
+        return false
+    end
+    local price = quote.total
     if not GodSystemApp.services.runtime.canAfford(price) then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_CurrencyNotEnough", "Not enough currency"))
         return false
@@ -57,12 +73,26 @@ function GodSystemApp.services.runtime.buyShopItem(shopItem, quantity)
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_ItemGrantFailed", "Failed to give item, no currency spent"))
         return false
     end
-    if not GodSystemApp.services.runtime.addPoints(-price) then
+    local paid, fromBank, fromCash = GodSystemApp.services.runtime.spendCurrency(price)
+    if not paid then
         GodSystemApp.services.runtime.removeAddedItems(addedItems)
+        return false
+    end
+    if not GodSystemShopInflation.commit(data, GodSystemRuntimeConfig.Current, math.floor(gsNowHours() * 60), GodSystemShopInflation.key(shopItem), quantity, true) then
+        GodSystemApp.services.runtime.refundCurrencySources(fromBank, fromCash)
+        GodSystemApp.services.runtime.removeAddedItems(addedItems)
+        GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("NotifyMP_ShopPriceLimit", "Shop price limit reached"))
         return false
     end
     data.stats.spentPoints = (data.stats.spentPoints or 0) + price
     data.stats.boughtItems = (data.stats.boughtItems or 0) + quantity
+    data.ui = data.ui or {}
+    data.ui.shopRecent = type(data.ui.shopRecent) == "table" and data.ui.shopRecent or {}
+    local key = GodSystemShopInflation.key(shopItem)
+    for i = #data.ui.shopRecent, 1, -1 do if data.ui.shopRecent[i] == key then table.remove(data.ui.shopRecent, i) end end
+    table.insert(data.ui.shopRecent, 1, key)
+    while #data.ui.shopRecent > 20 do table.remove(data.ui.shopRecent) end
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidatePreferences() end
     local quantityText = quantity > 1 and (" x" .. tostring(quantity)) or ""
     gsAppendHistory(data, { kind = "shop", text = GodSystemApp.services.runtime.text("History_Bought", "Bought: ") .. tostring(GodSystemApp.services.runtime.getShopLabel(shopItem)) .. quantityText .. " -" .. tostring(price) .. GodSystemApp.services.runtime.text("Unit_Coin", " coins") })
     if missingItems and #missingItems > 0 then

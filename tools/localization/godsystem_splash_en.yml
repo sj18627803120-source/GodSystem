@@ -1,0 +1,8 @@
+Equipment_TooltipSplash: "Splash Lv.{1}, {2}% average weapon base damage within {3} tiles to up to {4} nearby zombies{5}"
+Equipment_Disabled: "disabled"
+Equipment_Attr_splash: "Splash"
+Equipment_SplashAttributeRow: "Splash Lv{1} | damage {2}% | radius {3} tiles | max {4}"
+Equipment_SplashBasis: "Damage basis: average of weapon minimum and maximum base damage."
+NotifyMP_EquipmentSplashDisabled: "Splash enhancement is disabled in sandbox settings."
+AdminSetting_EnableEquipmentSplash: "Enable Melee Splash Enhancement"
+AdminSetting_EnableEquipmentSplash_Desc: "Independent sandbox toggle for the bound melee splash effect; enabled by default. On the first zombie hit of each swing, damage the nearest up to five other zombies within about two tiles on the same floor. Direct hits from that swing are excluded. Walls and doors do not block it. Each level adds 10%% of the weapon's average minimum/maximum base damage; hit-specific modifiers are not included. Disabling hides the enhancement entry and pauses the effect while preserving its level."

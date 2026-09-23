@@ -94,13 +94,26 @@ function A:weaponRecord(player,weapon)
         or not I.owned(player,weapon) then return nil end
     return record
 end
-function A:swing(player,weapon,args)
+-- The combat ledger has already authenticated its begin packet in MP.  Keep
+-- this narrow entry point so freeze can share that ledger without accepting
+-- a client-selected target list or reintroducing a second combat protocol.
+function A:trustedSwing(player,weapon)
     local cfg=self:config()
     if not cfg or not cfg.enabled or not cfg.freezeEnabled then return false end
     local now=N.now(self.mp)
     if now<=0 or not N.swing(player,weapon,self.mp) then return false end
+    local record=self:weaponRecord(player,weapon)
+    local level=record and E.level(record,"freeze") or 0
+    if level<=0 then return false end
+    self.runtime:pulse(player:getX(),player:getY(),player:getZ(),cfg.EquipmentFreezeRadius,
+        F.strength(level,cfg),now+cfg.EquipmentFreezeSeconds*1000,now)
+    self.metrics.accepted=self.metrics.accepted+1
+    return true
+end
+function A:swing(player,weapon,args)
     if self.mp then
         local state=self.players[player]
+        local now=N.now(true)
         if not state or type(args)~="table" or args.key~=state.key or args.session~=self.session
             or not E.integer(args.seq,1,9007199254740000) or args.seq<=state.seq
             or args.itemId~=I.id(weapon) or not E.number(args.at)
@@ -109,13 +122,7 @@ function A:swing(player,weapon,args)
         end
         state.seq=args.seq; state.lastAt=args.at
     end
-    local record=self:weaponRecord(player,weapon)
-    local level=record and E.level(record,"freeze") or 0
-    if level<=0 then return false end
-    self.runtime:pulse(player:getX(),player:getY(),player:getZ(),cfg.EquipmentFreezeRadius,
-        F.strength(level,cfg),now+cfg.EquipmentFreezeSeconds*1000,now)
-    self.metrics.accepted=self.metrics.accepted+1
-    return true
+    return self:trustedSwing(player,weapon)
 end
 function A:reset()
     self.runtime:reset(); self.players={}; self.pending={}; self.pendingSet={}; self.cfg=nil

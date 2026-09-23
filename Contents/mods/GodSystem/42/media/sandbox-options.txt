@@ -46,6 +46,14 @@ option GodSystem.EnableEquipmentFreeze
     translation = GodSystem_EnableEquipmentFreeze,
 }
 
+option GodSystem.EnableEquipmentSplash
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableEquipmentSplash,
+}
+
 option GodSystem.EquipmentFreezeRadius
 {
     type = integer,
@@ -287,6 +295,78 @@ option GodSystem.ShopBuyPriceMultiplier
     default = 1,
     page = GodSystem,
     translation = GodSystem_ShopBuyPriceMultiplier,
+}
+
+option GodSystem.EnableShopDynamicInflation
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableShopDynamicInflation,
+}
+
+option GodSystem.ShopDynamicInflationPercent
+{
+    type = double,
+    min = 0,
+    max = 100,
+    default = 10,
+    page = GodSystem,
+    translation = GodSystem_ShopDynamicInflationPercent,
+}
+
+option GodSystem.ShopDynamicInflationHours
+{
+    type = integer,
+    min = 1,
+    max = 720,
+    default = 24,
+    page = GodSystem,
+    translation = GodSystem_ShopDynamicInflationHours,
+}
+
+option GodSystem.EnableUtilityGenerator
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableUtilityGenerator,
+}
+
+option GodSystem.EnableUtilityGeneratorWater
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableUtilityGeneratorWater,
+}
+
+option GodSystem.EnableUtilityGeneratorElectricity
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableUtilityGeneratorElectricity,
+}
+
+option GodSystem.UtilityGeneratorWaterPricePer100L
+{
+    type = double,
+    min = 0,
+    max = 1000000,
+    default = 20,
+    page = GodSystem,
+    translation = GodSystem_UtilityGeneratorWaterPricePer100L,
+}
+
+option GodSystem.UtilityGeneratorElectricityPricePerFuelUnit
+{
+    type = double,
+    min = 0,
+    max = 1000000,
+    default = 5,
+    page = GodSystem,
+    translation = GodSystem_UtilityGeneratorElectricityPricePerFuelUnit,
 }
 
 option GodSystem.RecycleSellPriceMultiplier
@@ -639,6 +719,14 @@ option GodSystem.EnableTeleport
     translation = GodSystem_EnableTeleport,
 }
 
+option GodSystem.EnableTeleportFallback
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableTeleportFallback,
+}
+
 option GodSystem.HomeSetCost
 {
     type = integer,
@@ -763,6 +851,16 @@ option GodSystem.MedicalCheckInfectionCost
     default = 50,
     page = GodSystem,
     translation = GodSystem_MedicalCheckInfectionCost,
+}
+
+option GodSystem.DeathProtectionCost
+{
+    type = integer,
+    min = 0,
+    max = 1000000,
+    default = 20000,
+    page = GodSystem,
+    translation = GodSystem_DeathProtectionCost,
 }
 
 option GodSystem.MedicalHealInjuriesCost

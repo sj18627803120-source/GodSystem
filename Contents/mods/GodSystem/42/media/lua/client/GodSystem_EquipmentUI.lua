@@ -71,7 +71,7 @@ function N:close()
 end
 function W:new(x,y,playerNum)
     local o=ISCollapsableWindow.new(self,x,y,860,650)
-    o.resizable=false; o.playerNum=playerNum or 0; o.selectedSlot=1; o.attribute="damage"
+    o.resizable=false; o.playerNum=playerNum or 0; o.selectedSlot=1; o.attribute="freeze"
     o.title=text("Equipment_Title","Equipment")
     o.backgroundColor=E.copy(GodSystemUITheme.colors.shell)
     return o
@@ -129,13 +129,15 @@ function W:createChildren()
     self.note:initialise(); self:addChild(self.note)
 end
 function W:rebuild(state,candidates)
+    self.detailQuoteCache=nil
     self.state=state
     local previous=self.candidateId
     self.candidateId=nil
     self.candidateRows=candidates or C.candidates(C.player(self.playerNum))
     Safety.clearList(self.candidates)
     for _,row in ipairs(self.candidateRows) do
-        self.candidates:addItem(row.name.." #"..row.id,row)
+        local suffix = row.bindable == false and (" | " .. text("Equipment_BindInfoMissing", "required recovery information unavailable")) or ""
+        self.candidates:addItem(row.name.." #"..row.id..suffix,row)
         if row.id==previous then self.candidates.selected=#self.candidates.items; self.candidateId=row.id end
     end
     Safety.clearList(self.slots)
@@ -154,6 +156,12 @@ function W:rebuild(state,candidates)
 end
 function W:onSlot(row) self.selectedSlot=row.slot; self:refreshDetails() end
 function W:onCandidate(row) self.candidateId=row.id; self:refreshDetails() end
+function W:candidate()
+    for _, row in ipairs(self.candidateRows or {}) do
+        if row.id == self.candidateId then return row end
+    end
+    return nil
+end
 function W:onAttribute(row) self.attribute=row.attribute; self:refreshDetails() end
 function W:row()
     for _,row in ipairs(self.state and self.state.rows or {}) do if row.slot==self.selectedSlot then return row end end
@@ -193,65 +201,100 @@ function W:refreshDetails()
         self.details:addItem(format("Equipment_Identity","ID: {1} / generation {2}",record.id,record.generation),{})
         self.details:addItem(row.present and text("Equipment_Carried","Carried") or text("Equipment_Missing","Not carried / possibly lost"),{})
         local d=record.durability or {}
-        self.details:addItem(format("Equipment_Condition","Condition: {1}/{2}",d.condition,d.conditionMax),{})
+        if d.condition ~= nil then self.details:addItem(format("Equipment_Condition","Condition: {1}/{2}",d.condition,d.conditionMax),{}) end
         if d.hasHead then self.details:addItem(format("Equipment_Head","Head: {1}/{2}",d.headCondition,d.headConditionMax),{}) end
-        if d.hasSharpness then self.details:addItem(format("Equipment_Sharpness","Sharpness: {1}%",math.floor(d.sharpness*100+0.5)),{}) end
-        self.details:addItem(format("Equipment_GrowthRule","Lv0 = base; each level: {1}% of base; recoil decreases; not compounded.",self.state.config.EquipmentGrowthPercent),{})
-        local values=record.actual or E.values(record.base,record.levels,self.state.config)
-        for _,key in ipairs(E.Attributes) do
-            if E.supports(record.base,key) and (key~="freeze" or self.state.config.freezeEnabled) then
-                local level=record.levels[key]
-                if key=="freeze" then
-                    local slow=GodSystemEquipmentFreeze.strength(level,self.state.config)*100
-                    self.attributes:addItem(format("Equipment_FreezeAttributeRow",
-                        "Freeze Lv{1} | slow {2}% | radius {3} tiles | {4} seconds",level,
-                        string.format("%.2f",slow),self.state.config.EquipmentFreezeRadius,
-                        string.format("%.2f",self.state.config.EquipmentFreezeSeconds)),{attribute=key})
-                    if key==self.attribute then self.attributes.selected=#self.attributes.items end
-                else
-                    local multiplier=E.multiplier(key,level,self.state.config)
-                    local function parameters(v)
-                        if not v then return "-" end
-                        if key=="damage" then
-                            return v.minDamage and v.maxDamage and string.format("%.3f - %.3f",v.minDamage,v.maxDamage) or "-"
+        if d.hasSharpness and tonumber(d.sharpness) then self.details:addItem(format("Equipment_Sharpness","Sharpness: {1}%",math.floor(d.sharpness*100+0.5)),{}) end
+        local kind=E.weaponKind(record)
+        if kind=="ranged" then
+            self.details:addItem(text("Equipment_RangedNoEffects","No firearm combat effects are available in this version."),{})
+        else
+            for _,key in ipairs(E.Effects) do
+                if E.supports(record,key) and (key~="freeze" or self.state.config.freezeEnabled)
+                    and (key~="splash" or self.state.config.splashEnabled) then
+                    local level=E.level(record,key) or 0
+                    if key=="freeze" then
+                        local slow=GodSystemEquipmentFreeze.strength(level,self.state.config)*100
+                        self.attributes:addItem(format("Equipment_FreezeAttributeRow",
+                            "Freeze Lv{1} | slow {2}% | radius {3} tiles | {4} seconds",level,
+                            string.format("%.2f",slow),self.state.config.EquipmentFreezeRadius,
+                            string.format("%.2f",self.state.config.EquipmentFreezeSeconds)),{attribute=key})
+                    elseif key=="impact" then
+                        local rule=GodSystemEquipmentImpact.rule(level)
+                        local impact=GodSystemEquipmentImpact.state(record)
+                        local progress=impact.ready and text("Equipment_ImpactReady","Ready")
+                            or tostring(impact.attackCount).."/"..tostring(rule and rule.attacks or "-")
+                        self.attributes:addItem(format("Equipment_ImpactAttributeRow",
+                            "Impact Lv{1} | {2} | radius {3} tiles | max {4} zombies",level,progress,
+                            rule and rule.radius or "-",rule and rule.targets or "-"),{attribute=key})
+                        local nextRule=GodSystemEquipmentImpact.rule(level+1)
+                        if nextRule then
+                            self.details:addItem(format("Equipment_ImpactNext",
+                                "Next Impact: {1} attacks | radius {2} tiles | max {3} zombies",
+                                nextRule.attacks,nextRule.radius,nextRule.targets),{})
                         end
-                        return v[key] and string.format("%.3f",v[key]) or "-"
+                    elseif key=="splash" then
+                        local rule=GodSystemEquipmentSplash.rule(level)
+                        self.attributes:addItem(format("Equipment_SplashAttributeRow",
+                            "Splash Lv{1} | damage {2}% | radius {3} tiles | max {4} zombies",
+                            level,rule and rule.ratio*100 or 0,rule and rule.radius or "-",
+                            rule and rule.targets or "-"),{attribute=key})
+                        self.details:addItem(text("Equipment_SplashBasis",
+                            "Damage basis: average of weapon minimum and maximum base damage."),{})
                     end
-                    self.attributes:addItem(format("Equipment_AttributeRow","{1} Lv{2} | x{3} | target {4} | readback {5}",text("Equipment_Attr_"..key,key),level,string.format("%.3f",multiplier),parameters(values),parameters(record.observed)),{attribute=key})
                     if key==self.attribute then self.attributes.selected=#self.attributes.items end
                 end
             end
         end
-        if not E.supports(record.base,self.attribute) or (self.attribute=="freeze" and not self.state.config.freezeEnabled) then
-            self.attribute="damage"; self.attributes.selected=1
+        if not E.supports(record,self.attribute)
+            or (self.attribute=="freeze" and not self.state.config.freezeEnabled)
+            or (self.attribute=="splash" and not self.state.config.splashEnabled) then
+            self.attribute=nil
+            for _,candidate in ipairs(E.Effects) do
+                if E.supports(record,candidate) and (candidate~="freeze" or self.state.config.freezeEnabled)
+                    and (candidate~="splash" or self.state.config.splashEnabled) then
+                    self.attribute=candidate; break
+                end
+            end
+            self.attribute=self.attribute or "impact"
+            self.attributes.selected=1
         end
-        local quote,err=E.quoteTarget(record,self.attribute,self.boost:getText(),self.state.config)
+        local boost=tostring(self.boost:getText() or "")
+        local key=table.concat({tostring(record.id),tostring(record.revision),tostring(self.state.revision),
+            tostring(self.state.config.token),tostring(self.attribute),boost},"|")
+        local cached=self.detailQuoteCache
+        if not cached or cached.key~=key then
+            local quote,err=E.quoteTarget(record,self.attribute,boost,self.state.config)
+            cached={key=key,quote=quote,err=err}; self.detailQuoteCache=cached
+        end
+        local quote,err=cached.quote,cached.err
         self.quote=quote
         local quoteText=quote and format("Equipment_Quote","Cost {1} | success {2}% | extra cost {3}",quote.cost,string.format("%.2f",quote.chanceBP/100),quote.boostCost) or text("NotifyMP_"..tostring(err),tostring(err))
         self.quoteLabel:setName(Safety.fitText(quoteText,UIFont.Small,578))
         self.quoteLabel.tooltip=quote and format("Equipment_QuoteDetails","Base cost {1}; extra cost {2}; natural chance {3}%. Targets below natural chance add no cost.",quote.baseCost,quote.boostCost,string.format("%.2f",quote.baseChanceBP/100)) or quoteText
-        local why=blocked or (not row.present and "EquipmentNotCarried") or (row.parameterError and "EquipmentUnsupported") or err
-        local reasonText=why and text("NotifyMP_"..why,why) or text("Equipment_BaseNote","Readback is the carried instance, base values when not held; final combat modifiers still apply.")
+        local why=blocked or (not row.present and "EquipmentNotCarried") or (kind=="ranged" and "EquipmentUnsupported") or err
+        local reasonText=why and text("NotifyMP_"..why,why) or text("Equipment_EffectNote","Combat effects activate only for the valid owner using this bound melee weapon.")
         self.reason:setName(Safety.fitText(reasonText,UIFont.Small,578)); self.reason.tooltip=reasonText
         self.enhance:setEnable(not why and quote~=nil)
         self.repair:setTitle(text("Equipment_Repair","Repair").." "..tostring(row.repairCost))
         self.retrieve:setTitle(text("Equipment_Retrieve","Retrieve").." "..tostring(row.retrieveCost or "-"))
         self.repair:setEnable(not blocked and row.present and not I.full(d) and row.repairable)
         self.rename:setEnable(not blocked and row.present)
-        self.retrieve:setEnable(not blocked and not row.present and row.retrieveCost~=nil)
+        self.retrieve:setEnable(not blocked and not row.present and row.retrieveCost~=nil and record.durability~=nil)
         self.unbind:setEnable(not blocked)
         local repairReason=blocked or (not row.present and "EquipmentNotCarried") or (I.full(d) and "EquipmentAlreadyFull") or (not row.repairable and "EquipmentUnsupported")
         self.repair.tooltip=repairReason and text("NotifyMP_"..repairReason,repairReason) or nil
         self.rename.tooltip=(blocked or (not row.present and "EquipmentNotCarried")) and text("NotifyMP_"..tostring(blocked or "EquipmentNotCarried"),"") or nil
-        self.retrieve.tooltip=row.present and text("NotifyMP_EquipmentAlreadyCarried","") or text("Equipment_ConfirmRetrieve","")
+        self.retrieve.tooltip=row.present and text("NotifyMP_EquipmentAlreadyCarried","") or (record.durability==nil and text("NotifyMP_EquipmentUnsupported","") or text("Equipment_ConfirmRetrieve",""))
         self.unbind.tooltip=text("Equipment_ConfirmUnbind","")
     else
         self.quoteLabel:setName(""); self.quoteLabel.tooltip=nil; self.reason:setName(""); self.reason.tooltip=nil
         self.enhance:setEnable(false); self.repair:setEnable(false); self.rename:setEnable(false); self.retrieve:setEnable(false); self.unbind:setEnable(false)
     end
     self.clearInvalid:setVisible(false); self.bind:setVisible(true)
-    self.bind:setEnable(not blocked and row~=nil and not record and not row.overLimit and self.candidateId~=nil)
-    self.bind.tooltip=blocked and text("NotifyMP_"..blocked,blocked) or text("Equipment_SelectWeapon","")
+    local candidate = self:candidate()
+    local bindReason = blocked or (candidate and candidate.bindReason) or (not candidate and "EquipmentBindUnsupported")
+    self.bind:setEnable(not bindReason and row~=nil and not record and not row.overLimit and self.candidateId~=nil)
+    self.bind.tooltip=bindReason and text("NotifyMP_"..bindReason,bindReason) or text("Equipment_SelectWeapon","")
 end
 function W:makeArgs(action)
     local row=self:row()

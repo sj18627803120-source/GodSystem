@@ -1,10 +1,14 @@
 require "GodSystem_App"
 require "GodSystem_UITheme"
+require "GodSystem_ItemConfig"
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISButton"
 require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISTextEntryBox"
+require "ISUI/ISComboBox"
+require "ISUI/ISTextBox"
+require "ISUI/ISModalDialog"
 
 GodSystemItemEconomyUI = GodSystemItemEconomyUI or {}
 
@@ -39,6 +43,16 @@ local function entryText(entry)
     return entry and entry.getInternalText and tostring(entry:getInternalText() or "") or ""
 end
 
+local function multiplayer() return isClient and isClient() == true end
+
+local function trimmed(value) return tostring(value or ""):match("^%s*(.-)%s*$") or "" end
+
+local function notify(message)
+    if GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then
+        GodSystemApp.services.runtime.notify(message)
+    end
+end
+
 local function addLabel(owner, x, y, label)
     local value = ISLabel:new(x, y, 20, label, 0.86, 0.84, 0.76, 1, UIFont.Small, true)
     value:initialise()
@@ -59,75 +73,104 @@ function GodSystemItemEconomyWindow:new(x, y, width, height, owner)
     o.detailsPending = false
     o.editShopMode = "auto"
     o.visibleRows = {}
+    o.searchDueMs = nil
+    o.riskConfirmation = nil
+    o.presetOrder = {}
+    o.presetActive = GodSystemItemConfig.PRESET_DEFAULT
+    o.presetConfirmation = nil
+    o.presetNameBox = nil
     return o
 end
 
 function GodSystemItemEconomyWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
 
-    self.searchBox = ISTextEntryBox:new("", 12, 30, 696, 28)
+    self.presetBox = ISComboBox:new(12, 30, 260, 28, self, self.onPresetSelected)
+    self.presetBox:initialise()
+    self.presetBox:instantiate()
+    self:addChild(self.presetBox)
+
+    self.savePresetButton = ISButton:new(280, 30, 105, 28, text("EconomyAdmin_PresetSave", "保存预设"), self, self.onSavePreset)
+    self.savePresetButton:initialise()
+    self:addChild(self.savePresetButton)
+
+    self.deletePresetButton = ISButton:new(393, 30, 105, 28, text("EconomyAdmin_PresetDelete", "删除预设"), self, self.onDeletePreset)
+    self.deletePresetButton:initialise()
+    self:addChild(self.deletePresetButton)
+
+    self.searchBox = ISTextEntryBox:new("", 12, 70, self.width - 24, 28)
     self.searchBox:initialise()
     self.searchBox:instantiate()
     self.searchBox.target = self
     self.searchBox.onTextChange = function(entry) self:onSearchChanged(entry) end
     self:addChild(self.searchBox)
 
-    self.list = ISScrollingListBox:new(12, 68, 300, 326)
+    self.list = ISScrollingListBox:new(12, 108, 430, self.height - 166)
     self.list:initialise()
     self.list:instantiate()
-    self.list.itemheight = 34
+    self.list.itemheight = 42
     self.list.doDrawItem = function(list, y, row, alt) return self:drawCatalogItem(list, y, row, alt) end
     self.list:setOnMouseDownFunction(self, self.onCatalogSelected)
     self:addChild(self.list)
 
-    self.detail = ISScrollingListBox:new(324, 68, 384, 108)
+    self.detail = ISScrollingListBox:new(454, 108, self.width - 466, 108)
     self.detail:initialise()
     self.detail:instantiate()
     self.detail.itemheight = 20
     self.detail.doDrawItem = function(list, y, row)
-        local c = row and row.item and row.item.warning and color("red") or color("text")
-        list:drawText(tostring(row and row.text or ""), 6, y + 3, c.r, c.g, c.b, c.a, UIFont.Small)
-        return y + list.itemheight
+        local nextY = y + list.itemheight
+        local scroll = list:getYScroll()
+        if math.min(nextY - 1 + scroll, list.height) <= math.max(y + scroll, 0) then return nextY end
+        local fontHeight = getTextManager():getFontHeight(UIFont.Small)
+        local textY = y + 3
+        if textY + scroll >= 1 and textY + scroll + fontHeight <= list.height - 1 then
+            local c = row and row.item and row.item.warning and color("red") or color("text")
+            list:drawText(tostring(row and row.text or ""), 6, textY, c.r, c.g, c.b, c.a, UIFont.Small)
+        end
+        return nextY
     end
     self:addChild(self.detail)
 
-    addLabel(self, 324, 184, text("EconomyAdmin_BuyOverride", "Shop price override"))
-    self.buyEntry = ISTextEntryBox:new("", 324, 204, 116, 28)
+    addLabel(self, 454, 224, text("EconomyAdmin_BuyOverride", "Shop price override"))
+    self.buyEntry = ISTextEntryBox:new("", 454, 244, 140, 28)
     self.buyEntry:initialise(); self.buyEntry:instantiate(); self:addChild(self.buyEntry)
 
-    addLabel(self, 448, 184, text("EconomyAdmin_SellOverride", "Recycle override"))
-    self.sellEntry = ISTextEntryBox:new("", 448, 204, 116, 28)
+    addLabel(self, 604, 224, text("EconomyAdmin_SellOverride", "Recycle override"))
+    self.sellEntry = ISTextEntryBox:new("", 604, 244, 140, 28)
     self.sellEntry:initialise(); self.sellEntry:instantiate(); self:addChild(self.sellEntry)
 
-    addLabel(self, 572, 184, text("EconomyAdmin_CategoryOverride", "Category override"))
-    self.categoryEntry = ISTextEntryBox:new("", 572, 204, 136, 28)
+    addLabel(self, 754, 224, text("EconomyAdmin_CategoryOverride", "Category override"))
+    self.categoryEntry = ISTextEntryBox:new("", 754, 244, math.max(100, self.width - 766), 28)
     self.categoryEntry:initialise(); self.categoryEntry:instantiate(); self:addChild(self.categoryEntry)
 
-    addLabel(self, 324, 244, text("EconomyAdmin_ShopMode", "Shop listing mode"))
+    addLabel(self, 454, 284, text("EconomyAdmin_ShopMode", "Shop listing mode"))
     self.shopModeButtons = {}
     local modeWidth = 124
     for index = 1, #SHOP_MODES do
         local mode = SHOP_MODES[index]
-        local button = ISButton:new(324 + ((index - 1) * (modeWidth + 6)), 264, modeWidth, 30, valueLabel(mode), self, self.onShopModeOption)
+        local button = ISButton:new(454 + ((index - 1) * (modeWidth + 6)), 304, modeWidth, 30, valueLabel(mode), self, self.onShopModeOption)
         button:initialise()
         button.mode = mode
         self:addChild(button)
         self.shopModeButtons[mode] = button
     end
 
-    addLabel(self, 324, 282, text("EconomyAdmin_Note", "Administrator note"))
-    self.noteEntry = ISTextEntryBox:new("", 324, 302, 384, 28)
+    addLabel(self, 454, 342, text("EconomyAdmin_Note", "Administrator note"))
+    self.noteEntry = ISTextEntryBox:new("", 454, 362, math.max(160, self.width - 466), 28)
     self.noteEntry:initialise(); self.noteEntry:instantiate(); self:addChild(self.noteEntry)
 
-    self.saveButton = ISButton:new(324, 402, 105, 34, text("Btn_Save", "Save"), self, self.onSave)
+    self.saveButton = ISButton:new(454, self.height - 54, 105, 34, text("Btn_Save", "Save"), self, self.onSave)
     self.saveButton:initialise(); self:addChild(self.saveButton)
-    self.resetButton = ISButton:new(437, 402, 160, 34, text("EconomyAdmin_Reset", "Restore automatic"), self, self.onReset)
+    self.resetButton = ISButton:new(567, self.height - 54, 160, 34, text("EconomyAdmin_Reset", "Restore automatic"), self, self.onReset)
     self.resetButton:initialise(); self:addChild(self.resetButton)
-    self.closeButton = ISButton:new(605, 402, 103, 34, text("Btn_Close", "Close"), self, self.close)
+    self.relationsButton = ISButton:new(735, self.height - 54, 145, 34, text("EconomyAdmin_ConversionRisks", "转换风险"), self, self.onRelations)
+    self.relationsButton:initialise(); self:addChild(self.relationsButton)
+    self.closeButton = ISButton:new(self.width - 115, self.height - 54, 103, 34, text("Btn_Close", "Close"), self, self.close)
     self.closeButton:initialise(); self:addChild(self.closeButton)
 
     self:clearEditor()
     self:populate()
+    self:loadPresets()
     self.unsubscribe = GodSystemApp.services.itemConfig:subscribe(0, function(event)
         if not (self.getIsVisible and self:getIsVisible()) then return end
         if event and event.topic == "detailsChanged" then
@@ -143,23 +186,189 @@ function GodSystemItemEconomyWindow:createChildren()
     end)
 end
 
+function GodSystemItemEconomyWindow:applyPresets(presets)
+    presets = (type(presets) == "table") and presets or {}
+    self.presetOrder = (type(presets.order) == "table") and presets.order or {}
+    self.presetActive = (type(presets.active) == "string" and presets.active ~= "")
+        and presets.active or GodSystemItemConfig.PRESET_DEFAULT
+    if GodSystemApp.services.runtime then
+        GodSystemApp.services.runtime.itemConfigPresets = { order = self.presetOrder, active = self.presetActive }
+    end
+    if not self.presetBox then return end
+    self.presetBox:clear()
+    self.presetBox:addOptionWithData(text("EconomyAdmin_PresetDefault", "默认"), GodSystemItemConfig.PRESET_DEFAULT)
+    for _, name in ipairs(self.presetOrder) do
+        self.presetBox:addOptionWithData(tostring(name), tostring(name))
+    end
+    self.presetBox:selectData(self.presetActive)
+end
+
+function GodSystemItemEconomyWindow:loadPresets()
+    if multiplayer() then
+        local runtime = GodSystemApp.services.runtime
+        self:applyPresets(runtime and runtime.itemConfigPresets or nil)
+        if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetsGet", {}) end
+        return
+    end
+    local data = GodSystemApp.services.runtime.getData()
+    data.itemConfig = GodSystemItemConfig.migrate(data.itemConfig, data.adminConfig)
+    self:applyPresets(GodSystemItemConfig.presetListPayload(data.itemConfig))
+end
+
+-- Single-player preset mutations mirror the server commands: mutate the migrated
+-- store, re-apply runtime pricing, persist, then republish through the service.
+function GodSystemItemEconomyWindow:localPreset(op, name)
+    local runtime = GodSystemApp.services.runtime
+    local data = runtime.getData()
+    data.itemConfig = GodSystemItemConfig.migrate(data.itemConfig, data.adminConfig)
+    local config = data.itemConfig
+    local store, err
+    if op == "save" then
+        store, err = GodSystemItemConfig.savePreset(config, name)
+    elseif op == "delete" then
+        store = GodSystemItemConfig.deletePreset(config, name)
+    else
+        store = GodSystemItemConfig.applyPreset(config, name)
+    end
+    if not store then return false, err end
+    if op == "apply" then
+        GodSystemItemConfig.applyRuntime(config.itemOverrides, config.shopVariantOverrides, config.economyRevision, config)
+        if GodSystemEconomyPolicy and GodSystemEconomyPolicy.rebuildConversionFloors then GodSystemEconomyPolicy.rebuildConversionFloors() end
+    end
+    runtime.economySnapshot = nil
+    runtime.save()
+    self:applyPresets(GodSystemItemConfig.presetListPayload(config))
+    if service and service.handleChanged then service:handleChanged() end
+    return true
+end
+
+function GodSystemItemEconomyWindow:requestPresetApply(name)
+    if multiplayer() then
+        if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetApply", { name = name }) end
+        return
+    end
+    if self:localPreset("apply", name) then notify(text("EconomyAdmin_PresetApplied", "预设已切换")) end
+end
+
+function GodSystemItemEconomyWindow:requestPresetDelete(name)
+    if multiplayer() then
+        if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetDelete", { name = name }) end
+        return
+    end
+    if self:localPreset("delete", name) then notify(text("EconomyAdmin_PresetDeleted", "预设已删除")) end
+end
+
+function GodSystemItemEconomyWindow:onPresetSelected(box)
+    if self.presetConfirmation then return end
+    local index = box and tonumber(box.selected) or 0
+    local name = index > 0 and box:getOptionData(index) or nil
+    name = name and tostring(name) or ""
+    if name == "" or name == self.presetActive then
+        if box then box:selectData(self.presetActive) end
+        return
+    end
+    -- Revert the visual selection until the switch is confirmed; selectData does
+    -- not re-enter this callback (only popup clicks fire onChange).
+    box:selectData(self.presetActive)
+    local modal = ISModalDialog:new(0, 0, 480, 200,
+        text("EconomyAdmin_PresetSwitchConfirm", "切换预设将覆盖当前未保存为预设的修改，确定继续吗？"),
+        true, self, function(target, pressed, payload)
+            target.presetConfirmation = nil
+            if pressed and pressed.internal == "YES" then target:requestPresetApply(tostring(payload)) end
+        end, 0, name)
+    modal:initialise()
+    self.presetConfirmation = modal
+    GodSystemUI.presentOverlay(modal)
+end
+
+function GodSystemItemEconomyWindow:onSavePreset()
+    if self.presetConfirmation or self.presetNameBox then return end
+    local current = self.presetActive == GodSystemItemConfig.PRESET_DEFAULT and "" or tostring(self.presetActive)
+    local screenW = getCore and getCore():getScreenWidth() or 1280
+    local screenH = getCore and getCore():getScreenHeight() or 720
+    local box = ISTextBox:new(math.max(12, (screenW - 420) / 2), math.max(12, (screenH - 180) / 2), 420, 180,
+        text("EconomyAdmin_PresetNamePrompt", "输入预设名称，同名预设将被覆盖"), current,
+        self, self.onPresetNameResult, 0)
+    box.noEmpty = true
+    box.maxChars = GodSystemItemConfig.PRESET_NAME_MAX
+    box:initialise()
+    self.presetNameBox = box
+    GodSystemUI.presentOverlay(box)
+end
+
+function GodSystemItemEconomyWindow:onPresetNameResult(button)
+    local box = self.presetNameBox
+    self.presetNameBox = nil
+    if not (button and button.internal == "OK") then return end
+    local name = trimmed(box and box.entry and box.entry:getText() or "")
+    if name == "" then return end
+    if multiplayer() then
+        if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetSave", { name = name }) end
+        return
+    end
+    local ok, err = self:localPreset("save", name)
+    if ok then
+        notify(text("EconomyAdmin_PresetSaved", "预设已保存"))
+    elseif err == "Limit" then
+        notify(text("EconomyAdmin_PresetLimit", "预设数量已达上限"))
+    else
+        notify(text("EconomyAdmin_PresetNameInvalid", "预设名称无效"))
+    end
+end
+
+function GodSystemItemEconomyWindow:onDeletePreset()
+    if self.presetConfirmation then return end
+    local name = tostring(self.presetActive or "")
+    if name == "" or name == GodSystemItemConfig.PRESET_DEFAULT then
+        notify(text("EconomyAdmin_PresetDefaultProtected", "默认预设无法删除"))
+        return
+    end
+    local modal = ISModalDialog:new(0, 0, 480, 200,
+        text("EconomyAdmin_PresetDeleteConfirm", "确定删除当前预设吗？此操作不可撤销。"),
+        true, self, function(target, pressed, payload)
+            target.presetConfirmation = nil
+            if pressed and pressed.internal == "YES" then target:requestPresetDelete(tostring(payload)) end
+        end, 0, name)
+    modal:initialise()
+    self.presetConfirmation = modal
+    GodSystemUI.presentOverlay(modal)
+end
+
 function GodSystemItemEconomyWindow:prerender()
     ISCollapsableWindow.prerender(self)
     local shell, border = color("shell"), color("borderStrong")
     self:drawRect(0, 16, self.width, self.height - 16, shell.a, shell.r, shell.g, shell.b)
     self:drawRectBorder(1, 17, self.width - 2, self.height - 18, border.a, border.r, border.g, border.b)
+    if self.searchDueMs and (getTimestampMs and getTimestampMs() or 0) >= self.searchDueMs then
+        self.searchDueMs = nil
+        self:populate()
+    end
 end
 
 function GodSystemItemEconomyWindow:drawCatalogItem(list, y, row, alt)
+    local nextY = y + list.itemheight
+    local scroll = list:getYScroll()
+    local top = math.max(y + scroll, 0)
+    local bottom = math.min(nextY - 1 + scroll, list.height)
+    if bottom <= top then return nextY end
     local background = alt and color("rowAlt") or color("row")
-    list:drawRect(0, y, list.width, list.itemheight - 1, background.a, background.r, background.g, background.b)
+    list:drawRect(0, top - scroll, list.width, bottom - top, background.a, background.r, background.g, background.b)
     if list.selected == row.index then
         local selected = color("rowSelect")
-        list:drawRect(0, y, list.width, list.itemheight - 1, selected.a, selected.r, selected.g, selected.b)
+        list:drawRect(0, top - scroll, list.width, bottom - top, selected.a, selected.r, selected.g, selected.b)
     end
     local c = color("text")
-    list:drawText(tostring(row and row.text or ""), 8, y + 8, c.r, c.g, c.b, c.a, UIFont.Small)
-    return y + list.itemheight
+    local item = row and row.item or {}
+    local fontHeight = getTextManager():getFontHeight(UIFont.Small)
+    local labelY = y + 4
+    if labelY + scroll >= 1 and labelY + scroll + fontHeight <= list.height - 1 then
+        list:drawText(tostring(item.label or row and row.text or ""), 8, labelY, c.r, c.g, c.b, c.a, UIFont.Small)
+    end
+    local typeY = y + 22
+    if typeY + scroll >= 1 and typeY + scroll + fontHeight <= list.height - 1 then
+        list:drawText(tostring(item.fullType or ""), 8, typeY, c.r, c.g, c.b, c.a, UIFont.Small)
+    end
+    return nextY
 end
 
 function GodSystemItemEconomyWindow:clearEditor()
@@ -180,7 +389,7 @@ function GodSystemItemEconomyWindow:onSearchChanged(entry)
     self.searchText = nextSearch
     self.selectedKey = nil
     self:clearEditor()
-    self:populate()
+    self.searchDueMs = (getTimestampMs and getTimestampMs() or 0) + 250
 end
 
 function GodSystemItemEconomyWindow:populate()
@@ -314,12 +523,27 @@ function GodSystemItemEconomyWindow:onSave()
         shopMode = item.variantKey and "auto" or self.editShopMode,
         note = entryText(self.noteEntry) ~= "" and entryText(self.noteEntry) or nil,
     }
+    local lowKey = tostring(item.fullType) .. ":" .. tostring(override.buyPrice or "")
+    local safe = math.max(0, tonumber(details.quote and details.quote.safeMinimum) or 0)
+    local acknowledge = false
+    if override.buyPrice and override.buyPrice < safe then
+        if self.riskConfirmation ~= lowKey then
+            self.riskConfirmation = lowKey
+            if GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then
+                GodSystemApp.services.runtime.notify(text("EconomyWarning_Arbitrage", "Price is below the safe minimum. Save again to confirm."))
+            end
+            return
+        end
+        acknowledge = true
+    end
     local sent = GodSystemApp.services.itemConfig:execute(0, "set", {
         fullType = item.fullType,
         override = override,
         variantKey = item.variantKey,
         worldSprite = item.worldSprite,
         shopMode = self.editShopMode,
+        expectedRevision = details.revision,
+        acknowledgeRisk = acknowledge,
     })
     if sent and GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then
         GodSystemApp.services.runtime.notify(text("EconomyAdmin_Saved", "Item economy configuration saved."))
@@ -337,6 +561,10 @@ function GodSystemItemEconomyWindow:onReset()
     if sent and GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then
         GodSystemApp.services.runtime.notify(text("EconomyAdmin_ResetDone", "Automatic pricing restored."))
     end
+end
+
+function GodSystemItemEconomyWindow:onRelations()
+    if GodSystemConversionRelationsUI and GodSystemConversionRelationsUI.open then GodSystemConversionRelationsUI.open() end
 end
 
 function GodSystemItemEconomyWindow:refreshSelected(requestDetails)
@@ -366,14 +594,14 @@ function GodSystemItemEconomyUI.open(owner)
     if GodSystemItemEconomyUI.window then
         return GodSystemUI.presentOverlay(GodSystemItemEconomyUI.window)
     end
-    local width, height = 720, 460
+    local width, height = 1040, 680
     local screenW = getCore and getCore():getScreenWidth() or 1280
     local screenH = getCore and getCore():getScreenHeight() or 720
+    width, height = math.min(width, math.max(640, screenW - 24)), math.min(height, math.max(460, screenH - 24))
     local window = GodSystemItemEconomyWindow:new(
-        math.max(20, (screenW - width) / 2),
-        math.max(20, (screenH - height) / 2),
-        width,
-        height,
+        math.max(12, (screenW - width) / 2),
+        math.max(12, (screenH - height) / 2),
+        width, height,
         owner
     )
     window:initialise()

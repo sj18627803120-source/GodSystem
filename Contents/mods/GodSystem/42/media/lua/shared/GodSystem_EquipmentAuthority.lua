@@ -62,10 +62,7 @@ function A.install(service,key)
         local owner=cached and cached.account.ownerKey
         for id,item in pairs(service.known) do
             local record=service.loadedRoot and service:recordFor(item,service.loadedRoot)
-            if (record and record.ownerKey==owner) or I.owned(player,item) then
-                if record then I.apply(item,record.base,nil) end
-                service:forgetRecord(id)
-            end
+            if (record and record.ownerKey==owner) or I.owned(player,item) then service:forgetRecord(id) end
         end
         service.players[player]=nil
     end
@@ -92,12 +89,7 @@ function A.install(service,key)
             local holder
             for player in pairs(active) do if I.owned(player,item) then holder=player; break end end
             if holder then service:reconcile(holder,item,false)
-            else
-                local root=service.loadedRoot; local record=root and service:recordFor(item,root)
-                if record then I.apply(item,record.base,nil) end
-                -- Do not pin unloaded/offline inventory graphs in memory. Future recognition uses the marker.
-                service:forgetRecord(id)
-            end
+            else service:forgetRecord(id) end
         end
         flush()
     end
@@ -113,10 +105,6 @@ function A.install(service,key)
                 elseif not I.value(item,"getContainer") and not I.value(item,"getWorldItem") then service:forgetRecord(id) end
             end
             flush(player)
-        end,
-        beforeParts=function(player,item)
-            local root=service:root(); local record=root and service:recordFor(item,root)
-            if record then I.apply(item,record.base,nil) end
         end,
         leave=forget,
         reset=function() service.known={}; service.knownIds={}; service.players={}; service.loadedRoot=nil end,

@@ -5,6 +5,7 @@ require "GodSystem_ManualRecycle"
 require "GodSystem_InventoryIndex"
 require "GodSystem_RuntimeConfig"
 require "GodSystem_ItemConfig"
+require "GodSystem_ConversionRelations"
 require "GodSystem_RangeFilter"
 require "GodSystem_RangeRecycleDomain"
 require "GodSystem_RangeRecycleScanner"
@@ -20,10 +21,14 @@ require "GodSystem_EconomyPolicy"
 require "GodSystem_Maintenance"
 require "GodSystem_Attributes"
 require "GodSystem_CarryCapacity"
+require "GodSystem_RecycleFingerprint"
 require "GodSystem_TransactionOps"
 require "GodSystem_ShopVariants"
+require "GodSystem_ShopInflation"
 require "GodSystem_B42JavaCalls"
+require "GodSystem_MimicKey"
 require "GodSystem_Lottery"
+require "GodSystem_UtilityGenerator"
 
 if not (isServer and isServer()) then return end
 
@@ -42,6 +47,7 @@ require "GodSystem_ServerRuntime_HomeGrowth"
 require "GodSystem_ServerRangeRecycle"
 require "GodSystem_ServerRuntime_Background"
 require "GodSystem_ServerRuntime_Equipment"
+require "GodSystem_ServerRuntime_UtilityGenerator"
 
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Foundation"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Foundation")(GodSystemServerRuntimeEnv)
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Bank"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Bank")(GodSystemServerRuntimeEnv)
@@ -55,5 +61,6 @@ assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRangeRecycle"], "GodSys
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Background"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Background")(GodSystemServerRuntimeEnv)
 
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Equipment")(GodSystemServerRuntimeEnv)
+assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_UtilityGenerator"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_UtilityGenerator")(GodSystemServerRuntimeEnv)
 
 return GodSystemServerRuntimeEnv.Commands

@@ -1,5 +1,7 @@
 require "GodSystem_Equipment"
 GodSystemRuntimeConfig = GodSystemRuntimeConfig or {}
+GodSystemRuntimeConfig.PricingRevision = math.max(1, tonumber(GodSystemRuntimeConfig.PricingRevision) or 1)
+GodSystemRuntimeConfig._pricingSignature = GodSystemRuntimeConfig._pricingSignature or ""
 
 local RANGE_DEFAULTS = {
     EnableRangeRecycle = true,
@@ -69,8 +71,11 @@ end
 
 function GodSystemRuntimeConfig.fromSandbox(source)
     local result = copyScalars(source)
+    result.EnableTeleportFallback = boolValue(result.EnableTeleportFallback, true)
+    result.DeathProtectionCost = math.floor(clampNumber(result.DeathProtectionCost, 20000, 0, 1000000))
     result.EnableEquipment = boolValue(result.EnableEquipment, true)
     result.EnableEquipmentFreeze = boolValue(result.EnableEquipmentFreeze, true)
+    result.EnableEquipmentSplash = boolValue(result.EnableEquipmentSplash, true)
     result.EquipmentFreezeVisuals = boolValue(result.EquipmentFreezeVisuals, true)
     result.EnableTasks = boolValue(result.EnableTasks, true)
     result.DailyTaskCount = math.floor(clampNumber(result.DailyTaskCount, 5, 0, 20))
@@ -79,6 +84,14 @@ function GodSystemRuntimeConfig.fromSandbox(source)
     result.DefaultTaskLimitHours = math.floor(clampNumber(result.DefaultTaskLimitHours, 24, 1, 168))
     result.TaskRewardMultiplier = clampNumber(result.TaskRewardMultiplier, 1, 0, 100)
     result.TaskPenaltyMultiplier = clampNumber(result.TaskPenaltyMultiplier, 1, 0, 100)
+    result.EnableShopDynamicInflation = boolValue(result.EnableShopDynamicInflation, true)
+    result.ShopDynamicInflationPercent = clampNumber(result.ShopDynamicInflationPercent, 10, 0, 100)
+    result.ShopDynamicInflationHours = math.floor(clampNumber(result.ShopDynamicInflationHours, 24, 1, 720))
+    result.EnableUtilityGenerator = boolValue(result.EnableUtilityGenerator, true)
+    result.EnableUtilityGeneratorWater = boolValue(result.EnableUtilityGeneratorWater, true)
+    result.EnableUtilityGeneratorElectricity = boolValue(result.EnableUtilityGeneratorElectricity, true)
+    result.UtilityGeneratorWaterPricePer100L = clampNumber(result.UtilityGeneratorWaterPricePer100L, 20, 0, 1000000)
+    result.UtilityGeneratorElectricityPricePerFuelUnit = clampNumber(result.UtilityGeneratorElectricityPricePerFuelUnit, 5, 0, 1000000)
     for key, rule in pairs(GodSystemEquipment.Settings) do
         if result[key] == nil then result[key] = rule[1] end
     end
@@ -166,18 +179,42 @@ local function applyDirectConfigValues(snapshot)
     applyBankInvestmentProfiles(snapshot)
 end
 
+local function refreshPricingRevision(snapshot)
+    local signature = table.concat({
+        tostring(snapshot and snapshot.ShopBuyPriceMultiplier or GodSystemConfig and GodSystemConfig.ShopBuyPriceMultiplier or 1),
+        tostring(snapshot and snapshot.RecycleSellPriceMultiplier or GodSystemConfig and GodSystemConfig.RecycleSellPriceMultiplier or 1),
+        tostring(snapshot and snapshot.RecycleSellRatio or GodSystemConfig and GodSystemConfig.RecycleSellRatio or 0.05),
+        tostring(snapshot and snapshot.EconomyConversionSafetyMargin or GodSystemConfig and GodSystemConfig.EconomyConversionSafetyMargin or 0.10),
+    }, "|")
+    if GodSystemRuntimeConfig._pricingSignature ~= signature then
+        GodSystemRuntimeConfig._pricingSignature = signature
+        GodSystemRuntimeConfig.PricingRevision = GodSystemRuntimeConfig.PricingRevision + 1
+        if GodSystemEconomyPolicy and GodSystemEconomyPolicy.invalidate then GodSystemEconomyPolicy.invalidate("runtimePricing") end
+        if GodSystemEconomyPolicy and GodSystemEconomyPolicy.rebuildConversionFloors then GodSystemEconomyPolicy.rebuildConversionFloors() end
+    end
+end
+
 function GodSystemRuntimeConfig.readSandbox()
+    if GodSystemRuntimeConfig.Source == "server" and isClient and isClient() then
+        return GodSystemRuntimeConfig.Current
+    end
     local source = SandboxVars and SandboxVars.GodSystem or {}
     GodSystemRuntimeConfig.Current = GodSystemRuntimeConfig.fromSandbox(source)
+    if GodSystemShopInflation and ModData and ModData.getOrCreate then
+        GodSystemShopInflation.observeConfig(ModData.getOrCreate("GodSystem_CN_ShopEconomyConfig"), GodSystemRuntimeConfig.Current)
+    end
     GodSystemRuntimeConfig.Source = "sandbox"
     applyDirectConfigValues(GodSystemRuntimeConfig.Current)
+    refreshPricingRevision(GodSystemRuntimeConfig.Current)
     return GodSystemRuntimeConfig.Current
 end
 
 function GodSystemRuntimeConfig.applySnapshot(snapshot)
     GodSystemRuntimeConfig.Current = GodSystemRuntimeConfig.fromSandbox(snapshot)
+    GodSystemRuntimeConfig.Current.ShopInflationGeneration = snapshot and snapshot.ShopInflationGeneration or 0
     GodSystemRuntimeConfig.Source = "server"
     applyDirectConfigValues(GodSystemRuntimeConfig.Current)
+    refreshPricingRevision(GodSystemRuntimeConfig.Current)
     return GodSystemRuntimeConfig.Current
 end
 

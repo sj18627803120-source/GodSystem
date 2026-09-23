@@ -1,0 +1,10 @@
+{
+ "SearchItems":"搜索物品名称", "SearchSkills":"搜索技能名称",
+ "ForbiddenTypes":"种禁止回收的物品", "RecycleRadius":"扫描半径（格）",
+ "ManualShort":"手册", "SearchGuide":"搜索功能、物品名称或说明", "NextOption":"切换选项", "PendingDisplay":"待应用", "AppliedDisplay":"已应用",
+ "Target":"目标数量",
+ "RecycleState":"回收状态", "Processed":"已处理", "Payout":"本次收益", "Skipped":"已跳过", "Filter":"物品筛选", "AllowedTypes":"种允许回收的物品", "CarryLimit":"当前负重上限", "Balance":"账户余额", "DeathPenalty":"死亡扣款预览", "Credit":"可用贷款额度", "Debt":"未偿还欠款",
+ "PanelKey":"面板快捷键", "RangeKey":"范围回收快捷键", "Notifications":"头顶提示", "Shown":"已开启", "Hidden":"已关闭",
+ "Nav_tasks":"任务委托", "Nav_shop":"物资商店", "Nav_rangeRecycle":"范围回收", "Nav_bank":"资产管理", "Nav_home":"家园传送", "Nav_traits":"特质调整", "Nav_upgrades":"系统升级", "Nav_attribute":"技能成长", "Nav_companion":"机械同伴", "Nav_equipment":"装备培养",
+ "Settings":"设置", "Manual":"使用手册", "Available":"可接任务", "Active":"进行中", "TaskCapacity":"任务扩展", "Apply":"应用显示", "Reset":"重置显示", "Operations":"行动与交易", "Growth":"角色与成长", "Equipment":"装备培养", "History":"操作记录", "Reward":"奖励", "Current":"活期账户", "SelectEntry":"选择左侧条目查看详情", "Price":"单价", "TimeLimit":"时限", "FailureCost":"失败扣款", "Subtitle":"生存 · 积累 · 成长", "Wallet":"随身系统币", "Investments":"投资余额", "TestBuild":"界面测试版", "Footer":"又活过一天，也更强一点。", "NoMatches":"没有找到相关条目，请尝试其他关键词。", "FontSmall":"紧凑", "FontNormal":"标准", "FontLarge":"大字", "SizeAuto":"自动适应屏幕", "Shortcuts":"快捷操作", "ItemConfig":"物品管理", "Diagnostics":"诊断信息", "FontSize":"字体大小", "FontHint":"调整终端文字与列表行高", "WindowSize":"窗口尺寸", "SizeHint":"自动限制在当前屏幕范围内", "Toggle":"切换提示", "ChangeKey":"修改按键", "ResetBinding":"恢复默认", "CarriedWeapons":"随身武器", "TargetChance":"目标成功率 %", "Carried":"已随身携带", "Missing":"未随身携带", "Condition":"耐久", "HeadCondition":"头部耐久", "Sharpness":"锋利度"
+}

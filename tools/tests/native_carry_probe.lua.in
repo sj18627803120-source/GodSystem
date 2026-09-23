@@ -1,0 +1,74 @@
+-- The Python runner embeds local source only into the ignored test directory.
+function require(name) assert(name == 'GodSystem_Config'); return {} end
+function isClient() return false end
+function isServer() return false end
+local probeClock = 1000
+function getTimestampMs() return probeClock end
+function getPlayer() return player end
+local function event()
+    local callbacks = {}
+    return {
+        Add = function(fn) callbacks[fn] = true end,
+        Remove = function(fn) callbacks[fn] = nil end,
+        fire = function()
+            local pending = {}; for fn in pairs(callbacks) do pending[#pending + 1] = fn end
+            for i = 1, #pending do if callbacks[pending[i]] then pending[i]() end end
+        end,
+    }
+end
+Events = { OnTick = event(), EveryHours = event(), OnCreatePlayer = event() }
+local function loadCarry()
+-- @CARRY_SOURCE@
+end
+local C = loadCarry()
+assert(C.restore(player, 1)); assert(player:getMaxWeightBase() == 10); assert(player:getMaxWeight() == 15)
+assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14); assert(player:getMaxWeight() == 22)
+player:setMaxWeightDelta(1.5); body:UpdateStrength(); assert(player:getMaxWeight() == 33)
+assert(C.restore(player, 3)); assert(player:getMaxWeightDelta() == 1.5)
+player:setMaxWeightDelta(1); body:UpdateStrength()
+for i = 1, 100 do
+    assert(C.restore(player, 3)); body:UpdateStrength()
+    assert(player:getMaxWeightBase() == 14); assert(player:getMaxWeight() == 22)
+end
+player:setMaxWeightBase(15)
+local ok, reason = C.restore(player, 3)
+assert(not ok and reason == 'externalConflict'); assert(player:getMaxWeightBase() == 15)
+player:setMaxWeightBase(14); assert(C.restore(player, 3))
+local saved = C.capture(player)
+assert(C.restore(player, 4, true)); assert(player:getMaxWeightBase() == 16)
+assert(C.rollback(player, saved)); assert(player:getMaxWeightBase() == 14)
+C.forget(player); player:setMaxWeightBase(8)
+assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14)
+C.scheduleRecheck(player); player:setMaxWeight(12); probeClock = probeClock + 3000
+assert(C.restore(player, 3)); assert(player:getMaxWeight() == 22)
+for i = 1, 2 do player:setMaxWeightBase(8); assert(C.restore(player, 3)) end
+player:setMaxWeightBase(8)
+ok, reason = C.restore(player, 3); assert(not ok and reason == 'resetCooldown')
+probeClock = probeClock + 29999; assert(not C.restore(player, 3)); assert(player:getMaxWeightBase() == 8)
+probeClock = probeClock + 1; assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14)
+SandboxVars = { UnifiedCarryWeightFramework = { GatherDetailedDebug = false, CapWeight = false } }
+local function loadFramework()
+-- @UCWF_SOURCE@
+end
+local f = loadFramework()
+local coexistence = 'UCWF not requested'
+local function settle()
+    for i = 1, 3 do body:UpdateStrength(); Events.OnTick.fire() end
+    body:UpdateStrength()
+end
+if f then
+    f.registerBaseModifier({ id = 'probe.other', resolve = function() return { add = 1 } end })
+    assert(C.restore(player, 3)); settle()
+    assert(player:getMaxWeightBase() == 15); assert(player:getMaxWeight() == 23)
+    -- Failed payment while an earlier framework calculation is pending.
+    assert(C.restore(player, 4)); saved = C.capture(player)
+    assert(C.restore(player, 5, true)); assert(C.rollback(player, saved)); settle()
+    assert(C.getStatus(player, 4).reason == 'ok'); assert(player:getMaxWeightBase() == 17)
+    assert(C.restore(player, 3)); settle()
+    for i = 1, 20 do
+        f.recomputeAll(player); settle(); assert(C.restore(player, 3))
+        assert(player:getMaxWeightBase() == 15); assert(player:getMaxWeight() == 23)
+    end
+    coexistence = '20 UCWF coexistence recomputations and pending rollback'
+end
+return 'PASS installed Kahlua/UpdateStrength: 100 idle recomputations, delta preserved, conflict preserved, purchase rollback, load restore, delayed recheck and cooldown recovery; ' .. coexistence

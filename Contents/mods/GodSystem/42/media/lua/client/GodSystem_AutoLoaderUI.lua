@@ -203,4 +203,6 @@ function UI.onResult(action, ok, code)
     elseif not ok then UI.window.statusLabel.name = Client.text(Client.codeKey(code), tostring(code or "")) end
 end
 
+require "GodSystem_TerminalAutoLoader"
+GodSystemTerminalAutoLoader.install()
 return UI

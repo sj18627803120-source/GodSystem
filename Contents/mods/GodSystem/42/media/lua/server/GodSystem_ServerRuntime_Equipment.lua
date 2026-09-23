@@ -1,5 +1,6 @@
 require "GodSystem_EquipmentAuthority"
 require "GodSystem_FreezeAuthority"
+require "GodSystem_EquipmentCombat"
 _G.GodSystemServerRuntimeInstallers = _G.GodSystemServerRuntimeInstallers or {}
 GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"] = function(runtimeEnvironment)
     if runtimeEnvironment.__GodSystemInstalled_GodSystem_ServerRuntime_Equipment then return end
@@ -32,15 +33,11 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"] = function
         if not item then return false end
         serial=serial+1
         local payload={session=session,serial=serial,itemId=I.id(item),fullType=I.value(item,"getFullType"),
-            raw=I.raw(item),base=record and E.copy(record.base),levels=record and E.copy(record.levels),
+            levels=record and E.projectionLevels(record),effectState=record and E.copy(record.effectState),
             marker=E.copy(I.marker(item)),active=active==true,
             ownerKey=record and record.ownerKey,characterId=record and record.characterId}
-        -- Keep the applied rule alongside the item, even when the page snapshot is older.
-        payload.growthConfig=cfg and {enabled=cfg.enabled,freezeEnabled=cfg.freezeEnabled,
-            EquipmentGrowthPercent=cfg.EquipmentGrowthPercent} or nil
-        if not payload.raw then return false end
-        -- Never resend wear during an ordinary equip/page sync. Paid repair/recovery uses native fields;
-        -- our raw payload avoids SyncHandWeaponFieldsPacket's sharpness-derived max-damage getter.
+        -- Paid repair/recovery/rename uses native item fields. Ordinary state
+        -- sync deliberately contains no weapon raw/base/target parameters.
         if syncNativeFields then
             if not syncItemFields or not player then return false end
             syncItemFields(player,item)
@@ -61,6 +58,47 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"] = function
     end)
     GodSystemServer.freeze=freeze
     service.metrics.freeze=freeze.metrics
+    local combatSessions,impactSerial={},0
+    local combat=GodSystemEquipmentCombat.new(service,{
+        begin=function(player,weapon)
+            -- Combat begin has validated the player/session/weapon.  Freeze
+            -- therefore shares this single attack ledger instead of trusting
+            -- its former dedicated swing packet.
+            freeze:trustedSwing(player,weapon)
+        end,
+        progress=function(player,record,state)
+            state=state or GodSystemEquipmentImpact.state(record)
+            sendServerCommand(player,MODULE,"equipmentCombatProgress",{equipmentId=record.id,generation=record.generation,
+                stateRevision=state.stateRevision,impactLevel=GodSystemEquipment.level(record,"impact") or 0,
+                attackCount=state.attackCount,ready=state.ready})
+        end,
+        impactFinished=function(job)
+            local center,token=job.center,job.token
+            if not center or type(token)~="table" then return end
+            local targets={}
+            for _,row in ipairs(job.best or {}) do
+                local zombie=row.object
+                if zombie then targets[#targets+1]={id=zombie:getOnlineID(),x=zombie:getX(),y=zombie:getY(),z=zombie:getZ()} end
+            end
+            if #targets==0 then return end
+            impactSerial=impactSerial+1
+            local payload={session=session,serial=impactSerial,attackId=token.attackId,targets=targets}
+            local online=getOnlinePlayers()
+            for n=0,online:size()-1 do
+                local viewer=online:get(n); local dx,dy=viewer:getX()-center:getX(),viewer:getY()-center:getY()
+                if dx*dx+dy*dy<=128*128 then sendServerCommand(viewer,MODULE,"equipmentImpactApply",payload) end
+            end
+        end,
+    })
+    GodSystemServer.equipmentCombat=combat
+    service.metrics.combat=combat.metrics
+    service.metrics.splash=combat.splashRuntime.metrics
+    local previousLeave=service.lifecycle.hooks.leave
+    service.lifecycle.hooks.leave=function(player)
+        combat:reset(player)
+        if previousLeave then previousLeave(player) end
+    end
+    service.lifecycle.hooks.hit=function(zombie,player,weapon) combat:hit(zombie,player,weapon) end
     local lastSync={}
     local lastInspect,lastInspectOrder={},{}
     local function sendEquipment(player)
@@ -106,11 +144,24 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"] = function
         sendEquipment(player)
         finishCode(player,result.ok,result.code,{},result)
     end
-    function Commands.equipmentFreezeSwing(_,_,player,args)
-        if not guard(player) then return end
-        local weapon=I.value(player,"getPrimaryHandItem")
-        freeze:swing(player,weapon,args)
-        unguard(player)
+    function Commands.equipmentCombatAttack(_,_,player,args)
+        if type(args)~="table" or (args.phase~="begin" and args.phase~="finish") then return end
+        local state=combatSessions[player]
+        local n=GodSystemEquipment.integer(args.sequence,1,9007199254740000)
+        local now=GodSystemScheduler.nowMs()
+        if not state or args.session~=session or args.key~=state.key or not n or type(args.itemId)~="string"
+            or type(args.fullType)~="string" or not GodSystemEquipment.number(args.at) or args.at>now+500 or now-args.at>2000 then return end
+        local ledger=combat.attacks[player]
+        local weapon=args.phase=="finish" and ledger and ledger.weapon
+            or I.value(player,"getAttackingWeapon",I.value(player,"getPrimaryHandItem"))
+        if not weapon or I.id(weapon)~=args.itemId or I.value(weapon,"getFullType")~=args.fullType then return end
+        if args.phase=="begin" then
+            if n<=state.sequence then return end
+            state.sequence=n
+            combat:begin(player,weapon,n)
+        else
+            combat:finish(player,weapon,n)
+        end
     end
     local hello=Commands.hello
     Commands.hello=function(module,command,player,args)
@@ -118,5 +169,7 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"] = function
         service:account(player)
         sendEquipment(player)
         freeze:hello(player)
+        combatSessions[player]={key=getRandomUUID(),sequence=0}
+        sendServerCommand(player,MODULE,"equipmentCombatHello",{session=session,key=combatSessions[player].key})
     end
 end

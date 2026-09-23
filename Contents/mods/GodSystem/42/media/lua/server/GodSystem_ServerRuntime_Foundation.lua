@@ -115,7 +115,10 @@ end
 function applyRuntimeStores()
     GodSystemRuntimeConfig.readSandbox()
     local data = itemConfigStore()
-    GodSystemItemConfig.applyRuntime(data.itemOverrides, data.shopVariantOverrides, data.economyRevision)
+    GodSystemItemConfig.applyRuntime(data.itemOverrides, data.shopVariantOverrides, data.economyRevision, data)
+    if GodSystemEconomyPolicy and GodSystemEconomyPolicy.rebuildConversionFloors then
+        GodSystemEconomyPolicy.rebuildConversionFloors()
+    end
     return data
 end
 
@@ -227,7 +230,8 @@ function playerData(player)
     data.tasks = data.tasks or {}
     data.history = data.history or {}
     data.unlockedShopItems = data.unlockedShopItems or {}
-    GodSystemShopVariants.normalizeUnlocked(data, GodSystemServer.getConfiguredShopKeySet())
+    GodSystemShopVariants.ensureCatalogMeta(data, GodSystemServer.getConfiguredShopKeySet())
+    GodSystemShopInflation.state(data, GodSystemRuntimeConfig.Current or GodSystemRuntimeConfig.readSandbox(), math.floor(nowHours() * 60))
     data.stats = data.stats or {}
     data.stats.recycledItems = data.stats.recycledItems or 0
     data.stats.recycledPoints = data.stats.recycledPoints or 0
@@ -440,8 +444,8 @@ function giveItem(player, fullType, count)
     local inv = player:getInventory()
     local added = {}
     for _ = 1, count do
-        local item = inv:AddItem(fullType)
-        if not item then
+        local okAdd, item = pcall(function() return inv:AddItem(fullType) end)
+        if not okAdd or not item then
             for i = 1, #added do
                 inv:Remove(added[i])
                 if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, inv, added[i]) end

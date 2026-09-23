@@ -3,6 +3,7 @@ GodSystemInventoryIndex = GodSystemInventoryIndex or {}
 local Index = GodSystemInventoryIndex
 
 function Index.build(root)
+    if GodSystemShopCatalog and GodSystemShopCatalog.note then GodSystemShopCatalog.note("inventory.indexBuilds") end
     local result = { byId = {}, ambiguous = {}, valid = root ~= nil, itemsVisited = 0, containersVisited = 0 }
     local pending, visited = { root }, {}
     while #pending > 0 do

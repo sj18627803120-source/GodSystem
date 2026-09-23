@@ -54,7 +54,7 @@ function GodSystemApp.services.runtime.getSystemUpgradeInfo(upgradeType)
             maxValue = nil,
             cost = cost,
             label = GodSystemApp.services.runtime.text("Upgrade_CarryCapacity", "Carry capacity"),
-            desc = GodSystemApp.services.runtime.text("Upgrade_CarryCapacityDesc", "Each level adds 2 to the protocol carry base. Use Carry restore after another MOD changes the base."),
+            desc = GodSystemApp.services.runtime.text("Upgrade_CarryCapacityDesc", "Each level costs 2000 coins and adds 2 base carry. Final carry depends on strength, conditions and multipliers. Restores automatically; no required mod."),
             carryStatus = status,
         }
     end
@@ -68,7 +68,6 @@ function GodSystemApp.services.runtime.getSystemUpgradeDetailText(upgradeType)
     end
     if upgradeType == "carryCapacity" then
         local status = info.carryStatus or {}
-        local externalBase = status.externalBase ~= nil and tostring(status.externalBase) or "?"
         local writtenBase = status.currentBase ~= nil and tostring(status.currentBase) or "?"
         local finalCarry = status.finalCarry ~= nil and tostring(status.finalCarry) or "?"
         local bonus = tonumber(status.bonus) or 0
@@ -76,9 +75,9 @@ function GodSystemApp.services.runtime.getSystemUpgradeDetailText(upgradeType)
         local costText = info.cost and (tostring(info.cost) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c")) or GodSystemApp.services.runtime.text("Upgrade_CostOverflow", "Unavailable")
         return tostring(info.desc or "")
             .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryProtocolBonus", "Protocol base bonus") .. " " .. bonusText
-            .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryExternalBase", "External base") .. " " .. externalBase
             .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryWrittenBase", "Written base") .. " " .. writtenBase
             .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryGameFinal", "Game final carry") .. " " .. finalCarry
+            .. " | " .. GodSystemApp.services.runtime.getCarryCapacityStateText(status)
             .. " | " .. GodSystemApp.services.runtime.text("Upgrade_Level", "Level") .. " " .. tostring(info.current)
             .. " | " .. GodSystemApp.services.runtime.text("Upgrade_Cost", "Cost") .. " " .. costText
     end
@@ -111,13 +110,14 @@ function GodSystemApp.services.runtime.upgradeSystem(upgradeType)
         local data = GodSystemApp.services.runtime.getData()
         local previousLevel = GodSystemApp.services.runtime.getCarryCapacityLevel()
         local nextLevel = previousLevel + 1
-        local applied, applyResult = GodSystemCarryCapacity.restore(player, nextLevel)
+        local carrySnapshot = GodSystemCarryCapacity.capture(player)
+        local applied, applyResult = GodSystemCarryCapacity.restore(player, nextLevel, true)
         if not applied then
-            GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_CarryCapacityApplyFailed", "Carry capacity upgrade could not be applied") .. " (" .. tostring(applyResult or "unknown") .. ")")
+            GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_CarryCapacityApplyFailed", "Carry capacity upgrade could not be applied") .. ": " .. GodSystemApp.services.runtime.getCarryCapacityStateText({ reason = applyResult }))
             return false
         end
         if not GodSystemApp.services.runtime.addPoints(-info.cost) then
-            GodSystemCarryCapacity.restore(player, previousLevel)
+            GodSystemCarryCapacity.rollback(player, carrySnapshot)
             return false
         end
         data.upgrades = data.upgrades or {}

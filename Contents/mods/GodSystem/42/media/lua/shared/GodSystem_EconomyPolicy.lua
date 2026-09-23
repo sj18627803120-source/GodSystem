@@ -4,6 +4,7 @@ require "GodSystem_ItemEligibility"
 require "GodSystem_RuntimeConfig"
 require "GodSystem_ItemConfig"
 require "GodSystem_B42JavaCalls"
+require "GodSystem_ConversionRelations"
 
 GodSystemEconomyPolicy = GodSystemEconomyPolicy or {}
 
@@ -95,11 +96,15 @@ end
 
 local function baseReference(fullType, item)
     local category = categoryFor(fullType, item)
+    local override = Admin.getItemOverride and Admin.getItemOverride(fullType) or nil
+    if override and override.buyPrice ~= nil then
+        return math.max(0, integer(override.buyPrice, 0)), category, "admin_buy", false, false, true
+    end
     local configured = (Config.VanillaItemBuyPrices or {})[fullType]
     if configured ~= nil then
-        return math.max(1, integer(configured, 1)), category, "price_table", false, true
+        return math.max(1, integer(configured, 1)), category, "price_table", false, true, false
     end
-    return fallbackBuy(category), category, "category_fallback", isUnknownThirdParty(fullType), false
+    return fallbackBuy(category), category, "category_fallback", isUnknownThirdParty(fullType), false, false
 end
 
 local function itemConditionMultiplier(item)
@@ -118,20 +123,47 @@ local function eligible(fullType, context)
 end
 
 local function baseRecycle(fullType, item)
-    local reference, category, source, unknownThirdParty, hasExactPrice = baseReference(fullType, item)
+    local reference, category, source, unknownThirdParty, hasExactPrice, hasAdminBuy = baseReference(fullType, item)
     local recycle = unknownThirdParty
         and math.max(1, integer(Config.UnknownModItemRecycleValue, 1))
         or math.max(1, math.floor(reference * finiteNumber(Config.RecycleSellRatio, 0.05)))
     if Admin.applySellPrice then recycle = Admin.applySellPrice(fullType, recycle) end
     recycle = math.max(0, math.floor(recycle * itemConditionMultiplier(item)))
     if recycle > 0 then recycle = math.max(1, recycle) end
-    return reference, recycle, category, source, unknownThirdParty, hasExactPrice
+    return reference, recycle, category, source, unknownThirdParty, hasExactPrice, hasAdminBuy
 end
 
 function Policy.invalidate(reason)
     Policy.revision = Policy.revision + 1
     Policy.quoteCache = {}
     Policy.lastInvalidationReason = tostring(reason or "runtime")
+end
+
+-- Rebuild only after administrator/runtime price configuration changes.  The
+-- compiled map is intentionally small and is what MP clients receive; they
+-- never enumerate recipes or administrator relationship notes.
+function Policy.rebuildConversionFloors()
+    local current = Admin.Current
+    if not current then return {} end
+    local signature = table.concat({
+        tostring(current.economyRevision or 1), tostring(current.conversionRevision or 1),
+        tostring(GodSystemRuntimeConfig and GodSystemRuntimeConfig.PricingRevision or 1),
+    }, "|")
+    if Policy.conversionSignature == signature and type(Policy.conversionFloors) == "table" then
+        current.conversionFloors = Policy.conversionFloors
+        return Policy.conversionFloors
+    end
+    local margin = finiteNumber(Config.EconomyConversionSafetyMargin, 0.10)
+    local floors, invalid = GodSystemConversionRelations.compile(current, function(fullType)
+        local _, recycle = baseRecycle(fullType, nil)
+        return recycle
+    end, margin)
+    current.conversionFloors = floors or {}
+    current.conversionInvalid = invalid or {}
+    Policy.conversionFloors = current.conversionFloors
+    Policy.conversionSignature = signature
+    Policy.invalidate("conversionRelations")
+    return current.conversionFloors
 end
 
 function Policy.getShopMode(fullType)
@@ -146,22 +178,30 @@ function Policy.quote(fullType, item, context)
         return { eligible = false, category = DEFAULT_CATEGORY, referenceBuy = 0, recycleValue = 0, conversionValue = 0, safeMinimum = 0, finalBuy = 0, buyPrice = 0, sellPrice = 0, priceSource = "missing", verificationStatus = "invalid", warnings = {} }
     end
     local economyRevision = Admin.Current and Admin.Current.economyRevision or 1
-    local cacheKey = item == nil and (fullType .. "|" .. tostring(context.kind or "default") .. "|" .. tostring(Policy.revision) .. "|" .. tostring(economyRevision)) or nil
+    local conversionRevision = Admin.getConversionRevision and Admin.getConversionRevision() or 1
+    local runtimeRevision = GodSystemRuntimeConfig and GodSystemRuntimeConfig.PricingRevision or 1
+    local cacheKey = item == nil and (fullType .. "|" .. tostring(context.kind or "default") .. "|" .. tostring(Policy.revision)
+        .. "|" .. tostring(economyRevision) .. "|" .. tostring(conversionRevision) .. "|" .. tostring(runtimeRevision)) or nil
     if cacheKey and Policy.quoteCache[cacheKey] then return Policy.quoteCache[cacheKey] end
 
     local allowed = eligible(fullType, context.kind or "economy")
-    local reference, recycle, category, source, unknownThirdParty, hasExactPrice = baseRecycle(fullType, item)
-    local finalBuy = Admin.applyShopBuyPrice and Admin.applyShopBuyPrice(fullType, reference) or reference
-    finalBuy = math.max(0, integer(finalBuy, reference))
+    local reference, recycle, category, source, unknownThirdParty, hasExactPrice, hasAdminBuy = baseRecycle(fullType, item)
+    local automaticBuy = Admin.applyShopBuyPrice and Admin.applyShopBuyPrice(fullType, reference) or reference
+    automaticBuy = math.max(0, integer(automaticBuy, reference))
+    local ownFloor = safeCeil(recycle * (1 + math.max(0, finiteNumber(Config.EconomyConversionSafetyMargin, 0.10))))
+    local conversionFloor = Admin.getConversionFloor and Admin.getConversionFloor(fullType) or 0
+    local recommendedMinimum = math.max(ownFloor, conversionFloor)
+    local finalBuy = hasAdminBuy and reference or math.max(automaticBuy, recommendedMinimum)
     local warnings = {}
     if not allowed then warnings[#warnings + 1] = "ineligible" end
+    if hasAdminBuy and reference < recommendedMinimum then warnings[#warnings + 1] = "admin_below_safe_minimum" end
     local result = {
         eligible = allowed,
         category = category,
         referenceBuy = reference,
         recycleValue = recycle,
-        conversionValue = 0,
-        safeMinimum = 0,
+        conversionValue = math.max(0, conversionFloor > 0 and math.ceil(conversionFloor / (1 + math.max(0, finiteNumber(Config.EconomyConversionSafetyMargin, 0.10)))) or 0),
+        safeMinimum = recommendedMinimum,
         finalBuy = finalBuy,
         buyPrice = finalBuy,
         sellPrice = recycle,
@@ -170,8 +210,9 @@ function Policy.quote(fullType, item, context)
         warnings = warnings,
         unknownThirdParty = unknownThirdParty,
         hasExactPrice = hasExactPrice,
+        hasAdminBuy = hasAdminBuy == true,
         dynamicConversionUnknown = false,
-        dynamicFloor = 0,
+        dynamicFloor = conversionFloor,
         shopMode = Policy.getShopMode(fullType),
         policyRevision = Policy.revision,
     }

@@ -4,6 +4,8 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Commerce"] = function(
     runtimeEnvironment.__GodSystemInstalled_GodSystem_ServerRuntime_Commerce = true
     setfenv(1, runtimeEnvironment)
 
+local catalogIndices = setmetatable({}, { __mode = "k" })
+
 function Commands.debugGrant(_, _, player, args)
     local code = tostring(args and args.code or "")
     if code ~= "12130" then
@@ -149,6 +151,111 @@ function Commands.death(_, _, player)
     sendState(player)
 end
 
+function Commands.shopQuote(_, _, player, args)
+    applyRuntimeStores()
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableShop") == false then return finishCode(player, false, "ShopDisabled") end
+    local data = playerData(player)
+    local row, lookupReason = shopById(data, args and args.id)
+    if not row then return finishCode(player, false, lookupReason == "hidden" and "ShopItemHiddenStale" or "ShopItemNotFound") end
+    local quantity = math.max(1, floor(args and args.quantity, 1))
+    local basePrice = shopUnitPrice(row)
+    local key = GodSystemShopInflation.key(row)
+    local quote, quoteId = GodSystemShopInflation.issueQuote(data, GodSystemRuntimeConfig.Current, math.floor(nowHours() * 60), key, basePrice, quantity, true)
+    if not quote then return finishCode(player, false, quoteId or "ShopQuoteChanged") end
+    return finishCode(player, true, "ShopQuoteReady", { quote.total }, {
+        kind = "shopQuote", id = row.id, quantity = quantity, quoteId = quoteId,
+        price = quote.total, basePrice = quote.basePrice, layers = quote.layers,
+        configVersion = quote.configVersion,
+        nextExpiryMinute = quote.nextExpiryMinute, onlineMinute = quote.onlineMinute,
+    })
+end
+
+function Commands.shopPreferences(_, _, player, args)
+    local data = playerData(player)
+    data.ui = data.ui or {}
+    if type(args and args.view) == "table" then
+        local category = tostring(args.view.category or "all")
+        local search = tostring(args.view.search or "")
+        if #category > 100 or #search > 120 then return finishCode(player, false, "ShopPreferenceInvalid") end
+        local selectedKey = tostring(args.view.selectedKey or "")
+        if #selectedKey > 300 then return finishCode(player, false, "ShopPreferenceInvalid") end
+        data.ui.shopView = { category = category, search = search, selectedKey = selectedKey }
+        return finishCode(player, true, "ShopPreferenceSaved", nil, { kind = "shopPreferences", view = data.ui.shopView })
+    end
+    data.ui.shopFavorites = type(data.ui.shopFavorites) == "table" and data.ui.shopFavorites or {}
+    local key = tostring(args and args.key or "")
+    if key == "" or #key > 300 then return finishCode(player, false, "ShopPreferenceInvalid") end
+    data.ui.shopFavorites[key] = args and args.favorite == true or nil
+    local count = 0
+    for favorite in pairs(data.ui.shopFavorites) do
+        count = count + 1
+        if count > 100 then data.ui.shopFavorites[favorite] = nil end
+    end
+    return finishCode(player, true, "ShopPreferenceSaved", nil, { kind = "shopPreferences", key = key, favorite = data.ui.shopFavorites[key] == true })
+end
+
+function Commands.shopCatalogChunk(_, _, player, args)
+    local data = playerData(player)
+    local revision = math.max(1, floor(data.shopCatalogRevision, 1))
+    local requestId = tostring(args and args.requestId or "")
+    if #requestId > 32 then return end
+    if floor(args and args.revision, -1) ~= revision then
+        return sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.ShopCatalogChunk) or "shopCatalogChunk", {
+            revision = revision, total = data.shopCatalogCount or 0, reset = true, requestId = requestId,
+        })
+    end
+    local cursor = tostring(args and args.cursor or "")
+    if #cursor > 320 then cursor = "" end
+    local cached = catalogIndices[data]
+    if not cached or cached.revision ~= revision or cached.count ~= data.shopCatalogCount then
+        local entries = {}
+        for key, row in pairs(data.unlockedShopItems or {}) do entries[#entries + 1] = { key = tostring(key), row = row } end
+        table.sort(entries, function(a, b) return a.key < b.key end)
+        cached = { revision = revision, count = data.shopCatalogCount, entries = entries }
+        catalogIndices[data] = cached
+    end
+    local entries = cached.entries
+    local start = 1
+    if cursor ~= "" then
+        while start <= #entries and entries[start].key <= cursor do start = start + 1 end
+    end
+    local rows, last = {}, nil
+    for i = start, math.min(#entries, start + 199) do
+        local entry, row = entries[i], entries[i].row
+        if type(row) == "table" then
+            rows[#rows + 1] = { variantKey = entry.key, fullType = tostring(row.fullType or entry.key),
+                worldSprite = row.worldSprite, label = row.label, sellPrice = row.sellPrice,
+                buyPrice = row.buyPrice, unlockedAt = row.unlockedAt, hidden = row.hidden == true }
+            last = entry.key
+        end
+    end
+    sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.ShopCatalogChunk) or "shopCatalogChunk", {
+        revision = revision, total = data.shopCatalogCount or #entries, items = rows, nextCursor = last,
+        done = start + 200 > #entries, requestId = requestId,
+    })
+end
+
+function Commands.shopPagePrices(_, _, player, args)
+    applyRuntimeStores()
+    local requestId = tostring(args and args.requestId or "")
+    if #requestId > 32 then return end
+    local data, ids, result = playerData(player), args and args.ids or {}, {}
+    for i = 1, math.min(20, #ids) do
+        local row = shopById(data, ids[i])
+        if row then
+            local base = shopUnitPrice(row)
+            local quote = GodSystemShopInflation.describe(data, GodSystemRuntimeConfig.Current, math.floor(nowHours() * 60),
+                GodSystemShopInflation.key(row), base, true)
+            if quote then result[#result + 1] = { id = row.id, basePrice = base, price = quote.total,
+                layers = quote.layers, nextExpiryMinute = quote.nextExpiryMinute, onlineMinute = quote.onlineMinute } end
+        end
+    end
+    local state = data.shopInflation or {}
+    sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.ShopPagePrices) or "shopPagePrices", {
+        rows = result, priceRevision = state.priceRevision or state.generation or 0, requestId = requestId,
+    })
+end
+
 function Commands.buyShop(_, _, player, args)
     applyRuntimeStores()
     if GodSystemRuntimeConfig.isFeatureEnabled("EnableShop") == false then return finish(player, false, "Shop disabled") end
@@ -178,28 +285,59 @@ function Commands.buyShop(_, _, player, args)
         unguard(player)
         return errorMessage(player, tostring(persistError))
     end
+    local txData, delivered, debitBank, debitCash, committed = nil, {}, 0, 0, false
+    local function rollbackShop()
+        local restored = true
+        for i = #delivered, 1, -1 do
+            local okRemove, removed = pcall(removeItemFromContainer, player:getInventory(), delivered[i])
+            restored = restored and okRemove and removed == true
+        end
+        delivered = {}
+        if debitBank > 0 or debitCash > 0 then
+            GodSystemServer.refundCurrencySources(player, txData, debitBank, debitCash)
+            debitBank, debitCash = 0, 0
+        end
+        return restored
+    end
     local ok, err = pcall(function()
         local function complete(okValue, code, codeArgs, payload)
             payload = type(payload) == "table" and payload or {}
             payload.opId = args and args.opId
             GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            committed = true
             return finishCode(player, okValue, code, codeArgs, payload)
         end
         local data = playerData(player)
+        txData = data
         local row, lookupReason = shopById(data, args and args.id)
         if not row then
             if lookupReason == "hidden" then return complete(false, "ShopItemHiddenStale") end
             return complete(false, "ShopItemNotFound")
         end
         local quantity = math.max(1, floor(args and args.quantity, 1))
-        local price = shopUnitPrice(row) * quantity
+        local basePrice = shopUnitPrice(row)
+        local key = GodSystemShopInflation.key(row)
+        local inflationQuote, quoteReason
+        if args and args.quoteId then
+            inflationQuote, quoteReason = GodSystemShopInflation.consumeQuote(
+                data, GodSystemRuntimeConfig.Current, math.floor(nowHours() * 60), args.quoteId, key, basePrice, quantity, true)
+        else
+            -- A 3.9 purchase is one authoritative operation, priced at execution time.
+            inflationQuote, quoteReason = GodSystemShopInflation.quote(
+                data, GodSystemRuntimeConfig.Current, math.floor(nowHours() * 60), key, basePrice, quantity, true)
+        end
+        if not inflationQuote then
+            complete(false, quoteReason or "ShopQuoteChanged")
+            return Commands.shopQuote(nil, nil, player, args)
+        end
+        local price = inflationQuote.total
         if not canAfford(player, price, data) then return complete(false, "CurrencyNotEnough") end
         local grant = {}
         for i = 1, #(row.items or {}) do
             if not itemExists(row.items[i].fullType) then return complete(false, "ShopItemNotFound", { row.items[i].fullType }) end
             grant[#grant + 1] = { fullType = row.items[i].fullType, worldSprite = row.items[i].worldSprite, count = math.max(1, floor(row.items[i].count, 1)) * quantity }
         end
-        local addedAll = {}
+        local addedAll = delivered
         for i = 1, #grant do
             local okGive, added = nil, nil
             if grant[i].worldSprite then
@@ -228,23 +366,45 @@ function Commands.buyShop(_, _, player, args)
             end
             for j = 1, #added do addedAll[#addedAll + 1] = added[j] end
         end
-        if not addPoints(player, -price, data) then
+        local paid, fromBank, fromCash = spendCurrency(player, data, price)
+        if not paid then
             local inv = player:getInventory()
             for j = 1, #addedAll do removeItemFromContainer(inv, addedAll[j]) end
             return complete(false, "CurrencyNotEnough")
         end
+        debitBank, debitCash = fromBank, fromCash
+        if not GodSystemShopInflation.commit(data, GodSystemRuntimeConfig.Current, math.floor(nowHours() * 60), key, quantity, true) then
+            rollbackShop()
+            return complete(false, "ShopPriceLimit")
+        end
+        GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, true, "ShopBuySuccess", {quantity,price},
+            {opId=args.opId, quantity=quantity,price=price})
+        committed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + price
         data.stats.boughtItems = (data.stats.boughtItems or 0) + quantity
+        data.ui = data.ui or {}
+        data.ui.shopRecent = type(data.ui.shopRecent) == "table" and data.ui.shopRecent or {}
+        for i = #data.ui.shopRecent, 1, -1 do if data.ui.shopRecent[i] == key then table.remove(data.ui.shopRecent, i) end end
+        table.insert(data.ui.shopRecent, 1, key)
+        while #data.ui.shopRecent > 20 do table.remove(data.ui.shopRecent) end
         appendHistory(data, shopHistoryEntry("BuyShop", row, { quantity, price }))
         if GodSystemLottery and GodSystemLottery.isTicketShopId and GodSystemLottery.isTicketShopId(row.id)
             and _G.GodSystemServerLottery and _G.GodSystemServerLottery.ensureStarted then
             _G.GodSystemServerLottery.ensureStarted()
         end
-        return complete(true, "ShopBuySuccess", { quantity, price }, { quantity = quantity, price = price })
+        return complete(true, "ShopBuySuccess", { quantity, price }, { quantity = quantity, price = price,
+            layers = inflationQuote.layers + quantity, nextExpiryMinute = inflationQuote.onlineMinute + inflationQuote.durationMinutes })
     end)
     unguard(player)
     if not ok then
-        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        if not committed then
+            local rollbackOk, restored = pcall(rollbackShop)
+            if rollbackOk and restored then
+                GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, false, "ItemGrantFailed", {}, {opId=args.opId})
+            else
+                GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+            end
+        end
         local errorPersisted, errorPersistError = storeCheckpoint()
         if not errorPersisted then return errorMessage(player, tostring(errorPersistError)) end
         errorMessage(player, tostring(err))

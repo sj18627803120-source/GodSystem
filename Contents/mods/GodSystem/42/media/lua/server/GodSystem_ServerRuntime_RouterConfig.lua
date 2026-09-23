@@ -36,6 +36,8 @@ end
 
 function sendState(player)
     local data = playerData(player)
+    local carryLevel = GodSystemCarryCapacity.getLevel(data, player)
+    GodSystemCarryCapacity.restore(player, carryLevel)
     generateDailyTasks(data, false)
     updateBankLoanForData(player, data)
     data.balance = getBalance(player)
@@ -50,15 +52,24 @@ function sendState(player)
         lastTraitBenefitsApplied = diagnostics.lastTraitBenefitsApplied,
         lastTraitBenefitsType = diagnostics.lastTraitBenefitsType,
     }
+    local equipment = GodSystemServer.equipment
+    local equipmentPlayer = equipment and equipment.players and equipment.players[player]
+    GodSystemStateProjection.updateUIRevisions(data, {
+        economyRevision = math.max(1, floor((GodSystemItemConfig.Current or {}).economyRevision, 1)),
+        shopConfigVersion = GodSystemConfig.Version,
+        equipmentRevision = equipmentPlayer and equipmentPlayer.account and equipmentPlayer.account.revision or 0,
+    })
     local state = GodSystemStateProjection.build(data, {
         historyLimit = GodSystemConfig.HistoryLimit or 40,
         itemExists = itemExists,
+        includeShopPayload = false,
     })
     sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.State) or "state", {
         data = state,
         balance = data.balance,
         version = GodSystemConfig.Version,
         admin = isAdminPlayer(player),
+        carry = GodSystemCarryCapacity.makeSnapshot(player, carryLevel),
         configRevision = math.max(1, floor((GodSystemItemConfig.Current or {}).economyRevision, 1)),
     })
 end
@@ -87,6 +98,7 @@ function finish(player, ok, message, payload)
 end
 
 function finishCode(player, ok, code, args, payload)
+    if recordTaskCompletions then recordTaskCompletions(player, playerData(player)) end
     diagnostics.lastResultOk = ok == true
     diagnostics.lastResultMessage = tostring(code or "")
     storeCheckpoint()
@@ -268,7 +280,7 @@ end
 
 function Commands.refresh(_, _, player, args)
     local data = playerData(player)
-    data.stats.moveDistance = math.max(data.stats.moveDistance or 0, n(args and args.clientMoveDistance, data.stats.moveDistance or 0))
+    if updateTaskAuthoritativeProgress then updateTaskAuthoritativeProgress(player, data) end
     sendState(player)
 end
 
@@ -316,6 +328,17 @@ function Commands.itemConfigOverrideSet(_, _, player, args)
         return finishCode(player, false, "ItemVariantRequired")
     end
     local data = itemConfigStore()
+    if args and args.expectedRevision ~= nil and floor(args.expectedRevision, -1) ~= floor(data.economyRevision, 0) then
+        return finishCode(player, false, "ItemConfigRevisionConflict", nil, { revision = data.economyRevision })
+    end
+    applyRuntimeStores()
+    if hasItemOverride and override.buyPrice ~= nil then
+        local quote = GodSystemEconomyPolicy.quote(fullType, nil, { kind = "admin" })
+        local safeMinimum = math.max(0, floor(quote and quote.safeMinimum, 0))
+        if override.buyPrice < safeMinimum and args.acknowledgeRisk ~= true then
+            return finishCode(player, false, "AdminPriceBelowSafeMinimum", nil, { safeMinimum = safeMinimum })
+        end
+    end
     data.itemOverrides = data.itemOverrides or {}
     data.shopVariantOverrides = data.shopVariantOverrides or {}
     if hasItemOverride then data.itemOverrides[fullType] = override end
@@ -347,6 +370,9 @@ function Commands.itemConfigOverrideClear(_, _, player, args)
     local variantKey = trim(args and args.variantKey or "")
     if fullType == "" and variantKey == "" then return finishCode(player, false, "ItemFullTypeRequired") end
     local data = itemConfigStore()
+    if args and args.expectedRevision ~= nil and floor(args.expectedRevision, -1) ~= floor(data.economyRevision, 0) then
+        return finishCode(player, false, "ItemConfigRevisionConflict", nil, { revision = data.economyRevision })
+    end
     data.itemOverrides = data.itemOverrides or {}
     data.shopVariantOverrides = data.shopVariantOverrides or {}
     if fullType ~= "" then data.itemOverrides[fullType] = nil end
@@ -366,10 +392,219 @@ function Commands.itemConfigOverrideClear(_, _, player, args)
     finishCode(player, true, "ItemOverrideCleared", nil, { revision = data.economyRevision })
 end
 
+-- Resolve the player-facing display name server-side so MP searches can match localized names.
+local function itemDisplayName(fullType)
+    if not fullType or fullType == "" then return "" end
+    if getText then
+        local key = "ItemName_" .. tostring(fullType)
+        local value = getText(key)
+        if value and value ~= key then return value end
+    end
+    if getScriptManager and getScriptManager() then
+        local scriptItem = getScriptManager():FindItem(fullType)
+        if scriptItem and scriptItem.getDisplayName then
+            local name = scriptItem:getDisplayName()
+            if name and name ~= "" then return name end
+        end
+    end
+    return ""
+end
+
+local function relationRows(data, search, page)
+    local rows, text = {}, string.lower(trim(search or ""))
+    for _, relation in ipairs(GodSystemConversionRelations.all(data)) do
+        local haystack = string.lower(table.concat({ relation.id, relation.sourceFullType, relation.recipeName, relation.note }, " "))
+        local sourceName = itemDisplayName(relation.sourceFullType)
+        if sourceName ~= "" then haystack = haystack .. " " .. string.lower(sourceName) end
+        for _, output in ipairs(relation.outputs or {}) do
+            haystack = haystack .. " " .. string.lower(output.fullType or "")
+            local outputName = itemDisplayName(output.fullType)
+            if outputName ~= "" then haystack = haystack .. " " .. string.lower(outputName) end
+        end
+        if text == "" or string.find(haystack, text, 1, true) then rows[#rows + 1] = relation end
+    end
+    local total, pageSize = #rows, 20
+    page = math.max(1, floor(page, 1))
+    local first, last, result = (page - 1) * pageSize + 1, math.min(total, page * pageSize), {}
+    for i = first, last do result[#result + 1] = rows[i] end
+    return result, total, page, math.max(1, math.ceil(total / pageSize))
+end
+
+local function sendRelationRows(player, data, search, page)
+    local rows, total, resultPage, pageCount = relationRows(data, search, page)
+    sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.ItemConfigRelations) or "itemConfigRelations", {
+        rows = rows, total = total, page = resultPage, pageCount = pageCount,
+        revision = math.max(1, floor(data.conversionRevision, 1)),
+        economyRevision = math.max(1, floor(data.economyRevision, 1)),
+    })
+end
+
+function Commands.itemConfigRelationsGet(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data = itemConfigStore()
+    sendRelationRows(player, data, args and args.search, args and args.page)
+end
+
+function Commands.itemConfigRelationSet(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data = itemConfigStore()
+    if args and args.expectedRevision ~= nil and floor(args.expectedRevision, -1) ~= floor(data.conversionRevision, 0) then
+        return finishCode(player, false, "ConversionRevisionConflict", nil, { revision = data.conversionRevision })
+    end
+    local id = trim(args and args.id or "")
+    local builtin = GodSystemConversionRelations.builtinById()[id]
+    local relation = GodSystemConversionRelations.sanitize(args and args.relation, id ~= "" and id or "custom:pending")
+    if not relation then return finishCode(player, false, "ConversionRelationInvalid") end
+    -- Reject relations referencing items that do not exist in the loaded scripts.
+    if not itemExists(relation.sourceFullType) then return finishCode(player, false, "ConversionRelationItemMissing") end
+    for _, output in ipairs(relation.outputs or {}) do
+        if not itemExists(output.fullType) then return finishCode(player, false, "ConversionRelationItemMissing") end
+    end
+    if builtin then relation.id = id end
+    if not builtin then
+        data.conversionRelations = data.conversionRelations or {}
+        if id == "" then
+            if (function() local n=0 for _ in pairs(data.conversionRelations) do n=n+1 end return n end)() >= 512 then
+                return finishCode(player, false, "ConversionRelationLimit")
+            end
+            data.conversionSequence = math.max(0, floor(data.conversionSequence, 0)) + 1
+            id = "custom:" .. tostring(data.conversionSequence)
+            relation.id = id
+        elseif not data.conversionRelations[id] then return finishCode(player, false, "ConversionRelationUnknown") end
+    end
+    local candidate = {}
+    for key, value in pairs(data) do candidate[key] = value end
+    candidate.conversionRelations, candidate.conversionBuiltinOverrides = {}, {}
+    for key, value in pairs(data.conversionRelations or {}) do candidate.conversionRelations[key] = value end
+    for key, value in pairs(data.conversionBuiltinOverrides or {}) do candidate.conversionBuiltinOverrides[key] = value end
+    if builtin then candidate.conversionBuiltinOverrides[id] = relation else candidate.conversionRelations[id] = relation end
+    if GodSystemConversionRelations.hasCycle(candidate) then return finishCode(player, false, "ConversionRelationCycle") end
+    if builtin then
+        data.conversionBuiltinOverrides = data.conversionBuiltinOverrides or {}
+        data.conversionBuiltinDisabled = data.conversionBuiltinDisabled or {}
+        data.conversionBuiltinDisabled[id] = nil
+        data.conversionBuiltinOverrides[id] = relation
+    else data.conversionRelations[id] = relation end
+    data.conversionRevision = math.max(1, floor(data.conversionRevision, 0) + 1)
+    data.economyRevision = math.max(1, floor(data.economyRevision, 0) + 1)
+    applyRuntimeStores()
+    local public = GodSystemItemConfig.publicSnapshot()
+    broadcastEconomyDelta({ revision = data.economyRevision, conversionRevision = data.conversionRevision,
+        conversionFloors = public.conversionFloors })
+    sendRelationRows(player, data, "", 1)
+    finishCode(player, true, "ConversionRelationSaved", nil, { id = id, revision = data.conversionRevision })
+end
+
+function Commands.itemConfigRelationDelete(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data, id = itemConfigStore(), trim(args and args.id or "")
+    if id == "" then return finishCode(player, false, "ConversionRelationInvalid") end
+    if args and args.expectedRevision ~= nil and floor(args.expectedRevision, -1) ~= floor(data.conversionRevision, 0) then
+        return finishCode(player, false, "ConversionRevisionConflict", nil, { revision = data.conversionRevision })
+    end
+    -- Legacy clients sent restore=true/false; map that onto the new action vocabulary.
+    local action = tostring(args and args.action or "")
+    if action == "" then action = (args and args.restore == true) and "enable" or "disable" end
+    local builtin = GodSystemConversionRelations.builtinById()[id]
+    local code
+    if builtin then
+        data.conversionBuiltinDisabled = data.conversionBuiltinDisabled or {}
+        data.conversionBuiltinOverrides = data.conversionBuiltinOverrides or {}
+        data.conversionBuiltinRemoved = data.conversionBuiltinRemoved or {}
+        if action == "enable" then
+            data.conversionBuiltinDisabled[id] = nil
+            code = "ConversionRelationEnabled"
+        elseif action == "delete" then
+            data.conversionBuiltinRemoved[id] = true
+            data.conversionBuiltinDisabled[id] = nil
+            data.conversionBuiltinOverrides[id] = nil
+            code = "ConversionRelationDeleted"
+        elseif action == "disable" then
+            data.conversionBuiltinDisabled[id] = true
+            code = "ConversionRelationDisabled"
+        else
+            return finishCode(player, false, "ConversionRelationInvalid")
+        end
+    elseif action == "delete" and data.conversionRelations and data.conversionRelations[id] then
+        data.conversionRelations[id] = nil
+        code = "ConversionRelationDeleted"
+    else
+        return finishCode(player, false, "ConversionRelationUnknown")
+    end
+    data.conversionRevision = math.max(1, floor(data.conversionRevision, 0) + 1)
+    data.economyRevision = math.max(1, floor(data.economyRevision, 0) + 1)
+    applyRuntimeStores()
+    local public = GodSystemItemConfig.publicSnapshot()
+    broadcastEconomyDelta({ revision = data.economyRevision, conversionRevision = data.conversionRevision,
+        conversionFloors = public.conversionFloors })
+    sendRelationRows(player, data, "", 1)
+    finishCode(player, true, code, nil, { id = id, revision = data.conversionRevision })
+end
+
+local function sendPresetList(player, data)
+    sendServerCommand(player, MODULE, (Protocol.S2C and Protocol.S2C.ItemConfigPresets) or "itemConfigPresets",
+        GodSystemItemConfig.presetListPayload(data))
+end
+
+-- Preset apply rewrites many overrides at once; a floors-only delta cannot express that,
+-- so online admins receive a full public snapshot instead.
+local function broadcastEconomySnapshotAdmins()
+    local players = getOnlinePlayers and getOnlinePlayers() or nil
+    if not players or not players.size or not players.get then return end
+    local public = GodSystemItemConfig.publicSnapshot()
+    for i = 0, players:size() - 1 do
+        local target = players:get(i)
+        if target and isAdminPlayer(target) then
+            sendServerCommand(target, MODULE, (Protocol.S2C and Protocol.S2C.EconomySnapshot) or "economySnapshot", { snapshot = public })
+        end
+    end
+end
+
+function Commands.itemConfigPresetsGet(_, _, player)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    sendPresetList(player, itemConfigStore())
+end
+
+function Commands.itemConfigPresetSave(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data = itemConfigStore()
+    local store, err = GodSystemItemConfig.savePreset(data, args and args.name)
+    if not store then
+        return finishCode(player, false, err == "Limit" and "ItemConfigPresetLimitReached" or "ItemConfigPresetNameInvalid")
+    end
+    sendPresetList(player, data)
+    finishCode(player, true, "ItemConfigPresetSaved", nil, { name = store.active })
+end
+
+function Commands.itemConfigPresetDelete(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data = itemConfigStore()
+    local name = trim(args and args.name or "")
+    if name == GodSystemItemConfig.PRESET_DEFAULT then return finishCode(player, false, "ItemConfigPresetDefaultProtected") end
+    local store = GodSystemItemConfig.deletePreset(data, name)
+    if not store then return finishCode(player, false, "ItemConfigPresetNotFound") end
+    sendPresetList(player, data)
+    finishCode(player, true, "ItemConfigPresetDeleted", nil, { name = name })
+end
+
+function Commands.itemConfigPresetApply(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data = itemConfigStore()
+    local store = GodSystemItemConfig.applyPreset(data, trim(args and args.name or ""))
+    if not store then return finishCode(player, false, "ItemConfigPresetNotFound") end
+    applyRuntimeStores()
+    broadcastEconomyDelta({ revision = data.economyRevision, conversionRevision = data.conversionRevision,
+        conversionFloors = GodSystemItemConfig.publicSnapshot().conversionFloors })
+    broadcastEconomySnapshotAdmins()
+    sendRelationRows(player, data, "", 1)
+    sendPresetList(player, data)
+    finishCode(player, true, "ItemConfigPresetApplied", nil, { name = store.active })
+end
+
 function Commands.syncKills(_, _, player, args)
     applyRuntimeStores()
     local data = playerData(player)
-    local kills = math.max(0, floor(args and args.clientKills, 0))
+    local kills = math.max(0, floor(player and player.getZombieKills and player:getZombieKills() or 0))
     if data.lastKnownKills == nil or kills < data.lastKnownKills then
         if data.lastKnownKills ~= nil and kills < data.lastKnownKills then
             for i = 1, #(data.tasks or {}) do

@@ -5,6 +5,7 @@ GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Pages"] = function(runtimeEnv
     setfenv(1, runtimeEnvironment)
 
 function GodSystemWindow:populateShop()
+    if GodSystemShopCatalog.note then GodSystemShopCatalog.note("pages") end
     self.shopSearchPurpose = "shop"
     self:syncSearchBoxText(self.shopSearchPurpose)
     gsSetButtonTitle(self.primaryButton, GodSystemApp.services.runtime.text("Btn_Buy", "Buy"))
@@ -18,60 +19,31 @@ function GodSystemWindow:populateShop()
     self.fifthButton:setVisible(true)
     gsSetButtonTitle(self.sixthButton, GodSystemApp.services.runtime.text("Btn_ShopHiddenManager", "Hidden manager"))
     self.sixthButton:setVisible(true)
-    local shopItems = {}
-    local seenShopKeys = {}
-    local categoryMap = {}
-    local categories = {}
-    for i = 1, #GodSystemConfig.ShopItems do
-        local item = GodSystemConfig.ShopItems[i]
-        local available, reason, availableItems, missingItems = GodSystemApp.services.runtime.shopItemIsAvailable(item)
-        local featureEnabled = not item.featureKey
-            or GodSystemRuntimeConfig.isFeatureEnabled(item.featureKey) ~= false
-        if featureEnabled and available and (not missingItems or #missingItems == 0) then
-            table.insert(shopItems, item)
-            local one = item.items and item.items[1]
-            if one and #(item.items or {}) == 1 and math.max(1, math.floor(tonumber(one.count) or 1)) == 1 then
-                seenShopKeys[GodSystemShopVariants.getKey(one.fullType, one.worldSprite)] = true
-            end
-        end
+    local filteredShopItems = GodSystemShopCatalog.view(self.shopCategoryKey, self.shopSearchText)
+    if not filteredShopItems then
+        self.shopAwaitingSnapshot = true
+        GodSystemShopCatalog.ensure()
+        local progress, processed, total = GodSystemShopCatalog.progress()
+        if self.primaryButton and self.primaryButton.setEnable then self.primaryButton:setEnable(false) end
+        self:addListItem(GodSystemApp.services.runtime.text("Shop_Loading", "Loading shop catalogue") .. " " .. tostring(processed) .. (total and ("/" .. tostring(total)) or ""), {
+            kind = "empty", detail = GodSystemApp.services.runtime.text("Shop_LoadingHint", "Preparing available items. Purchase will unlock when loading finishes.")
+        })
+        self:applyShopActionLayout()
+        return
     end
-
-    local unlocked = GodSystemApp.services.runtime.getUnlockedShopItemsList()
-    for i = 1, #unlocked do
-        local key = unlocked[i].variantKey or GodSystemShopVariants.getKey(unlocked[i].fullType, unlocked[i].worldSprite)
-        if not seenShopKeys[key] then table.insert(shopItems, unlocked[i]); seenShopKeys[key] = true end
-    end
-    local forced = GodSystemApp.services.runtime.getForcedShopItemsList and GodSystemApp.services.runtime.getForcedShopItemsList() or {}
-    for i = 1, #forced do
-        local key = forced[i].variantKey or GodSystemShopVariants.getKey(forced[i].fullType, forced[i].worldSprite)
-        if not seenShopKeys[key] then table.insert(shopItems, forced[i]); seenShopKeys[key] = true end
-    end
-
-    for i = 1, #shopItems do
-        local category = GodSystemApp.services.runtime.getShopPrimaryCategory(shopItems[i])
-        if not categoryMap[category.key] then
-            categoryMap[category.key] = true
-            table.insert(categories, category)
-        end
-    end
-    table.sort(categories, function(a, b)
-        return tostring(a.label) < tostring(b.label)
-    end)
-    self:updateShopCategoryButton(categories)
-
-    local filteredShopItems = {}
-    for i = 1, #shopItems do
-        local item = shopItems[i]
-        local category = GodSystemApp.services.runtime.getShopPrimaryCategory(item)
-        if (self.shopCategoryKey == "all" or category.key == self.shopCategoryKey) and self:shopItemMatchesSearch(item, category) then
-            filteredShopItems[#filteredShopItems + 1] = { item = item, category = category }
-        end
-    end
+    self.shopAwaitingSnapshot = nil
+    if self.primaryButton and self.primaryButton.setEnable then self.primaryButton:setEnable(true) end
+    local previousCategory = self.shopCategoryKey
+    self:updateShopCategoryButton((GodSystemShopCatalog.snapshot or {}).categories or {})
+    if previousCategory ~= self.shopCategoryKey then filteredShopItems = GodSystemShopCatalog.view(self.shopCategoryKey, self.shopSearchText) end
     local pageSize = self.ShopPageSize or 20
     local totalPages = math.max(1, math.ceil(#filteredShopItems / pageSize))
     self.shopPage = math.max(1, math.min(math.floor(self.shopPage or 1), totalPages))
     local startIndex = ((self.shopPage - 1) * pageSize) + 1
     local endIndex = math.min(#filteredShopItems, startIndex + pageSize - 1)
+    local priceRows = {}
+    for i = startIndex, endIndex do priceRows[#priceRows + 1] = filteredShopItems[i] end
+    if GodSystemShopCatalog.requestPagePrices then GodSystemShopCatalog.requestPagePrices(priceRows) end
     if #filteredShopItems > 0 then
         self:addListItem(string.format("%s %d/%d | %d %s", GodSystemApp.services.runtime.text("Shop_Page", "Page"), self.shopPage, totalPages, #filteredShopItems, GodSystemApp.services.runtime.text("Shop_Items", "items")), { kind = "shopPager", detail = GodSystemApp.services.runtime.text("Shop_PageHint", "Use page buttons below") })
     end
@@ -79,16 +51,18 @@ function GodSystemWindow:populateShop()
         local row = filteredShopItems[i]
         local item = row.item
         local category = row.category
-        local text = string.format("[%s] %s", category.label or GodSystemApp.services.runtime.getShopGroup(item), GodSystemApp.services.runtime.getShopLabel(item))
-        local detail = tostring(GodSystemApp.services.runtime.getShopItemUnitPrice(item) or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c")
-        self:addListItem(text, { kind = "shop", data = item, detail = detail })
+        local favorite = row.favoriteRank == 1 and "★ " or ""
+        local text = string.format("[%s] %s%s", category.label or GodSystemApp.services.runtime.getShopGroup(item), favorite, GodSystemApp.services.runtime.getShopLabel(item))
+        local current = GodSystemShopCatalog.price(row)
+        local detail = tostring(current) .. GodSystemApp.services.runtime.text("Unit_Coin", " coins")
+        self:addListItem(text, { kind = "shop", data = item, detail = detail, shopRow = row })
     end
     if #filteredShopItems == 0 then
         local detail = GodSystemApp.services.runtime.text("Shop_EmptyHint", "No shop item matches this category or search.")
         self:addListItem(GodSystemApp.services.runtime.text("Shop_EmptyCategory", "No item in this category"), { kind = "empty", detail = detail })
     end
     self:applyShopActionLayout()
-    self:updateShopCategoryButton(categories)
+    self:updateShopCategoryButton((GodSystemShopCatalog.snapshot or {}).categories or {})
 end
 
 function GodSystemWindow:populateRecycle()
@@ -458,10 +432,18 @@ function GodSystemWindow:populateUpgrades()
                 local bonus = tonumber(status.bonus) or 0
                 local bonusText = bonus >= 0 and ("+" .. tostring(bonus)) or tostring(bonus)
                 detail = GodSystemApp.services.runtime.text("Upgrade_CarryProtocolBonus", "Protocol base bonus") .. "(" .. bonusText .. ")"
-                    .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryExternalBase", "External base") .. "(" .. tostring(status.externalBase or "?") .. ")"
                     .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryWrittenBase", "Written base") .. "(" .. tostring(status.currentBase or "?") .. ")"
                     .. " | " .. GodSystemApp.services.runtime.text("Upgrade_CarryGameFinal", "Game final carry") .. "(" .. tostring(status.finalCarry or "?") .. ")"
+                    .. " | " .. GodSystemApp.services.runtime.getCarryCapacityStateText(status)
                     .. " | Lv." .. tostring(info.current) .. " | " .. costText
+                local diagnostic = gsFormatTemplate(GodSystemApp.services.runtime.text("CarryDiagnostic_Base", "Baseline {1} | system +{2} | written {3}"), {
+                    tostring(status.externalBase or "?"), tostring(status.bonus or 0), tostring(status.appliedBase or status.currentBase or "?") })
+                if status.lastChangeSeconds then
+                    diagnostic = diagnostic .. " | " .. gsFormatTemplate(GodSystemApp.services.runtime.text("CarryDiagnostic_LastChange", "Last status change: {1}s ago"), { tostring(status.lastChangeSeconds) })
+                end
+                diagnostic = diagnostic .. " | " .. GodSystemApp.services.runtime.text(status.source and "CarryDiagnostic_Source_UCWF" or "CarryDiagnostic_SourceUnknown",
+                    status.source and "Verified compatibility source: Unified Carry Weight Framework" or "Change source: unknown")
+                detail = detail .. "\n" .. diagnostic
             else
                 detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText
             end
@@ -469,6 +451,12 @@ function GodSystemWindow:populateUpgrades()
         end
     end
     local services = GodSystemApp.services.runtime.getMedicalServiceList and GodSystemApp.services.runtime.getMedicalServiceList() or {}
+    if not gsIsMultiplayer() and GodSystemDeathProtection then
+        self:addListItem(GodSystemApp.services.runtime.text("DeathProtection_Title", "Death protection x1"), {
+            kind = "deathProtection", detail = GodSystemApp.services.runtime.text("DeathProtection_Remaining", "Remaining: ")
+                .. tostring(GodSystemDeathProtection.count()) .. " | " .. tostring(GodSystemDeathProtection.cost())
+                .. GodSystemApp.services.runtime.text("Unit_Coin", " coins") })
+    end
     for i = 1, #services do
         local info = services[i]
         local detail = tostring(info.cost or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c")
@@ -542,7 +530,10 @@ function GodSystemWindow:applyUpgradeActionBar(payload)
     self.thirdButton:setVisible(false)
     self.fourthButton:setVisible(false)
     self.fifthButton:setVisible(false)
-    if payload and payload.kind == "medicalService" and payload.data then
+    if payload and payload.kind == "deathProtection" and GodSystemDeathProtection then
+        gsSetButtonTitle(self.primaryButton, GodSystemApp.services.runtime.text("DeathProtection_Buy", "Buy x1") .. " -" .. tostring(GodSystemDeathProtection.cost()))
+        self.secondaryButton:setVisible(false)
+    elseif payload and payload.kind == "medicalService" and payload.data then
         local info = payload.data
         local title = tostring(info.button or GodSystemApp.services.runtime.text("Btn_Confirm", "Confirm")) .. " -" .. tostring(info.cost or 0) .. GodSystemApp.services.runtime.text("Unit_CoinShort", "c")
         gsSetButtonTitle(self.primaryButton, title)
@@ -760,6 +751,7 @@ function GodSystemWindow:populateDiagnostics()
     if GodSystemNetwork and GodSystemNetwork.getDiagnostics then
         client = GodSystemNetwork.getDiagnostics() or {}
     end
+    local shop = GodSystemShopCatalog and GodSystemShopCatalog.getDiagnostics and GodSystemShopCatalog.getDiagnostics() or {}
 
     local lines = {
         GodSystemApp.services.runtime.text("Diag_Header", "Diagnostics"),
@@ -779,6 +771,8 @@ function GodSystemWindow:populateDiagnostics()
         "client.lastResultMessage=" .. tostring(client.lastResultMessage or "-"),
         "client.lastError=" .. tostring(client.lastError or "-"),
         "client.lastNotifyCode=" .. tostring(client.lastNotifyCode or "-"),
+        "shop.builds=" .. tostring(shop.builds or 0) .. " records=" .. tostring(shop.records or 0) .. " pages=" .. tostring(shop.pages or 0),
+        "shop.filters=" .. tostring(shop.filters or 0) .. " buildMs=" .. tostring(shop.buildMs or 0) .. " filterMs=" .. tostring(shop.filterMs or 0),
         "server.handledCommands=" .. tostring(server.handledCommands or 0) .. " failed=" .. tostring(server.failedCommands or 0),
         "server.lastCommand=" .. tostring(server.lastCommand or "-"),
         "server.lastResultOk=" .. tostring(server.lastResultOk),

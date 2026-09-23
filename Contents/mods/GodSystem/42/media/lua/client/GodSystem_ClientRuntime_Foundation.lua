@@ -197,6 +197,7 @@ function gsAppendHistory(data, entry)
 end
 
 function gsCollectInventoryItems(container, result, fullType, includeFavorite, includeEquipped)
+    if GodSystemShopCatalog and GodSystemShopCatalog.note then GodSystemShopCatalog.note("inventory.containerWalks") end
     if not container or not container.getItems then
         return
     end
@@ -400,6 +401,10 @@ function GodSystemApp.services.runtime.getData()
         and GodSystemRuntimeConfig.Source == "server") then
         GodSystemRuntimeConfig.readSandbox()
     end
+    GodSystemShopInflation.state(data, GodSystemRuntimeConfig.Current, math.floor(gsNowHours() * 60))
+    data.ui = data.ui or {}
+    data.ui.shopFavorites = type(data.ui.shopFavorites) == "table" and data.ui.shopFavorites or {}
+    data.ui.shopRecent = type(data.ui.shopRecent) == "table" and data.ui.shopRecent or {}
     data.upgrades = data.upgrades or {}
     GodSystemRuntimeConfig.normalizeTaskUpgrades(data.upgrades)
     data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.getLevel(data, gsPlayer())
@@ -430,7 +435,6 @@ function GodSystemApp.services.runtime.getData()
     data.autoTaskClaimEnabled = data.autoTaskClaimEnabled == true
     data.lastAutoTaskClaimHour = tonumber(data.lastAutoTaskClaimHour) or gsNowHours()
     data.companion = GodSystemCompanionConfig.ensureData(data.companion)
-    data.ui = data.ui or {}
     data.ui.x = data.ui.x or GodSystemConfig.FloatingButton.x
     data.ui.y = data.ui.y or GodSystemConfig.FloatingButton.y
     data.ui.showHeadUpNotifications = data.ui.showHeadUpNotifications ~= false
@@ -439,8 +443,12 @@ function GodSystemApp.services.runtime.getData()
         GodSystemItemConfig.applyRuntime(
             data.itemConfig.itemOverrides,
             data.itemConfig.shopVariantOverrides,
-            data.itemConfig.economyRevision
+            data.itemConfig.economyRevision,
+            data.itemConfig
         )
+        if GodSystemEconomyPolicy and GodSystemEconomyPolicy.rebuildConversionFloors then
+            GodSystemEconomyPolicy.rebuildConversionFloors()
+        end
     end
 
     if previousVersion and previousVersion ~= GodSystemConfig.Version then
@@ -461,6 +469,7 @@ function GodSystemApp.services.runtime.applyRuntimeConfigSnapshot(snapshot)
         return false
     end
     GodSystemRuntimeConfig.applySnapshot(snapshot)
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("runtimeConfig") end
     return true
 end
 
@@ -469,9 +478,11 @@ function GodSystemApp.services.runtime.applyEconomySnapshot(snapshot)
     GodSystemItemConfig.applyRuntime(
         snapshot.itemOverrides or {},
         snapshot.shopVariantOverrides or {},
-        snapshot.economyRevision
+        snapshot.economyRevision,
+        snapshot
     )
     GodSystemApp.services.runtime.economySnapshot = GodSystemItemConfig.publicSnapshot()
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("economyConfig") end
     return true
 end
 
@@ -486,6 +497,8 @@ function GodSystemApp.services.runtime.applyEconomyDelta(delta)
     if delta.variantKey and delta.variantKey ~= "" then
         snapshot.shopVariantOverrides[tostring(delta.variantKey)] = delta.variantOverride
     end
+    if delta.conversionRevision ~= nil then snapshot.conversionRevision = delta.conversionRevision end
+    if delta.conversionFloors ~= nil then snapshot.conversionFloors = delta.conversionFloors end
     snapshot.economyRevision = math.max(
         tonumber(snapshot.economyRevision) or 1,
         tonumber(delta.revision) or 1
@@ -502,9 +515,14 @@ function GodSystemApp.services.runtime.getItemConfigSnapshot()
     GodSystemItemConfig.applyRuntime(
         data.itemConfig.itemOverrides,
         data.itemConfig.shopVariantOverrides,
-        data.itemConfig.economyRevision
+        data.itemConfig.economyRevision,
+        data.itemConfig
     )
+    if not (isClient and isClient()) and GodSystemEconomyPolicy and GodSystemEconomyPolicy.rebuildConversionFloors then
+        GodSystemEconomyPolicy.rebuildConversionFloors()
+    end
     GodSystemApp.services.runtime.economySnapshot = GodSystemItemConfig.publicSnapshot()
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("localEconomyConfig") end
     return GodSystemApp.services.runtime.economySnapshot
 end
 
@@ -586,7 +604,7 @@ function GodSystemApp.services.runtime.clearShopVariantOverride(variantKey)
     return true
 end
 
-function GodSystemApp.services.runtime.saveEconomyOverride(fullType, override, variantKey, worldSprite, shopMode)
+function GodSystemApp.services.runtime.saveEconomyOverride(fullType, override, variantKey, worldSprite, shopMode, expectedRevision, acknowledgeRisk)
     fullType = tostring(fullType or ""):gsub("^%s+", ""):gsub("%s+$", "")
     local clean = GodSystemItemConfig.sanitizeItemOverride(override or {})
     if fullType == "" or not clean then return false end
@@ -605,6 +623,8 @@ function GodSystemApp.services.runtime.saveEconomyOverride(fullType, override, v
             override = clean,
             variantKey = variantKey,
             variantOverride = variant,
+            expectedRevision = expectedRevision,
+            acknowledgeRisk = acknowledgeRisk == true,
         })
     end
     local data = GodSystemApp.services.runtime.getData()
@@ -618,11 +638,11 @@ function GodSystemApp.services.runtime.saveEconomyOverride(fullType, override, v
     return true
 end
 
-function GodSystemApp.services.runtime.clearEconomyOverride(fullType, variantKey)
+function GodSystemApp.services.runtime.clearEconomyOverride(fullType, variantKey, expectedRevision)
     fullType = tostring(fullType or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if fullType == "" then return false end
     if isClient and isClient() then
-        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("itemConfigOverrideClear", { fullType = fullType, variantKey = variantKey })
+        return GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("itemConfigOverrideClear", { fullType = fullType, variantKey = variantKey, expectedRevision = expectedRevision })
     end
     local data = GodSystemApp.services.runtime.getData()
     data.itemConfig = GodSystemItemConfig.migrate(data.itemConfig, data.adminConfig)
@@ -636,6 +656,8 @@ function GodSystemApp.services.runtime.clearEconomyOverride(fullType, variantKey
 end
 
 function GodSystemApp.services.runtime.save()
+    GodSystemApp.services.runtime.currencyDisplayCache = nil
+    if GodSystemShopCatalog then GodSystemShopCatalog.invalidatePrices() end
     if ModData and ModData.transmit then
         pcall(function() ModData.transmit(GodSystemConfig.DataKey) end)
     end
@@ -1036,13 +1058,53 @@ function GodSystemApp.services.runtime.restoreCarryCapacity(player, data)
     return GodSystemCarryCapacity.restore(player, GodSystemCarryCapacity.getLevel(data, player))
 end
 
+function GodSystemApp.services.runtime.getCarryCapacityStateText(status)
+    status = status or {}
+    local reason = status.reason or "pending"
+    local names = {
+        ok = status.mode == "ucwf" and "CarryState_UCWF" or "CarryState_Native",
+        pending = "CarryState_Pending", waitingServer = "CarryState_WaitingServer",
+        resetCooldown = "CarryState_ResetCooldown",
+        externalConflict = "CarryState_Conflict", frameworkUnsupported = "CarryState_FrameworkUnsupported",
+        capacityLimit = "CarryState_Limit", overflow = "CarryState_Limit",
+    }
+    local key = names[reason] or "CarryState_Failed"
+    local fallback = {
+        CarryState_UCWF = "UCWF compatibility active", CarryState_Native = "Independent carry active",
+        CarryState_Pending = "Waiting for recalculation", CarryState_WaitingServer = "Waiting for server",
+        CarryState_Conflict = "External carry change detected; automatic additions paused",
+        CarryState_ResetCooldown = "Repeated carry reset; waiting for automatic retry",
+        CarryState_FrameworkUnsupported = "Carry framework interface unavailable",
+        CarryState_Limit = "Effective carry limit reached", CarryState_Failed = "Carry could not be applied",
+    }
+    local result = GodSystemApp.services.runtime.text(key, fallback[key])
+    if status.retrySeconds and status.retrySeconds > 0 then
+        result = result .. " | " .. gsFormatText(GodSystemApp.services.runtime.text("CarryDiagnostic_Retry", "Next retry: {1}s"), { tostring(status.retrySeconds) })
+    end
+    if status.lastChangeSeconds then
+        result = result .. " | " .. gsFormatText(GodSystemApp.services.runtime.text("CarryDiagnostic_LastChange", "Last change: {1}s ago"), {status.lastChangeSeconds})
+    end
+    if status.externalBase then
+        result = result .. " | " .. gsFormatText(GodSystemApp.services.runtime.text("CarryDiagnostic_Base", "Base {1} | Bonus +{2} | Written {3}"),
+            {status.externalBase, status.bonus or 0, status.appliedBase or status.currentBase or "-"})
+        result = result .. " | " .. gsFormatText(GodSystemApp.services.runtime.text("CarryDiagnostic_Multiplier", "Strength x{1} | State x{2}"),
+            {status.weightMod or "-",status.weightDelta or "-"})
+    end
+    if status.source == "UnifiedCarryWeightFramework" then
+        result = result .. " | " .. GodSystemApp.services.runtime.text("CarryDiagnostic_Source_UCWF", "Unified Carry Weight Framework")
+    elseif status.reason == "externalConflict" then
+        result = result .. " | " .. GodSystemApp.services.runtime.text("CarryDiagnostic_SourceUnknown", "Source unconfirmed")
+    end
+    return result
+end
+
 function GodSystemApp.services.runtime.refreshCarryCapacity()
     local ok, reason = GodSystemApp.services.runtime.restoreCarryCapacity(gsPlayer(), GodSystemApp.services.runtime.getData())
     if ok then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_CarryCapacityRestored", "Carry base restored"))
         return true
     end
-    GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_CarryCapacityRestoreFailed", "Unable to restore carry base") .. " (" .. tostring(reason or "unknown") .. ")")
+    GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.getCarryCapacityStateText({ reason = reason }))
     return false
 end
 end

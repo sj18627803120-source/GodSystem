@@ -1,5 +1,7 @@
 -- Pure equipment rules. No inventory, events, network or disk work in this module.
 require "GodSystem_EquipmentFreeze"
+require "GodSystem_EquipmentImpact"
+require "GodSystem_EquipmentSplash"
 GodSystemEquipment = GodSystemEquipment or {}
 local E = GodSystemEquipment
 E.Schema = 1
@@ -7,20 +9,11 @@ E.ItemKey = "GodSystemEquipment"
 E.CharacterKey = "GodSystemEquipmentCharacter"
 E.MaxMoney = 2147483647
 E.NameLimit = 30
-E.Attributes = { "damage", "wear", "speed", "accuracy", "recoil", "freeze" }
--- Tooltip presentation is deliberately driven by the same ordered attribute
--- registry as equipment records.  New enhancements add their capability and
--- presentation here instead of teaching the Tooltip renderer another special
--- case.  "freeze" is the only current temporary area effect, so it has its
--- own wording and bounded-strength rule.
-E.TooltipAttributes = {
-    damage = { direction = "increase" },
-    wear = { direction = "increase" },
-    speed = { direction = "increase" },
-    accuracy = { direction = "increase" },
-    recoil = { direction = "decrease" },
-    freeze = { direction = "freeze" },
-}
+-- Registered effects replace the retired weapon-stat enhancement routes.
+-- Keep this ordered registry as the only UI/Tooltip/quote capability source.
+E.Effects = { "freeze", "impact", "splash" }
+E.EffectInfo = { freeze = { melee = true }, impact = { melee = true, maximum = 10 },
+    splash = { melee = true, maximum = 10 } }
 E.Settings = {
     EquipmentMaxSlots = { 3, 1, 20, true },
     EquipmentSlotTaskBase = { 25, 0, 1000000, true },
@@ -73,6 +66,7 @@ local function inputString(value)
     return nil
 end
 
+local nameUsesUTF16 = #"\228\184\173" == 1
 local function utf8Units(value)
     value = inputString(value)
     if not value or #value > 120 then return nil, "EquipmentNameInvalid" end
@@ -80,7 +74,12 @@ local function utf8Units(value)
     while index <= #value do
         local first = value:byte(index)
         local count, code
-        if first < 0x80 then count, code = 1, first
+        if nameUsesUTF16 then
+            -- Kahlua string.byte() returns a UTF-16 code unit. Keep the
+            -- existing BMP-only name policy; surrogate pairs remain unsupported.
+            if first >= 0xD800 and first <= 0xDFFF then return nil, "EquipmentNameInvalid" end
+            count, code = 1, first
+        elseif first < 0x80 then count, code = 1, first
         elseif first >= 0xC2 and first <= 0xDF then
             local b = value:byte(index + 1)
             if not b or b < 0x80 or b > 0xBF then return nil, "EquipmentNameInvalid" end
@@ -127,6 +126,7 @@ function E.config(source)
     source = source or {}
     local cfg = { enabled = source.EnableEquipment ~= false,
         freezeEnabled = source.EnableEquipmentFreeze ~= false,
+        splashEnabled = source.EnableEquipmentSplash ~= false,
         freezeVisuals = source.EquipmentFreezeVisuals ~= false }
     for key, rule in pairs(E.Settings) do
         local n = source[key] == nil and rule[1] or E.number(source[key])
@@ -136,7 +136,8 @@ function E.config(source)
         cfg[key] = n
     end
     if cfg.EquipmentChanceFloor > cfg.EquipmentBaseChance then return nil, "EquipmentConfigInvalid" end
-    local keys, parts = {}, { "rules=5", tostring(cfg.enabled), tostring(cfg.freezeEnabled) }
+    local keys, parts = {}, { "effects=freeze,impact,splash", tostring(cfg.enabled),
+        tostring(cfg.freezeEnabled), tostring(cfg.splashEnabled) }
     for key in pairs(E.Settings) do keys[#keys + 1] = key end
     table.sort(keys)
     for _, key in ipairs(keys) do parts[#parts + 1] = key .. "=" .. tostring(cfg[key]) end
@@ -169,90 +170,76 @@ function E.unlock(account, completed, cfg)
 end
 
 function E.level(record, attribute)
-    return E.integer(record and record.levels and record.levels[attribute], 0, 9999)
+    local value=record and record.levels and record.levels[attribute]
+    if value==nil and E.EffectInfo[attribute] then return 0 end
+    return E.integer(value, 0, 9999)
 end
 
-function E.growth(level, cfg)
-    -- Add a fixed percentage of the saved baseline, never compound an applied value.
-    local percent = cfg and cfg.EquipmentGrowthPercent or E.Settings.EquipmentGrowthPercent[1]
-    return level * percent / 100
+function E.weaponKind(record)
+    -- New records carry this scalar.  Old raw/base snapshots are deliberately
+    -- ignored in 3.6; an unclassified historical record has no combat effect
+    -- until it is replaced by a newly bound weapon.
+    if record and (record.weaponKind == "melee" or record.weaponKind == "ranged") then return record.weaponKind end
+    return "unknown"
 end
 
-function E.multiplier(attribute, level, cfg)
-    local growth = E.growth(level, cfg)
-    return attribute == "recoil" and math.max(0, 1 - growth) or (1 + growth)
+function E.supports(record, effect)
+    local info=E.EffectInfo[effect]
+    return info ~= nil and (not info.melee or E.weaponKind(record)=="melee")
 end
 
-function E.supports(base, attribute)
-    if not base then return false end
-    if attribute == "damage" then return base.minDamage ~= nil and base.maxDamage ~= nil end
-    if attribute == "wear" then return base.wear ~= nil end
-    if attribute == "speed" then return not base.ranged and base.speed ~= nil end
-    if attribute == "accuracy" then return base.ranged and base.accuracy ~= nil end
-    if attribute == "recoil" then return base.ranged and base.recoil ~= nil end
-    if attribute == "freeze" then return base.ranged == false end
-    return false
+function E.maxLevel(record, effect, cfg)
+    if effect=="impact" then return GodSystemEquipmentImpact.Maximum end
+    if effect=="splash" then return GodSystemEquipmentSplash.Maximum end
+    if effect=="freeze" then return cfg and cfg.EquipmentMaxLevel or E.Settings.EquipmentMaxLevel[1] end
+    return 0
 end
 
--- A compact read-only description for Tooltip clients.  It contains no
--- inventory state or authority decision, only values already validated by a
--- projection.  Unknown future attributes fall back to the normal positive
--- percentage format once they are added to E.Attributes and E.supports().
-function E.tooltipEntries(base, levels, cfg)
-    local result = {}
-    for _, attribute in ipairs(E.Attributes) do
-        if E.supports(base, attribute) then
-            local presentation = E.TooltipAttributes[attribute] or { direction = "increase" }
-            local level = E.level({ levels = levels or {} }, attribute) or 0
-            local active = cfg and cfg.enabled == true
-            local percent = active and E.growth(level, cfg) * 100 or 0
-            if presentation.direction == "freeze" then
-                active = active and cfg.freezeEnabled == true
-                percent = active and GodSystemEquipmentFreeze.strength(level, cfg) * 100 or 0
+function E.effectState(record, effect)
+    if effect=="impact" then return GodSystemEquipmentImpact.state(record) end
+    return nil
+end
+
+function E.tooltipEntries(record, cfg)
+    local result={}
+    for _,effect in ipairs(E.Effects) do
+        if E.supports(record,effect) then
+            local level=E.level(record,effect) or 0
+            if effect=="freeze" then
+                local active=cfg and cfg.enabled==true and cfg.freezeEnabled==true
+                result[#result+1]={attribute=effect,level=level,direction="freeze",
+                    percent=active and GodSystemEquipmentFreeze.strength(level,cfg)*100 or 0}
+            elseif effect=="impact" then
+                local rule=GodSystemEquipmentImpact.rule(level)
+                local state=GodSystemEquipmentImpact.state(record)
+                result[#result+1]={attribute=effect,level=level,direction="impact",rule=rule,state=state}
+            else
+                local rule=GodSystemEquipmentSplash.rule(level)
+                result[#result+1]={attribute=effect,level=level,direction="splash",rule=rule,
+                    percent=rule and rule.ratio*100 or 0,basis="weapon-average",
+                    active=cfg and cfg.enabled==true and cfg.splashEnabled==true}
             end
-            result[#result + 1] = { attribute = attribute, level = level,
-                direction = presentation.direction, percent = percent }
         end
     end
     return result
 end
 
 function E.projectionLevels(record)
-    local levels = {}
-    for _, attribute in ipairs(E.Attributes) do levels[attribute] = E.level(record, attribute) or 0 end
+    local levels={}
+    for _,effect in ipairs(E.Effects) do if E.supports(record,effect) then levels[effect]=E.level(record,effect) or 0 end end
     return levels
-end
-
-function E.values(base, levels, cfg)
-    local v = E.copy(base)
-    local function upgraded(key) return E.supports(base, key) and ((levels and levels[key]) or 0) > 0 end
-    local function multiplier(key) return E.multiplier(key, levels[key], cfg) end
-    if upgraded("damage") then
-        v.minDamage = base.minDamage * multiplier("damage")
-        v.maxDamage = base.maxDamage * multiplier("damage")
-    end
-    if upgraded("wear") then v.wear = math.max(1, math.floor(base.wear * multiplier("wear") + 0.5)) end
-    if upgraded("speed") then v.speed = base.speed * multiplier("speed") end
-    if upgraded("accuracy") then v.accuracy = math.max(base.accuracy, math.min(100, math.floor(base.accuracy * multiplier("accuracy") + 0.5))) end
-    if upgraded("recoil") then v.recoil = math.max(1, math.floor(base.recoil * multiplier("recoil") + 0.5)) end
-    return v
 end
 
 function E.quote(record, attribute, boost, cfg)
     if not cfg or not cfg.enabled then return nil, "EquipmentDisabled" end
-    if attribute == "freeze" then
-        if not cfg.freezeEnabled then return nil, "EquipmentFreezeDisabled" end
-    end
+    if attribute == "freeze" and not cfg.freezeEnabled then return nil, "EquipmentFreezeDisabled" end
+    if attribute == "splash" and not cfg.splashEnabled then return nil, "EquipmentSplashDisabled" end
     local level = E.level(record, attribute)
-    if not level or not E.supports(record.base, attribute) then return nil, "EquipmentUnsupported" end
-    if level >= cfg.EquipmentMaxLevel then return nil, "EquipmentLevelCap" end
+    if not level or not E.supports(record, attribute) then return nil, "EquipmentUnsupported" end
+    if level >= E.maxLevel(record,attribute,cfg) then return nil, "EquipmentLevelCap" end
     if attribute == "freeze" and GodSystemEquipmentFreeze.strength(level,cfg) >= GodSystemEquipmentFreeze.Maximum then
         return nil, "EquipmentParameterCap"
     end
-    local current = E.values(record.base, record.levels, cfg)
-    local actual = record.actual or current
-    if (attribute == "accuracy" and (current.accuracy >= 100 or actual.accuracy >= 100))
-        or (attribute == "recoil" and (current.recoil <= 1 or actual.recoil <= 1)) then return nil, "EquipmentParameterCap" end
     local bp = math.max(math.floor(cfg.EquipmentChanceFloor * 100 + 0.5),
         math.floor(cfg.EquipmentBaseChance * 100 * cfg.EquipmentChanceDecay ^ level + 0.5))
     local maxBoost = (10000 - bp) / 100
@@ -266,11 +253,9 @@ function E.quote(record, attribute, boost, cfg)
     local boostCost = math.ceil(boostBP * cfg.EquipmentBoostCost / 100)
     local cost = baseCost + boostCost
     if not E.integer(cost, 1, E.MaxMoney) then return nil, "EquipmentCostInvalid" end
-    local nextLevels = E.copy(record.levels)
-    nextLevels[attribute] = level + 1
     return { cost = cost, baseCost = baseCost, boostCost = boostCost, boost = boostBP / 100,
         chanceBP = bp + boostBP, baseChanceBP = bp, maxBoost = maxBoost,
-        level = level, current = current, next = E.values(record.base, nextLevels, cfg), configToken = cfg.token }
+        level = level, configToken = cfg.token }
 end
 
 function E.quoteTarget(record, attribute, target, cfg)
@@ -284,18 +269,16 @@ function E.quoteTarget(record, attribute, target, cfg)
     return E.quote(record, attribute, math.max(0, targetBP - quote.baseChanceBP) / 100, cfg)
 end
 
-function E.newLevels(base)
+function E.newLevels(kind)
     local levels = {}
-    for _, key in ipairs(E.Attributes) do if E.supports(base, key) then levels[key] = 0 end end
+    local record={weaponKind=kind}
+    for _, key in ipairs(E.Effects) do if E.supports(record,key) then levels[key] = 0 end end
     return levels
 end
 
 function E.normalizeRecord(record)
-    -- Authority-only additive migration. Do not repair corrupt existing values.
-    if type(record)=="table" and record.state=="active" and type(record.levels)=="table"
-        and E.supports(record.base,"freeze") and record.levels.freeze==nil then
-        record.levels.freeze=0
-    end
+    -- Missing new fields are interpreted at read time.  No archive migration
+    -- or old-stat clean-up is performed.
     if type(record) == "table" and record.customName ~= nil and type(record.customName) ~= "string" then
         record.customName = nil
     end
@@ -320,7 +303,7 @@ end
 -- loading uses the same result to isolate a bad slot instead of poisoning the
 -- whole account.
 function E.validateRecord(record, owner)
-    if type(record) ~= "table" or type(record.base) ~= "table" or type(record.levels) ~= "table"
+    if type(record) ~= "table" or type(record.levels) ~= "table"
         or type(record.id) ~= "string" or type(record.itemId) ~= "string" or type(record.fullType) ~= "string"
         or type(record.ownerKey) ~= "string" or type(record.characterId) ~= "string"
         then return false, "identity", "record" end
@@ -328,26 +311,21 @@ function E.validateRecord(record, owner)
     if not E.integer(record.generation, 1, E.MaxMoney)
         or not E.integer(record.revision, 1, 9007199254740000)
         or (record.state ~= "active" and record.state ~= "retired") then return false, "identity", "state" end
-    for _, key in ipairs({ "minDamage", "maxDamage", "wear", "speed", "accuracy", "recoil" }) do
-        if record.base[key] ~= nil and (not E.number(record.base[key]) or record.base[key] < 0 or record.base[key] > E.MaxMoney) then
-            return false, "base", key
-        end
-    end
-    if not record.base.minDamage or not record.base.maxDamage or record.base.maxDamage < record.base.minDamage then
-        return false, "base", "damage"
-    end
     if record.state == "active" then
-        for _, key in ipairs(E.Attributes) do
-            if E.supports(record.base, key) and not E.level(record, key) then return false, "levels", key end
+        for _, key in ipairs(E.Effects) do
+            local level=record.levels[key]
+            if level ~= nil and not E.integer(level,0,E.maxLevel(record,key,E.config({}) or {})) then return false,"levels",key end
         end
         local d = record.durability
-        if type(d) ~= "table" or not E.integer(d.conditionMax,1,127) or not E.integer(d.condition,0,d.conditionMax) then
+        -- Missing durability disables reconstruction/repair, not identity or effects.
+        -- A present malformed snapshot is still rejected rather than trusted.
+        if d ~= nil and (type(d) ~= "table" or not E.integer(d.conditionMax,1,127) or not E.integer(d.condition,0,d.conditionMax)) then
             return false, "durability", "condition"
         end
-        if d.hasHead and (not E.integer(d.headConditionMax,1,E.MaxMoney) or not E.integer(d.headCondition,0,d.headConditionMax)) then
+        if d and d.hasHead and (not E.integer(d.headConditionMax,1,E.MaxMoney) or not E.integer(d.headCondition,0,d.headConditionMax)) then
             return false, "durability", "headCondition"
         end
-        if d.hasSharpness and (not E.number(d.sharpness) or d.sharpness < 0 or d.sharpness > 1) then
+        if d and d.hasSharpness and (not E.number(d.sharpness) or d.sharpness < 0 or d.sharpness > 1) then
             return false, "durability", "sharpness"
         end
     end
