@@ -39,12 +39,14 @@
 
 ### 多人协议与同步
 
+- [OrangeCommunityEconomy](OrangeCommunityEconomy.md)：AuthoritativeBuckets 内存缓存、域订阅同步、批量持久化、请求去重守卫。
 - [Server Shop](mods/Server-Shop.md)：服务端余额、库存预留、发货、退款、离线队列和审计。
 - [YeseMarket](mods/YeseMarket.md)：共享协议表、SP 本地 dispatcher、MP handler 和库存回滚。
 - [CaiGou's Shop](mods/CaiGou-Shop.md)：真实物品 ID 上架与快照，同时展示客户端价格信任风险。
 
 ### 经济、商城与回收
 
+- [OrangeCommunityEconomy](OrangeCommunityEconomy.md)：社区经济全栈——读时归一化迁移、Safe* 校验链、优先维护队列、批量传输。
 - [CaiGou's Shop](mods/CaiGou-Shop.md)
 - [RuinBazaar](mods/RuinBazaar.md)
 - [Server Shop](mods/Server-Shop.md)
@@ -70,6 +72,7 @@
 
 ### UI、车辆与调试
 
+- [OrangeCommunityEconomy](OrangeCommunityEconomy.md)：Shell+PageRegistry+Store UI 模式、自定义滚动条、卡片网格、趋势图表。
 - [Traits Purchase System](mods/TraitsPurchaseSystem.md)
 - [YeseMarket](mods/YeseMarket.md)
 - [DebugMenu](mods/DebugMenu.md)
@@ -84,6 +87,7 @@
 
 ## 全部来源
 
+- [OrangeCommunityEconomy](OrangeCommunityEconomy.md)
 - [More Traits](mods/MoreTraits.md)
 - [Extended Categories](mods/CAExtendedCategories.md)
 - [CaiGou's Shop](mods/CaiGou-Shop.md)

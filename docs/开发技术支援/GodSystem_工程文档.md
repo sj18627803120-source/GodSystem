@@ -1,11 +1,11 @@
 # GodSystem 工程文档
 
-更新时间：2026-09-23。目标游戏：Project Zomboid B42.20.4，Lua 5.1/Kahlua。开发树版本：`42.20_3.18.1`。最近已实机验收并备份：`42.20_3.16`；3.17–3.18.1 为测试版，结论见最新交接。此文描述当前代码组织，不替代逐项实机验收。
+更新时间：2026-09-27。目标游戏：Project Zomboid B42.20.4，Lua 5.1/Kahlua。源码版本：`42.20_3.18.5`，范围回收筛选窗口滚动修复已通过自动检查，待实机验收；已验收滚动备份仍为 3.18.4。此前未逐项确认的多人及原生接口场景仍以最新交接为准。此文描述当前代码组织，不替代逐项实机验收。
 
 ## 项目身份与目录
 
 - 源码仓库：`C:\APPS\Pzmodproject\GodSystem-main`；游戏测试副本：`C:\Users\wan20\Zomboid\Workshop\GodSystem-main`。后者是部署产物，不作为编辑源。
-- 滚动备份：`C:\APPS\Pzmodproject\GodSystem-main.zip`，仍是用户通过的 3.16；`C:\APPS\Pzmodproject\历史资料` 存放旧 UI 测试树、候选归档和笔记。
+- 滚动备份：`C:\APPS\Pzmodproject\GodSystem-main.zip`，对应已验收的 3.18.4；`C:\APPS\Pzmodproject\历史资料` 存放旧 UI 测试树、候选归档和笔记。
 - Workshop ID `3773949382`，Mod ID `GodSystem_CN`，存档键 `GodSystem_CN_Data`。文档整理不改变这些身份。
 - 上传结构：`workshop.txt`、`preview.png` 和 `Contents/mods/GodSystem/{mod.info,42/mod.info,42/media}`。`docs`、`tools`、`.git`、`.test-runtime` 与历史资料不属于游戏运行包。
 
@@ -18,7 +18,7 @@
 | `server` | `GodSystem_Server.lua`、`GodSystem_ServerRuntime_*.lua`、`GodSystem_TransactionOps.lua` | MP 命令分发、真实物品/玩家/世界对象复核、结算、回执和同步 |
 | 资源 | `media/scripts/GodSystem_Items.txt`、`media/sandbox-options.txt`、`media/lua/shared/Translate` | 物品、沙盒选项及生成的 CN/CH/EN 文本 |
 
-当前包有 135 个 Lua 文件；精确数量以后以测试输出为准。ServerRuntime 以 installer 注册并由 `GodSystem_Server.lua` 装配；新增命令应先核对 `GodSystem_Protocol.lua`，再核对服务端路由与客户端回执。SP 与 MP 尽量复用 shared 业务规则，由适配器决定真实玩家、存档和同步路径。
+当前包有 136 个 Lua 文件；精确数量以后以测试输出为准。ServerRuntime 以 installer 注册并由 `GodSystem_Server.lua` 装配；新增命令应先核对 `GodSystem_Protocol.lua`，再核对服务端路由与客户端回执。SP 与 MP 尽量复用 shared 业务规则，由适配器决定真实玩家、存档和同步路径。
 
 ## 核心状态与交易
 
@@ -27,7 +27,7 @@
 - 商品购买参考价顺序为管理员覆盖、`GodSystem_Prices.lua` 精确价、分类默认价；回收价再按管理员覆盖、未知模组保守价、比例/倍率及物品状态计算。转换关系静态基础表与管理员覆盖层共同形成安全最低价。详见 3.13–3.16 交接。
 - 付费/发货操作使用 `opId`、指纹和有界回执；服务端重新定位物品、价格、余额及配置。重试同一操作返回原结果，不能重复扣费、发货或叠加效果。超过 2000 件回收使用有界摘要，仍须避免大批量删除造成单帧压力。
 - 装备绑定以稳定身份及服务所需的原生信息为边界，等级档案由权威存储管理。近战冻结、冲击和溅射共用挥击事件；溅射致死统计与多人同步仍待实机验证。
-- 水电一体机 `GodSystem.UtilityGenerator` 使用原生 `IsoGenerator` 和流体接口；余额按设备 ID 存储，所有玩家可操作。当前原生对象同步、固定设施供水和服务器重启恢复仍待实机验收。完整边界见交接 112。
+- 水电一体机 `GodSystem.UtilityGenerator` 使用原生 `IsoGenerator` 供电；供水对带原版管道标志的固定设施使用原生流体接口，或经原生水量回读验证的 `waterAmount` / `waterMaxAmount` 储水字段。水、电账户按设备 ID 分开保存并扣费，旧共享余额惰性迁入水账户；所有玩家可操作。当前固定水龙头供水、多人同步和服务器重启恢复仍待实机验收。完整边界见交接 112 与水电修复交接。
 
 ## 修改入口与约束
 

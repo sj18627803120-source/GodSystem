@@ -57,6 +57,9 @@ Companion.runtime = {
     lastUpdateMs = nil,
     lastGuardianScanMs = 0,
     nextAttackSearchMs = 0,
+    invalidTargets = setmetatable({}, { __mode = "k" }),
+    targetFaultTimes = {},
+    attackPauseUntilMs = 0,
     lastSaveMs = 0,
     dirty = false,
     vehicleSuspended = false,
@@ -105,19 +108,6 @@ local function distanceSquared(ax, ay, bx, by)
     return dx * dx + dy * dy
 end
 
-local function sameFloor(a, b)
-    if not a or not b then return false end
-    return math.floor((a:getZ() or 0) + 0.1) == math.floor((b:getZ() or 0) + 0.1)
-end
-
-local function isDeadZombie(zombie)
-    if not zombie then return true end
-    local ok, dead = pcall(function() return zombie:isDead() end)
-    if ok and dead then return true end
-    local okAlive, alive = pcall(function() return zombie:isAlive() end)
-    return okAlive and alive == false
-end
-
 local function isLegacyProjection(zombie)
     if not zombie or not zombie.getModData then return false end
     local ok, data = pcall(function() return zombie:getModData() end)
@@ -164,6 +154,9 @@ local function clearTransientEffects(clearSight)
     runtime.corrosionStates = {}
     runtime.markStates = {}
     runtime.effectVisuals = {}
+    runtime.invalidTargets = setmetatable({}, { __mode = "k" })
+    runtime.targetFaultTimes = {}
+    runtime.attackPauseUntilMs = 0
     runtime.recoveryUntilMs = 0
     runtime.recoilUntilMs = 0
     runtime.fireFlashUntilMs = 0
@@ -431,18 +424,62 @@ local function ensureLight(player, data)
     end
 end
 
+local function recordTargetFault(zombie)
+    local runtime = Companion.runtime
+    local now = nowMs()
+    runtime.invalidTargets[zombie] = now + 10000
+    if runtime.pendingAttack and runtime.pendingAttack.target == zombie then cancelPendingAttack("idle") end
+    if runtime.lastCombatTarget == zombie then runtime.lastCombatTarget = nil end
+    runtime.shockCooldowns[zombie] = nil
+    runtime.corrosionStates[zombie] = nil
+    runtime.markStates[zombie] = nil
+    local times = runtime.targetFaultTimes
+    times[#times + 1] = now
+    while #times > 0 and now - times[1] > 10000 do table.remove(times, 1) end
+    if #times > 16 then table.remove(times, 1) end
+    if #times >= 3 and now >= (runtime.attackPauseUntilMs or 0) then
+        runtime.attackPauseUntilMs = now + 10000
+        print("[GodSystem] Companion target reads failed repeatedly; attack search paused for 10 seconds")
+    end
+end
+
+local function zombieSnapshot(zombie, player)
+    if not zombie or not player then return nil end
+    local runtime = Companion.runtime
+    if nowMs() < (runtime.invalidTargets[zombie] or 0) then return nil end
+    local ok, snapshot = pcall(function()
+        if zombie.getModData then
+            local modData = zombie:getModData()
+            if modData and modData.GodSystemProjection == true then return nil end
+        end
+        if zombie:isDead() or not zombie:isAlive() then return nil end
+        local square = zombie:getCurrentSquare()
+        if not square then return nil end
+        local x, y, z = zombie:getX(), zombie:getY(), zombie:getZ()
+        if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number"
+            or x ~= x or y ~= y or z ~= z then return nil end
+        local cell = getCell and getCell() or nil
+        if not cell or cell:getGridSquare(math.floor(x), math.floor(y), math.floor(z + 0.1)) ~= square then return nil end
+        if math.floor(z + 0.1) ~= math.floor(player:getZ() + 0.1) then return nil end
+        return { x = x, y = y, z = z, square = square }
+    end)
+    if not ok then recordTargetFault(zombie); return nil end
+    return snapshot
+end
+
 local function validZombie(zombie, player)
-    return zombie and not isLegacyProjection(zombie) and not isDeadZombie(zombie) and sameFloor(zombie, player)
+    return zombieSnapshot(zombie, player) ~= nil
 end
 
 chooseCombatStrafeTarget = function(player, data, now)
     local runtime = Companion.runtime
     local target = runtime.lastCombatTarget
-    if not target or now >= (runtime.lastCombatTargetExpiresMs or 0) or not validZombie(target, player) then
+    local snapshot = target and zombieSnapshot(target, player) or nil
+    if not snapshot or now >= (runtime.lastCombatTargetExpiresMs or 0) then
         runtime.lastCombatTarget = nil
         return false
     end
-    local dx, dy = target:getX() - player:getX(), target:getY() - player:getY()
+    local dx, dy = snapshot.x - player:getX(), snapshot.y - player:getY()
     local length = math.sqrt(dx * dx + dy * dy)
     if length <= 0.01 then return false end
     local band = followBand(data)
@@ -461,7 +498,7 @@ chooseCombatStrafeTarget = function(player, data, now)
     return false
 end
 
-local function collectZombies(player, radius, visibleOnly, earlyLimit)
+local function collectZombies(player, radius, earlyLimit)
     local result, seen = {}, {}
     local cell = getCell and getCell() or nil
     if not cell or not player then return result end
@@ -474,19 +511,13 @@ local function collectZombies(player, radius, visibleOnly, earlyLimit)
             if objects then
                 for i = 0, objects:size() - 1 do
                     local zombie = objects:get(i)
-                    if not seen[zombie] and instanceof(zombie, "IsoZombie") and validZombie(zombie, player) then
+                    local snapshot = not seen[zombie] and instanceof(zombie, "IsoZombie") and zombieSnapshot(zombie, player) or nil
+                    if snapshot then
                         seen[zombie] = true
-                        local d2 = distanceSquared(px, py, zombie:getX(), zombie:getY())
+                        local d2 = distanceSquared(px, py, snapshot.x, snapshot.y)
                         if d2 <= radiusSq then
-                            local visible = true
-                            if visibleOnly then
-                                local okSee, canSee = pcall(function() return player:CanSee(zombie) end)
-                                visible = okSee and canSee == true
-                            end
-                            if visible then
-                                result[#result + 1] = { zombie = zombie, distanceSq = d2 }
-                                if earlyLimit and #result >= earlyLimit then return result end
-                            end
+                            result[#result + 1] = { zombie = zombie, distanceSq = d2 }
+                            if earlyLimit and #result >= earlyLimit then return result end
                         end
                     end
                 end
@@ -505,18 +536,12 @@ local function cleanSightTargets(player, data)
     for i = #runtime.sightTargets, 1, -1 do
         local entry = runtime.sightTargets[i]
         local zombie = entry and entry.zombie
-        if not validZombie(zombie, player) or now >= (entry.expiresAt or 0)
-            or distanceSquared(player:getX(), player:getY(), zombie:getX(), zombie:getY()) > radiusSq then
+        local snapshot = zombieSnapshot(zombie, player)
+        if not snapshot or now >= (entry.expiresAt or 0)
+            or distanceSquared(player:getX(), player:getY(), snapshot.x, snapshot.y) > radiusSq then
             table.remove(runtime.sightTargets, i)
         end
     end
-end
-
-local function isSightMarked(zombie)
-    for i = 1, #Companion.runtime.sightTargets do
-        if Companion.runtime.sightTargets[i].zombie == zombie then return true end
-    end
-    return false
 end
 
 local function attackRadius(data)
@@ -524,35 +549,32 @@ local function attackRadius(data)
 end
 
 local function isAttackTargetValid(player, data, zombie)
-    if not player or not data or data.combatMode == "ceasefire" or not validZombie(zombie, player) then return false end
+    if not player or not data or data.combatMode == "ceasefire" then return false end
+    local snapshot = zombieSnapshot(zombie, player)
+    if not snapshot then return false end
     local radius = attackRadius(data)
-    if distanceSquared(player:getX(), player:getY(), zombie:getX(), zombie:getY()) > radius * radius then return false end
-    if isSightMarked(zombie) then return true end
-    local okSee, visible = pcall(function() return player:CanSee(zombie) end)
-    return okSee and visible == true
+    return distanceSquared(player:getX(), player:getY(), snapshot.x, snapshot.y) <= radius * radius, snapshot
 end
 
 local function findAttackTarget(player, data)
     local radius = attackRadius(data)
-    local candidates = collectZombies(player, radius, false, Config.getAttackSearchCandidateLimit())
+    local candidates = collectZombies(player, radius, Config.getAttackSearchCandidateLimit())
     for i = 1, #candidates do
         local zombie = candidates[i].zombie
-        if isAttackTargetValid(player, data, zombie) then return zombie end
+        local valid, snapshot = isAttackTargetValid(player, data, zombie)
+        if valid then return zombie, snapshot end
     end
     return nil
 end
 
 local function queueEffectVisual(kind, source, target, durationMs)
-    local sourceX = source and source.getX and source:getX() or nil
-    local sourceY = source and source.getY and source:getY() or nil
-    local sourceZ = source and source.getZ and source:getZ() or nil
-    local targetX = target and target.getX and target:getX() or nil
-    local targetY = target and target.getY and target:getY() or nil
-    local targetZ = target and target.getZ and target:getZ() or nil
+    local ok, sourceX, sourceY, sourceZ, targetX, targetY, targetZ = pcall(function()
+        return source and source:getX(), source and source:getY(), source and source:getZ(),
+            target and target:getX(), target and target:getY(), target and target:getZ()
+    end)
+    if not ok or sourceX == nil or sourceY == nil or sourceZ == nil then return end
     Companion.runtime.effectVisuals[#Companion.runtime.effectVisuals + 1] = {
         kind = kind,
-        source = source,
-        target = target,
         x = sourceX,
         y = sourceY,
         z = sourceZ,
@@ -568,13 +590,17 @@ local function applyCompanionDamage(zombie, player, damage)
     if not validZombie(zombie, player) then return false end
     damage = math.max(0, tonumber(damage) or 0)
     if damage <= 0 then return false end
-    local oldHealth = tonumber(zombie:getHealth()) or 0
+    local okHealth, health = pcall(function() return zombie:getHealth() end)
+    if not okHealth then recordTargetFault(zombie); return false end
+    local oldHealth = tonumber(health) or 0
     if oldHealth <= 0 then return false end
     local previousKills = player:getZombieKills()
     pcall(function() zombie:setAttackedBy(player) end)
     local applied = pcall(function() zombie:setHealth(math.max(0, oldHealth - damage)) end)
-    if not applied then return false end
-    if zombie:getHealth() <= 0 then
+    if not applied then recordTargetFault(zombie); return false end
+    local okAfter, afterHealth = pcall(function() return zombie:getHealth() end)
+    if not okAfter then recordTargetFault(zombie); return false end
+    if afterHealth <= 0 then
         pcall(function() zombie:Kill(player) end)
         local expectedKills = previousKills + 1
         if player:getZombieKills() < expectedKills then player:setZombieKills(expectedKills) end
@@ -582,11 +608,11 @@ local function applyCompanionDamage(zombie, player, damage)
     return true
 end
 
-local function collectEffectTargets(player, source, radius)
+local function collectEffectTargets(player, source, radius, excluded)
     local result, seen = {}, {}
     local cell = getCell and getCell() or nil
     if not cell or not source or not player then return result end
-    local sx, sy, sz = source:getX(), source:getY(), math.floor(source:getZ() + 0.1)
+    local sx, sy, sz = source.x, source.y, math.floor(source.z + 0.1)
     local radiusSq = radius * radius
     for x = math.floor(sx - radius), math.floor(sx + radius) do
         for y = math.floor(sy - radius), math.floor(sy + radius) do
@@ -595,16 +621,12 @@ local function collectEffectTargets(player, source, radius)
             if objects then
                 for index = 0, objects:size() - 1 do
                     local zombie = objects:get(index)
-                    if zombie ~= source and not seen[zombie] and instanceof(zombie, "IsoZombie") and validZombie(zombie, player) then
+                    local snapshot = zombie ~= excluded and not seen[zombie] and instanceof(zombie, "IsoZombie") and zombieSnapshot(zombie, player) or nil
+                    if snapshot then
                         seen[zombie] = true
-                        local distanceSq = distanceSquared(sx, sy, zombie:getX(), zombie:getY())
+                        local distanceSq = distanceSquared(sx, sy, snapshot.x, snapshot.y)
                         if distanceSq <= radiusSq then
-                            local allowed = isSightMarked(zombie)
-                            if not allowed then
-                                local okSee, visible = pcall(function() return player:CanSee(zombie) end)
-                                allowed = okSee and visible == true
-                            end
-                            if allowed then result[#result + 1] = { zombie = zombie, distanceSq = distanceSq } end
+                            result[#result + 1] = { zombie = zombie, distanceSq = distanceSq }
                         end
                     end
                 end
@@ -615,7 +637,7 @@ local function collectEffectTargets(player, source, radius)
     return result
 end
 
-local function applyDirectEffects(target, player, data, directDamage)
+local function applyDirectEffects(target, player, data, directDamage, sourceSnapshot)
     local effects = data.effects or {}
     local runtime = Companion.runtime
     local now = nowMs()
@@ -657,7 +679,7 @@ local function applyDirectEffects(target, player, data, directDamage)
     local used = { [target] = true }
     local occupied = 0
     if effects.chain then
-        local candidates = collectEffectTargets(player, target, Config.ChainRadius)
+        local candidates = collectEffectTargets(player, sourceSnapshot, Config.ChainRadius, target)
         local chained = candidates[1] and candidates[1].zombie or nil
         if chained then
             used[chained] = true
@@ -669,7 +691,7 @@ local function applyDirectEffects(target, player, data, directDamage)
 
     if effects.blast then
         queueEffectVisual("blast", target, nil, 420)
-        local candidates = collectEffectTargets(player, target, Config.BlastRadius)
+        local candidates = collectEffectTargets(player, sourceSnapshot, Config.BlastRadius, target)
         for index = 1, #candidates do
             if occupied >= Config.BlastTargetCap then break end
             local zombie = candidates[index].zombie
@@ -684,12 +706,13 @@ end
 
 local function applyProjectileDamage(entry, player, data)
     local zombie = entry.target
-    if not validZombie(zombie, player) then return end
+    local valid, snapshot = isAttackTargetValid(player, data, zombie)
+    if not valid then return end
     local damage = Config.getFinalDamage(data)
     local markedUntil = tonumber(Companion.runtime.markStates[zombie]) or 0
     if markedUntil > nowMs() then damage = damage * Config.MarkDamageMultiplier end
     if applyCompanionDamage(zombie, player, damage) then
-        applyDirectEffects(zombie, player, data, damage)
+        applyDirectEffects(zombie, player, data, damage, snapshot)
     end
 end
 
@@ -730,21 +753,21 @@ local function updateProjectiles(delta, player, data)
         entry.elapsed = (entry.elapsed or 0) + delta
         if entry.elapsed >= (entry.duration or Config.ProjectileTravelSeconds) then
             applyProjectileDamage(entry, player, data)
-            table.remove(list, i)
+            if list[i] == entry then table.remove(list, i) end
         elseif not validZombie(entry.target, player) then
-            table.remove(list, i)
+            if list[i] == entry then table.remove(list, i) end
         end
     end
 end
 
-local function beginAttack(player, target, now)
+local function beginAttack(player, target, snapshot, now)
     local runtime = Companion.runtime
     if not runtime.robotX then resetRobotNear(player) end
     runtime.pendingAttack = { target = target }
     runtime.chargeStartedMs = now
     runtime.chargeEndsMs = now + Config.RobotChargeSeconds * 1000
     runtime.nextChargeParticleMs = now
-    runtime.attackDirection = directionFromVector(target:getX() - runtime.robotX, target:getY() - runtime.robotY)
+    runtime.attackDirection = directionFromVector(snapshot.x - runtime.robotX, snapshot.y - runtime.robotY)
     runtime.attackFacingUntilMs = runtime.chargeEndsMs + Config.ProjectileTravelSeconds * 1000
     runtime.combatUntilMs = runtime.chargeEndsMs + Config.RobotCombatGraceSeconds * 1000
     runtime.lastCombatTarget = target
@@ -753,11 +776,15 @@ local function beginAttack(player, target, now)
     runtime.behaviorState = "charging"
 end
 
-local function launchPendingAttack(data, now)
+local function launchPendingAttack(player, data, now)
     local runtime = Companion.runtime
     local pending = runtime.pendingAttack
     local target = pending and pending.target or nil
     if not target then cancelPendingAttack("idle"); return end
+    if not isAttackTargetValid(player, data, target) then
+        cancelPendingAttack(data.followMode == "guard" and "guard" or "idle")
+        return
+    end
     local attackDirection = runtime.attackDirection
     runtime.pendingAttack = nil
     runtime.chargeStartedMs = 0
@@ -790,35 +817,34 @@ end
 local function updateAttackState(player, data, now)
     local runtime = Companion.runtime
     if runtime.pendingAttack then
-        local target = runtime.pendingAttack.target
-        if not data.unlocks.attack or not isAttackTargetValid(player, data, target) then
+        if not data.unlocks.attack or data.combatMode == "ceasefire" then
             cancelPendingAttack(data.followMode == "guard" and "guard" or "idle")
             return
         end
-        runtime.attackDirection = directionFromVector(target:getX() - runtime.robotX, target:getY() - runtime.robotY)
         runtime.behaviorState = "charging"
         if data.visible and Visual and Visual.emit and now >= (runtime.nextChargeParticleMs or 0) then
             Visual.emit("charge", runtime.robotX, runtime.robotY, runtime.robotZ)
             runtime.nextChargeParticleMs = now + 60
         end
-        if now >= (runtime.chargeEndsMs or 0) then launchPendingAttack(data, now) end
+        if now >= (runtime.chargeEndsMs or 0) then launchPendingAttack(player, data, now) end
         return
     end
     if now < (runtime.recoveryUntilMs or 0) then runtime.behaviorState = "recovery"; return end
     if data.combatMode == "ceasefire" or not data.unlocks.attack or data.cooldowns.attack > 0 then return end
+    if now < (runtime.attackPauseUntilMs or 0) then return end
     if now < (runtime.nextAttackSearchMs or 0) then return end
     runtime.nextAttackSearchMs = now + Config.getAttackSearchSeconds() * 1000
-    local target = findAttackTarget(player, data)
-    if target then beginAttack(player, target, now) end
+    local target, snapshot = findAttackTarget(player, data)
+    if target then beginAttack(player, target, snapshot, now) end
 end
 
 local function triggerGuardian(player, data)
     if not data.unlocks.guardian or not data.guardianEnabled or data.cooldowns.guardian > 0 then return end
-    local threats = collectZombies(player, Config.GuardianTriggerRadius, false, Config.GuardianTriggerCount)
+    local threats = collectZombies(player, Config.GuardianTriggerRadius, Config.GuardianTriggerCount)
     if #threats < Config.GuardianTriggerCount then return end
     local radius = Config.getStatValue(data, "guardianRange") or 4
     local maximum = Config.getStatValue(data, "guardianCount") or 4
-    local targets = collectZombies(player, radius, false, nil)
+    local targets = collectZombies(player, radius, nil)
     local knocked = 0
     for i = 1, math.min(maximum, #targets) do
         local zombie = targets[i].zombie
@@ -868,7 +894,7 @@ function Companion.activateSight()
         notify("Notify_CompanionCooldown", "Ability is cooling down")
         return false
     end
-    local targets = collectZombies(player, Config.getStatValue(data, "sightRange") or 10, false, nil)
+    local targets = collectZombies(player, Config.getStatValue(data, "sightRange") or 10, nil)
     if #targets <= 0 then
         notify("Notify_CompanionNoTarget", "No target in range")
         return false
@@ -1000,9 +1026,9 @@ function Companion.getRows()
         companionNodeRow("projection", "Companion_Unlock", "Robot", data.unlocked,
             Config.scaleCost(Config.UnlockCost), "Companion_ProjectionDetail", "Unlocks the blue pixel robot, lighting and behavior controls."),
         companionNodeRow("attack", "Companion_Attack", "Attack", data.unlocks.attack,
-            Config.scaleCost(Config.AttackUnlockCost), "Companion_AttackDetail", "Unlocks red beam attacks."),
+            Config.scaleCost(Config.AttackUnlockCost), "Companion_AttackDetail", "Attacks same-floor zombies in range, including through walls."),
         companionNodeRow("sight", "Companion_Sight", "Spirit sight", data.unlocks.sight,
-            Config.scaleCost(Config.SightUnlockCost), "Companion_SightDetail", "Marks up to 50 nearby zombies for 10 seconds and permits attacks through walls."),
+            Config.scaleCost(Config.SightUnlockCost), "Companion_SightDetail", "Marks up to 50 nearby zombies for 10 seconds for observation."),
         companionNodeRow("guardian", "Companion_Guardian", "Guardian", data.unlocks.guardian,
             Config.scaleCost(Config.GuardianUnlockCost), "Companion_GuardianDetail", "Knocks down nearby zombies when one enters the danger radius."),
     }
@@ -1169,8 +1195,8 @@ local function drawColoredLine(renderer, texture, x1, y1, x2, y2, r, g, b, alpha
     renderer:renderline(texture, math.floor(x1), math.floor(y1), math.floor(x2), math.floor(y2), r, g, b, alpha or 0.9)
 end
 
-local function renderCornerBox(renderer, texture, zombie, red, green, blue, alpha)
-    local sx, sy, zoom = screenPoint(zombie:getX(), zombie:getY(), zombie:getZ())
+local function renderCornerBox(renderer, texture, snapshot, red, green, blue, alpha)
+    local sx, sy, zoom = screenPoint(snapshot.x, snapshot.y, snapshot.z)
     if not sx or not sy or not zoom then return end
     local halfW, halfH = 18 / zoom, 38 / zoom
     local arm = 8 / zoom
@@ -1202,23 +1228,17 @@ end
 
 local function renderEffectVisual(renderer, texture, visual)
     if not visual then return end
-    local source = visual.source
     local now = nowMs()
     local duration = math.max(1, (visual.expiresAt or now) - (visual.createdAt or now))
     local progress = math.max(0, math.min(1, (now - (visual.createdAt or now)) / duration))
     local alpha = math.max(0.08, 1 - progress)
-    local sourceX = visual.x or (source and source.getX and source:getX())
-    local sourceY = visual.y or (source and source.getY and source:getY())
-    local sourceZ = visual.z or (source and source.getZ and source:getZ())
+    local sourceX, sourceY, sourceZ = visual.x, visual.y, visual.z
     if sourceX == nil or sourceY == nil or sourceZ == nil then return end
     local sx, sy, zoom = screenPoint(sourceX, sourceY, sourceZ)
     if not sx or not sy or not zoom then return end
     sy = sy - ((visual.kind == "guardian" and 12 or 38) / zoom)
     if visual.kind == "chain" then
-        local target = visual.target
-        local txWorld = visual.targetX or (target and target.getX and target:getX())
-        local tyWorld = visual.targetY or (target and target.getY and target:getY())
-        local tzWorld = visual.targetZ or (target and target.getZ and target:getZ())
+        local txWorld, tyWorld, tzWorld = visual.targetX, visual.targetY, visual.targetZ
         if txWorld == nil or tyWorld == nil or tzWorld == nil then return end
         local tx, ty, targetZoom = screenPoint(txWorld, tyWorld, tzWorld)
         if not tx or not ty or not targetZoom then return end
@@ -1249,12 +1269,14 @@ local function renderEffectVisual(renderer, texture, visual)
     drawColoredLine(renderer, texture, sx - radius, sy, sx, sy - radius, red, green, blue, alpha)
 end
 
-local function renderProjectile(renderer, texture, entry)
+local function renderProjectile(renderer, texture, entry, player)
     local target = entry.target
     if not target then return end
+    local snapshot = zombieSnapshot(target, player)
+    if not snapshot then return end
     local progress = math.min(1, (entry.elapsed or 0) / math.max(0.01, entry.duration or Config.ProjectileTravelSeconds))
     local sourceX, sourceY, sourceZoom = screenPoint(entry.startX, entry.startY, entry.startZ)
-    local targetX, targetY, targetZoom = screenPoint(target:getX(), target:getY(), target:getZ())
+    local targetX, targetY, targetZoom = screenPoint(snapshot.x, snapshot.y, snapshot.z)
     if not sourceX or not sourceY or not sourceZoom or not targetX or not targetY or not targetZoom then return end
     sourceY = sourceY - 48 / sourceZoom
     targetY = targetY - 38 / targetZoom
@@ -1295,15 +1317,17 @@ local function renderCompanionEffects()
     local robotRendered = renderRobot(renderer, lineTexture, data, player)
     for i = 1, #Companion.runtime.sightTargets do
         local zombie = Companion.runtime.sightTargets[i].zombie
-        if validZombie(zombie, player) then renderCornerBox(renderer, lineTexture, zombie) end
+        local snapshot = zombieSnapshot(zombie, player)
+        if snapshot then renderCornerBox(renderer, lineTexture, snapshot) end
     end
     for zombie, expiresAt in pairs(Companion.runtime.markStates) do
-        if nowMs() < (tonumber(expiresAt) or 0) and validZombie(zombie, player) then
-            renderCornerBox(renderer, lineTexture, zombie, 1.0, 0.76, 0.12, 0.88)
+        local snapshot = zombieSnapshot(zombie, player)
+        if now < (tonumber(expiresAt) or 0) and snapshot then
+            renderCornerBox(renderer, lineTexture, snapshot, 1.0, 0.76, 0.12, 0.88)
         end
     end
     for i = 1, #Companion.runtime.projectiles do
-        renderProjectile(renderer, lineTexture, Companion.runtime.projectiles[i])
+        renderProjectile(renderer, lineTexture, Companion.runtime.projectiles[i], player)
     end
     for i = 1, #Companion.runtime.effectVisuals do
         renderEffectVisual(renderer, lineTexture, Companion.runtime.effectVisuals[i])

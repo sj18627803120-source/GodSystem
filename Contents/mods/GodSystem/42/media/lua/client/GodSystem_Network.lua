@@ -840,6 +840,7 @@ local function OnServerCommand(module, command, args)
     if command == ((Protocol.S2C and Protocol.S2C.ItemConfigPresets) or "itemConfigPresets") then
         GodSystemApp.services.runtime.itemConfigPresets = {
             order = (args and type(args.order) == "table") and args.order or {},
+            remarks = (args and type(args.remarks) == "table") and args.remarks or {},
             active = (args and type(args.active) == "string" and args.active ~= "") and args.active or "default",
         }
         if GodSystemItemEconomyUI and GodSystemItemEconomyUI.window and GodSystemItemEconomyUI.window.applyPresets then

@@ -53,6 +53,7 @@ GodSystemProtocol.C2S = {
     ItemConfigRelationDelete = "itemConfigRelationDelete",
     ItemConfigPresetsGet = "itemConfigPresetsGet",
     ItemConfigPresetSave = "itemConfigPresetSave",
+    ItemConfigPresetRemark = "itemConfigPresetRemark",
     ItemConfigPresetDelete = "itemConfigPresetDelete",
     ItemConfigPresetApply = "itemConfigPresetApply",
     ShopCatalogChunk = "shopCatalogChunk",
@@ -125,6 +126,7 @@ GodSystemProtocol.StateCommands = {
     itemConfigRelationSet = true,
     itemConfigRelationDelete = true,
     itemConfigPresetSave = true,
+    itemConfigPresetRemark = true,
     itemConfigPresetDelete = true,
     itemConfigPresetApply = true,
 }
@@ -158,6 +160,7 @@ GodSystemProtocol.KeyCommands = {
     itemConfigRelationSet = true,
     itemConfigRelationDelete = true,
     itemConfigPresetSave = true,
+    itemConfigPresetRemark = true,
     itemConfigPresetDelete = true,
     itemConfigPresetApply = true,
 }

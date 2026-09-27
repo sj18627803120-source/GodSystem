@@ -5,6 +5,7 @@ option GodSystem.EnableEquipment
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Equipment,
     translation = GodSystem_EnableEquipment,
 }
 
@@ -182,7 +183,6 @@ option GodSystem.EquipmentRetrieveMultiplier
     translation = GodSystem_EquipmentRetrieveMultiplier,
 }
 
-
 option GodSystem.StartingPoints
 {
     type = integer,
@@ -190,6 +190,7 @@ option GodSystem.StartingPoints
     max = 100000,
     default = 60,
     page = GodSystem,
+    title = GS_General,
     translation = GodSystem_StartingPoints,
 }
 
@@ -208,6 +209,7 @@ option GodSystem.EnableTasks
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Tasks,
     translation = GodSystem_EnableTasks,
 }
 
@@ -276,15 +278,8 @@ option GodSystem.EnableShop
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Shop,
     translation = GodSystem_EnableShop,
-}
-
-option GodSystem.EnableRecycle
-{
-    type = boolean,
-    default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableRecycle,
 }
 
 option GodSystem.ShopBuyPriceMultiplier
@@ -325,58 +320,49 @@ option GodSystem.ShopDynamicInflationHours
     translation = GodSystem_ShopDynamicInflationHours,
 }
 
-option GodSystem.EnableUtilityGenerator
+option GodSystem.EnableAutoLoaderShop
 {
     type = boolean,
     default = true,
     page = GodSystem,
-    translation = GodSystem_EnableUtilityGenerator,
+    translation = GodSystem_EnableAutoLoaderShop,
 }
 
-option GodSystem.EnableUtilityGeneratorWater
-{
-    type = boolean,
-    default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableUtilityGeneratorWater,
-}
-
-option GodSystem.EnableUtilityGeneratorElectricity
-{
-    type = boolean,
-    default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableUtilityGeneratorElectricity,
-}
-
-option GodSystem.UtilityGeneratorWaterPricePer100L
+option GodSystem.EconomyConversionSafetyMargin
 {
     type = double,
     min = 0,
+    max = 10,
+    default = 0.10,
+    page = GodSystem,
+    translation = GodSystem_EconomyConversionSafetyMargin,
+}
+
+option GodSystem.EconomyUnknownDynamicOutputCount
+{
+    type = integer,
+    min = 1,
     max = 1000000,
-    default = 20,
+    default = 500,
     page = GodSystem,
-    translation = GodSystem_UtilityGeneratorWaterPricePer100L,
+    translation = GodSystem_EconomyUnknownDynamicOutputCount,
 }
 
-option GodSystem.UtilityGeneratorElectricityPricePerFuelUnit
+option GodSystem.EnableRecycle
 {
-    type = double,
-    min = 0,
-    max = 1000000,
-    default = 5,
+    type = boolean,
+    default = true,
     page = GodSystem,
-    translation = GodSystem_UtilityGeneratorElectricityPricePerFuelUnit,
+    title = GS_Recycle,
+    translation = GodSystem_EnableRecycle,
 }
 
-option GodSystem.RecycleSellPriceMultiplier
+option GodSystem.EnableRecycleListing
 {
-    type = double,
-    min = 0,
-    max = 100,
-    default = 1,
+    type = boolean,
+    default = true,
     page = GodSystem,
-    translation = GodSystem_RecycleSellPriceMultiplier,
+    translation = GodSystem_EnableRecycleListing,
 }
 
 option GodSystem.AutoShopListOnlyCostRatio
@@ -399,24 +385,14 @@ option GodSystem.AutoShopListOnlyMinCost
     translation = GodSystem_AutoShopListOnlyMinCost,
 }
 
-option GodSystem.EconomyConversionSafetyMargin
+option GodSystem.RecycleSellPriceMultiplier
 {
     type = double,
     min = 0,
-    max = 10,
-    default = 0.10,
+    max = 100,
+    default = 1,
     page = GodSystem,
-    translation = GodSystem_EconomyConversionSafetyMargin,
-}
-
-option GodSystem.EconomyUnknownDynamicOutputCount
-{
-    type = integer,
-    min = 1,
-    max = 1000000,
-    default = 500,
-    page = GodSystem,
-    translation = GodSystem_EconomyUnknownDynamicOutputCount,
+    translation = GodSystem_RecycleSellPriceMultiplier,
 }
 
 option GodSystem.EnableRangeRecycle
@@ -454,6 +430,7 @@ option GodSystem.LotteryItemCacheBuildRate
     max = 10000,
     default = 100,
     page = GodSystem,
+    title = GS_Lottery,
     translation = GodSystem_LotteryItemCacheBuildRate,
 }
 
@@ -462,6 +439,7 @@ option GodSystem.EnableBank
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Bank,
     translation = GodSystem_EnableBank,
 }
 
@@ -711,11 +689,57 @@ option GodSystem.BankInvestmentAggressiveLossPercent
     translation = GodSystem_BankInvestmentAggressiveLossPercent,
 }
 
+option GodSystem.EnableUtilityGenerator
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    title = GS_Utility,
+    translation = GodSystem_EnableUtilityGenerator,
+}
+
+option GodSystem.EnableUtilityGeneratorWater
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableUtilityGeneratorWater,
+}
+
+option GodSystem.EnableUtilityGeneratorElectricity
+{
+    type = boolean,
+    default = true,
+    page = GodSystem,
+    translation = GodSystem_EnableUtilityGeneratorElectricity,
+}
+
+option GodSystem.UtilityGeneratorWaterPricePer100L
+{
+    type = double,
+    min = 0,
+    max = 1000000,
+    default = 20,
+    page = GodSystem,
+    translation = GodSystem_UtilityGeneratorWaterPricePer100L,
+}
+
+option GodSystem.UtilityGeneratorElectricityPricePerFuelUnit
+{
+    type = double,
+    min = 0,
+    max = 1000000,
+    default = 5,
+    page = GodSystem,
+    translation = GodSystem_UtilityGeneratorElectricityPricePerFuelUnit,
+}
+
 option GodSystem.EnableTeleport
 {
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Home,
     translation = GodSystem_EnableTeleport,
 }
 
@@ -802,6 +826,7 @@ option GodSystem.EnableTraits
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Traits,
     translation = GodSystem_EnableTraits,
 }
 
@@ -850,6 +875,7 @@ option GodSystem.MedicalCheckInfectionCost
     max = 1000000,
     default = 50,
     page = GodSystem,
+    title = GS_Medical,
     translation = GodSystem_MedicalCheckInfectionCost,
 }
 
@@ -888,6 +914,7 @@ option GodSystem.EnableCompanion
     type = boolean,
     default = true,
     page = GodSystem,
+    title = GS_Companion,
     translation = GodSystem_EnableCompanion,
 }
 
@@ -921,14 +948,6 @@ option GodSystem.CompanionAttackSearchCandidateLimit
     translation = GodSystem_CompanionAttackSearchCandidateLimit,
 }
 
-option GodSystem.EnableAutoLoaderShop
-{
-    type = boolean,
-    default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableAutoLoaderShop,
-}
-
 option GodSystem.AutoLoaderAmmoCapacity
 {
     type = integer,
@@ -936,6 +955,7 @@ option GodSystem.AutoLoaderAmmoCapacity
     max = 10000,
     default = 2000,
     page = GodSystem,
+    title = GS_AutoLoader,
     translation = GodSystem_AutoLoaderAmmoCapacity,
 }
 
@@ -946,5 +966,6 @@ option GodSystem.MPBackgroundSyncMinutes
     max = 60,
     default = 5,
     page = GodSystem,
+    title = GS_Multiplayer,
     translation = GodSystem_MPBackgroundSyncMinutes,
 }

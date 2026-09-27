@@ -428,7 +428,8 @@ function Context.fillInventoryMenu(playerNum, context, values)
     end
 
     addModeOption("Menu_ContextRecycle", "Recycle", "recycle")
-    if runtime.isFeatureEnabled("EnableShop") ~= false then
+    if runtime.isFeatureEnabled("EnableShop") ~= false
+        and runtime.isFeatureEnabled("EnableRecycleListing") ~= false then
         addModeOption("Menu_ContextRecycleAndList", "Recycle and list", "recycleAndList")
         addModeOption("Menu_ContextListOnly", "List only", "listOnly")
     end

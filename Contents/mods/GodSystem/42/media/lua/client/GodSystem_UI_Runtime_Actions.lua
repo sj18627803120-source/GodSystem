@@ -313,7 +313,9 @@ function GodSystemWindow:onListRightMouseUp(x, y)
         context:addOption(GodSystemApp.services.runtime.text("Menu_SellHalf", "Sell half") .. " (" .. tostring(half) .. ")", self, self.recyclePayload, payload, half)
     end
     context:addOption(GodSystemApp.services.runtime.text("Menu_SellAll", "Sell all") .. " (" .. tostring(count) .. ")", self, self.recyclePayload, payload, count)
-    context:addOption(GodSystemApp.services.runtime.text("Menu_ListOnly", "List only"), self, self.confirmListOnlyAutoShop, payload)
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") ~= false then
+        context:addOption(GodSystemApp.services.runtime.text("Menu_ListOnly", "List only"), self, self.confirmListOnlyAutoShop, payload)
+    end
     return true
 end
 
@@ -507,6 +509,16 @@ function GodSystemWindow:onThirdAction()
 end
 
 function GodSystemWindow:onFourthAction()
+    if self.mode == "rangeRecycle" then
+        GodSystemApp.services.rangeRecycle:execute(self.playerNum or 0, "toggleCorpses", {}, function(result)
+            if result and result.ok == false then
+                GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text(
+                    "RangeRecyclePreferenceSaveFailed", "Corpse recycling preference could not be saved"))
+            end
+        end)
+        self:populateList()
+        return
+    end
     if self.mode == "companion" then
         if GodSystemCompanion and GodSystemCompanion.recall then GodSystemCompanion.recall() end
         self:populateList()

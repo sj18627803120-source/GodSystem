@@ -166,11 +166,10 @@ local function getEnv(player)
                 if object then
                     local data = GodSystemB42JavaCalls.value(object, "getModData", nil)
                     local container = GodSystemB42JavaCalls.value(object, "getFluidContainer", nil)
-                    Utility.releaseWaterFixture(root, row, object, key, data, container)
+                    if not Utility.releaseWaterFixture(root, row, object, key, data, container) then pending = true end
                 else
                     local square = squareAt(record.x, record.y, record.z)
                     if square then
-                        row.balanceCents = row.balanceCents + math.max(0, math.floor(tonumber(record.paidCents) or 0))
                         row.waterReserveCents = math.max(0, (tonumber(row.waterReserveCents) or 0)
                             - math.max(0, math.floor(tonumber(record.paidCents) or 0)))
                         row.waterFixtures[key] = nil
@@ -181,7 +180,6 @@ local function getEnv(player)
             end
             return not pending and Utility.tableCount(row.waterFixtures) == 0
         end,
-        scheduleScan = function(id) return Utility.scheduleScan(root, id) end,
         persist = function() return storeCheckpoint() end,
     }
 end
@@ -251,8 +249,8 @@ end
 local lastUtilityTick = 0
 local function utilityGeneratorTick()
     local now = GodSystemScheduler.nowMs()
-    if now - lastUtilityTick < 1000 then return end
-    lastUtilityTick = now
+    if now - lastUtilityTick < 1000 and not Utility.hasPendingWork(now) then return end
+    if now - lastUtilityTick >= 1000 then lastUtilityTick = now end
     local root = Utility.worldData()
     Utility.tick(root, {
         square = squareAt,
@@ -265,24 +263,19 @@ end
 Events.OnTick.Add(utilityGeneratorTick)
 if Events.OnObjectAdded then
     Events.OnObjectAdded.Add(function(object)
-        Utility.onObjectAdded(Utility.worldData(), object, { square = squareAt })
+        Utility.onObjectAdded(Utility.worldData(), object, { square = squareAt, authoritative = true })
     end)
 end
 if Events.OnLoadGridsquare then
     Events.OnLoadGridsquare.Add(function(square)
-        local x = tonumber(GodSystemB42JavaCalls.value(square, "getX", nil))
-        local y = tonumber(GodSystemB42JavaCalls.value(square, "getY", nil))
-        if not x or not y then return end
-        local root = Utility.worldData()
-        for id, data in pairs(root.devices or {}) do
-            local row = Utility.ensureDevice(root, id)
-            if not row then break end
-            local z = tonumber(GodSystemB42JavaCalls.value(square, "getZ", 0)) or 0
-            if row and row.active and row.placed
-                and Utility.isGeneratorSquareAffected(row.x, row.y, row.z, x, y, z) then
-                Utility.scanSquare(root, id, { square = squareAt }, x, y, z)
-            end
-        end
+        Utility.onSquareLoaded(Utility.worldData(), square)
+    end)
+end
+if Events.OnWaterAmountChange then
+    Events.OnWaterAmountChange.Add(function(object)
+        local data = GodSystemB42JavaCalls.value(object, "getModData", nil)
+        local id = type(data) == "table" and tostring(data[Utility.GhostMarker] or data[Utility.TargetMarker] or "") or ""
+        if id ~= "" then Utility.markWaterTargetDirty(Utility.worldData(), id) end
     end)
 end
 

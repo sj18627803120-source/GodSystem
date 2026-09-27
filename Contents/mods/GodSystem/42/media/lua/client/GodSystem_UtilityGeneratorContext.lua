@@ -4,6 +4,8 @@ require "GodSystem_B42JavaCalls"
 require "ISUI/ISContextMenu"
 require "ISUI/ISToolTip"
 require "ISUI/ISWorldObjectContextMenu"
+require "ISUI/ISTextBox"
+require "ISBaseObject"
 
 if isServer and isServer() and not (isClient and isClient()) then return end
 
@@ -204,17 +206,16 @@ local function localEnvironment(player)
                     end
                 end
                 if fixture then
-                    Utility.releaseWaterFixture(root, row, fixture, key, value(fixture, "getModData", nil),
-                        value(fixture, "getFluidContainer", nil))
+                    if not Utility.releaseWaterFixture(root, row, fixture, key, value(fixture, "getModData", nil),
+                        value(fixture, "getFluidContainer", nil)) then return false end
                 else
-                    row.balanceCents = row.balanceCents + math.max(0, math.floor(tonumber(record.paidCents) or 0))
+                    -- A removed fixture may already have consumed its prepaid water.
                     row.waterReserveCents = math.max(0, row.waterReserveCents - math.max(0, math.floor(tonumber(record.paidCents) or 0)))
                     row.waterFixtures[key] = nil
                 end
             end
             return Utility.tableCount(row.waterFixtures) == 0
         end,
-        scheduleScan = function(id) return Utility.scheduleScan(root, id) end,
         persist = function() return true end,
     }
 end
@@ -241,12 +242,13 @@ function Context.submit(player, args)
     return ok, code, payload
 end
 
-function Context.requestStatus(generator, player, playerNum)
+function Context.requestStatus(generator, player, playerNum, purpose)
     local id = Utility.deviceId(generator)
     local square = value(generator, "getSquare", nil)
     if not id or not square then return end
     local x, y, z = value(square, "getX", nil), value(square, "getY", nil), value(square, "getZ", nil)
     local args = { deviceId = id, x = x, y = y, z = z }
+    Context.pendingStatus = purpose and { purpose = purpose, generator = generator, playerNum = playerNum } or nil
     if isClient and isClient() then
         local command = (Protocol.C2S and Protocol.C2S.UtilityGeneratorStatus) or "utilityGeneratorStatus"
         if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send(command, args, player) end
@@ -257,17 +259,73 @@ function Context.requestStatus(generator, player, playerNum)
 end
 
 function Context.receiveStatus(args)
+    local pending = Context.pendingStatus
+    Context.pendingStatus = nil
     if not args or args.ok ~= true or type(args.status) ~= "table" then
         notifyCode(args and args.code or "UtilityGeneratorUnavailable")
         return
     end
     local status = args.status
-    local message = text("UtilityGenerator_Status", "Balance: {1} | Water: {2} | Electricity: {3}")
+    if pending and pending.purpose == "targets" then
+        local menu = ISContextMenu.get(pending.playerNum, getMouseX(), getMouseY())
+        local targets = status.waterTargets or {}
+        if #targets == 0 then
+            local option = menu:addOption(text("Context_UtilityGenerator_NoTargets", "No bound water targets"), nil, nil)
+            option.notAvailable = true
+        end
+        for _, target in ipairs(targets) do
+            local label = tostring(target.label or target.kind) .. " (" .. tostring(target.x) .. ", " .. tostring(target.y) .. ", " .. tostring(target.z) .. ")"
+            menu:addOption(label, pending.playerNum, function(num)
+                local id = Utility.deviceId(pending.generator)
+                local square = value(pending.generator, "getSquare", nil)
+                if id and square then
+                    local player = getSpecificPlayer(num)
+                    Context.submit(player, { action = "unbindWaterTarget", deviceId = id,
+                        x = value(square, "getX", nil), y = value(square, "getY", nil), z = value(square, "getZ", nil),
+                        targetId = target.id })
+                end
+            end)
+        end
+        return
+    end
+    if pending and pending.purpose == "amount" then
+        local screenW, screenH = getCore():getScreenWidth(), getCore():getScreenHeight()
+        local box = ISTextBox:new(math.max(12, (screenW - 420) / 2), math.max(12, (screenH - 180) / 2),
+            420, 180, text("Context_UtilityGenerator_TargetAmountPrompt", "Target water level (1-1000 L)"),
+            tostring(status.waterTargetLiters or 10), Context, Context.onAmountResult, pending.playerNum)
+        box.maxChars = 4
+        box:initialise()
+        Context.amountDialog = { box = box, generator = pending.generator, playerNum = pending.playerNum }
+        box:addToUIManager()
+        return
+    end
+    local message = text("UtilityGenerator_Status",
+        "Water {1} (reserved {2}) | Power {3} (reserved {4})")
     local waterText = text("UtilityGenerator_Reason_" .. tostring(status.waterReason or "unknown"), tostring(status.waterReason or "unknown"))
     local electricText = text("UtilityGenerator_Reason_" .. tostring(status.electricityReason or "unknown"), tostring(status.electricityReason or "unknown"))
-    message = message:gsub("{1}", string.format("%.2f", (tonumber(status.balanceCents) or 0) / 100))
-        :gsub("{2}", waterText):gsub("{3}", electricText)
+    message = message:gsub("{1}", string.format("%.2f", (tonumber(status.waterBalanceCents or status.balanceCents) or 0) / 100))
+        :gsub("{2}", string.format("%.2f", (tonumber(status.waterReserveCents) or 0) / 100))
+        :gsub("{3}", string.format("%.2f", (tonumber(status.powerBalanceCents) or 0) / 100))
+        :gsub("{4}", string.format("%.2f", (tonumber(status.powerReserveCents) or 0) / 100))
     notify(message)
+    local supply = text("UtilityGenerator_SupplyStatus", "Water: {1} | Power: {2}")
+    notify(supply:gsub("{1}", waterText):gsub("{2}", electricText))
+end
+
+function Context.onAmountResult(_, button)
+    local state = Context.amountDialog
+    Context.amountDialog = nil
+    if not state or not button or button.internal ~= "OK" then return end
+    local input = state.box and state.box.entry and state.box.entry:getInternalText() or ""
+    local amount = tonumber(input)
+    if not amount or amount ~= math.floor(amount) or amount < 1 or amount > 1000 then
+        return notifyCode("UtilityGeneratorTargetAmountInvalid")
+    end
+    local generator, playerNum = state.generator, state.playerNum
+    local square = value(generator, "getSquare", nil)
+    if not square then return end
+    Context.submit(getSpecificPlayer(playerNum), { action = "setWaterTargetLiters", deviceId = Utility.deviceId(generator),
+        x = value(square, "getX", nil), y = value(square, "getY", nil), z = value(square, "getZ", nil), liters = amount })
 end
 
 local function optionLabel(key, fallback)
@@ -285,40 +343,167 @@ local function sendForGenerator(playerNum, generator, action, extra)
     Context.submit(player, args)
 end
 
+-- The vanilla building cursor lives in the server Lua tree and is not
+-- requireable while client autorun files load. A selection cursor only needs
+-- the drag callbacks, so keep it in the shared base class available here.
+local WaterTargetCursor = ISBaseObject:derive("GodSystemWaterTargetCursor")
+
+function WaterTargetCursor:getFloorCursorSprite()
+    if not WaterTargetCursor.floorCursorSprite then
+        local spriteName = (Core.getTileScale() == 2)
+            and "media/ui/FloorTileCursor2x.png" or "media/ui/FloorTileCursor.png"
+        local sprite = IsoSprite.new()
+        sprite:LoadSingleTexture(spriteName)
+        WaterTargetCursor.floorCursorSprite = sprite
+    end
+    return WaterTargetCursor.floorCursorSprite
+end
+
+function WaterTargetCursor:update()
+end
+
+function WaterTargetCursor:isValid(square)
+    return square ~= nil
+end
+
+function WaterTargetCursor:render(x, y, z)
+    local color = getCore():getGoodHighlitedColor()
+    self:getFloorCursorSprite():RenderGhostTileColor(x, y, z, color:getR(), color:getG(), color:getB(), 0.8)
+end
+
+function WaterTargetCursor:tryBuild(x, y, z)
+    self:create(x, y, z)
+end
+
+function WaterTargetCursor:create(x, y, z)
+    getCell():setDrag(nil, self.player)
+    local square = value(getCell(), "getGridSquare", nil, x, y, z)
+    local objects = square and value(square, "getObjects", nil) or nil
+    local count = math.max(0, math.floor(tonumber(value(objects, "size", 0)) or 0))
+    local menu = ISContextMenu.get(self.player, getMouseX(), getMouseY())
+    local choices = 0
+    for index = 0, count - 1 do
+        local object = value(objects, "get", nil, index)
+        local kind, reason = Utility.waterTargetKind(object)
+        if kind or reason == "UtilityGeneratorTargetNotPlumbed" then
+            choices = choices + 1
+            local sprite = value(object, "getSpriteName", nil)
+            if sprite == nil then
+                local spriteObject = value(object, "getSprite", nil)
+                sprite = spriteObject and value(spriteObject, "getName", nil) or nil
+            end
+            local label = tostring(value(object, "getName", nil) or sprite or kind or "Water target")
+                .. " [" .. tostring(index + 1) .. "]"
+            if kind then
+                menu:addOption(label, self.player, function(num)
+                    sendForGenerator(num, self.generator, "bindWaterTarget",
+                        { targetX = x, targetY = y, targetZ = z, targetIndex = index,
+                            targetSprite = tostring(sprite or "") })
+                end)
+            else
+                local option = menu:addOption(label .. " — " .. text("Notify_" .. reason, "Plumb this sink first"), nil, nil)
+                option.notAvailable = true
+            end
+        end
+    end
+    if choices == 0 then notifyCode("UtilityGeneratorTargetNone") end
+end
+
+function WaterTargetCursor:new(playerNum, generator)
+    local o = {}
+    setmetatable(o, self)
+    self.__index = self
+    o:initialise()
+    if o.init then o:init() end
+    o.player = playerNum
+    o.generator = generator
+    o.noNeedHammer = true
+    o.skipBuildAction = true
+    return o
+end
+
 local function addGeneratorOptions(playerNum, context, generator)
     local player = getSpecificPlayer and getSpecificPlayer(playerNum) or nil
     if not player or not Utility.deviceId(generator) then return end
-    local parent = context:addOption(optionLabel("Title", "水电一体机"), nil, nil)
+    local parent = context:addOption(optionLabel("Title", "Utility Generator"), nil, nil)
     local menu = ISContextMenu:getNew(context)
     context:addSubMenu(parent, menu)
-    menu:addOption(optionLabel("Status", "查看状态"), playerNum, function(num) Context.requestStatus(generator, player, num) end)
-    menu:addOption(optionLabel("Start", "启动"), playerNum, function(num) sendForGenerator(num, generator, "active", { active = true }) end)
-    menu:addOption(optionLabel("Stop", "停止"), playerNum, function(num) sendForGenerator(num, generator, "active", { active = false }) end)
-    local chargeParent = menu:addOption(optionLabel("Charge", "充值系统币"), nil, nil)
+    menu:addOption(optionLabel("Status", "View Status"), playerNum, function(num) Context.requestStatus(generator, player, num) end)
+    menu:addOption(optionLabel("Start", "Start"), playerNum, function(num) sendForGenerator(num, generator, "active", { active = true }) end)
+    menu:addOption(optionLabel("Stop", "Stop"), playerNum, function(num) sendForGenerator(num, generator, "active", { active = false }) end)
+    menu:addOption(optionLabel("Fill", "Fill Water"), playerNum, function(num)
+        local target = getSpecificPlayer and getSpecificPlayer(num) or nil
+        local item = Utility.findFillableContainer(target)
+        if not item then return notifyCode("UtilityGeneratorNoContainer") end
+        sendForGenerator(num, generator, "fill", { itemId = Utility.itemId(item) })
+    end)
+    menu:addOption(optionLabel("Drink", "Drink"), playerNum, function(num)
+        sendForGenerator(num, generator, "drink")
+    end)
+    menu:addOption(optionLabel("SelectWaterTarget", "Select water target"), playerNum, function(num)
+        if type(ISBuildingObject) == "table" and getmetatable(WaterTargetCursor) ~= ISBuildingObject then
+            -- Vanilla may load this class after our client autorun. Use its
+            -- complete drag behavior when present without requiring it at boot.
+            setmetatable(WaterTargetCursor, ISBuildingObject)
+            ISBuildingObject.__index = ISBuildingObject
+            WaterTargetCursor.SuperType = ISBuildingObject
+        end
+        getCell():setDrag(WaterTargetCursor:new(num, generator), num)
+    end)
+    menu:addOption(optionLabel("ManageWaterTargets", "View / unbind water targets"), playerNum, function(num)
+        Context.requestStatus(generator, getSpecificPlayer(num), num, "targets")
+    end)
+    menu:addOption(optionLabel("SetWaterTargetAmount", "Set target water level"), playerNum, function(num)
+        Context.requestStatus(generator, getSpecificPlayer(num), num, "amount")
+    end)
+    local chargeParent = menu:addOption(optionLabel("Charge", "Charge Accounts"), nil, nil)
     local chargeMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(chargeParent, chargeMenu)
-    for _, amount in ipairs({ 100, 500, 1000 }) do
-        chargeMenu:addOption(optionLabel("ChargeAmount", "充值 {1}"):gsub("{1}", tostring(amount)), playerNum,
-            function(num) sendForGenerator(num, generator, "charge", { amount = amount }) end)
+    for _, account in ipairs({ { kind = "water", label = "ChargeWater", fallback = "Water Account" },
+        { kind = "power", label = "ChargePower", fallback = "Power Account" } }) do
+        local utility = account.kind
+        local accountParent = chargeMenu:addOption(optionLabel(account.label, account.fallback), nil, nil)
+        local accountMenu = ISContextMenu:getNew(chargeMenu)
+        chargeMenu:addSubMenu(accountParent, accountMenu)
+        for _, amount in ipairs({ 100, 500, 1000 }) do
+            accountMenu:addOption(optionLabel("ChargeAmount", "Charge {1}"):gsub("{1}", tostring(amount)), playerNum,
+                function(num) sendForGenerator(num, generator, "charge", { amount = amount, utility = utility }) end)
+        end
     end
-    menu:addOption(optionLabel("Repair", "维修（消耗电子废料）"), playerNum, function(num)
+    menu:addOption(optionLabel("Repair", "Repair (uses scrap)"), playerNum, function(num)
         local target = getSpecificPlayer and getSpecificPlayer(num) or nil
         local inventory = playerInventory(target)
         local scrap = findByType(inventory, "Base.ElectronicsScrap")
         if not scrap then return notifyCode("UtilityGeneratorRepairMaterialMissing") end
         sendForGenerator(num, generator, "repair", { itemId = Utility.itemId(scrap) })
     end)
-    menu:addOption(optionLabel("Pickup", "搬走"), playerNum, function(num) sendForGenerator(num, generator, "pickup") end)
+    menu:addOption(optionLabel("Pickup", "Pick Up"), playerNum, function(num) sendForGenerator(num, generator, "pickup") end)
+end
+
+local function removeVanillaGeneratorOptions(context)
+    if not context or not context.removeOptionByName then return end
+    for _, key in ipairs({
+        "ContextMenu_Generator", "ContextMenu_GeneratorInfo",
+        "ContextMenu_GeneratorPlug", "ContextMenu_GeneratorUnplug",
+        "ContextMenu_GeneratorAddFuel", "ContextMenu_GeneratorFix",
+        "ContextMenu_TakeGenerator", "ContextMenu_GeneratorTake",
+    }) do
+        local label = getText and getText(key) or key
+        if label and label ~= "" then context:removeOptionByName(label) end
+    end
 end
 
 function Context.fillWorldMenu(playerNum, context, worldobjects, test)
     if test then return end
+    if not Utility or type(Utility.deviceId) ~= "function" then return end
+    local hasGodSystemGenerator = false
     local seen = {}
     for index = 1, #(worldobjects or {}) do
         local object = worldobjects[index]
         local id = Utility.deviceId(object)
         if id and not seen[id] then
             seen[id] = true
+            hasGodSystemGenerator = true
             addGeneratorOptions(playerNum, context, object)
         end
         local square = value(object, "getSquare", nil)
@@ -326,19 +511,24 @@ function Context.fillWorldMenu(playerNum, context, worldobjects, test)
         id = generator and Utility.deviceId(generator) or nil
         if id and not seen[id] then
             seen[id] = true
+            hasGodSystemGenerator = true
             addGeneratorOptions(playerNum, context, generator)
         end
+    end
+    if hasGodSystemGenerator then
+        removeVanillaGeneratorOptions(context)
     end
 end
 
 function Context.fillInventoryMenu(_, context, snapshot)
+    if not Utility or type(Utility.itemFullType) ~= "function" then return end
     for index = 1, #(snapshot.items or {}) do
         local item = snapshot.items[index]
         if Utility.itemFullType(item) == Utility.FullType then
             local player = getSpecificPlayer and getSpecificPlayer(snapshot.playerNum) or nil
             local x, y, z = currentPlayerSquare(player)
             if x then
-                context:addOption(optionLabel("Place", "放置水电一体机"), player, function(target)
+                context:addOption(optionLabel("Place", "Place Utility Generator"), player, function(target)
                     Context.submit(target, { action = "place", itemId = Utility.itemId(item), x = x, y = y, z = z })
                 end)
             end
@@ -353,7 +543,7 @@ local function installVanillaGeneratorGuards()
     Context._vanillaGuardsInstalled = true
     local callbacks = {
         onInfoGenerator = { 2, function(worldobjects, generator, player) Context.requestStatus(generator, getSpecificPlayer(player), player) end },
-        onPlugGenerator = { 2, function(_, generator, player) notify(text("UtilityGenerator_AlwaysConnected", "水电一体机始终保持连接。")) end },
+        onPlugGenerator = { 2, function(_, generator, player) notify(text("UtilityGenerator_AlwaysConnected", "Utility Generator stays connected.")) end },
         onActivateGenerator = { 3, function(_, enabled, generator, player) sendForGenerator(player, generator, "active", { active = enabled == true }) end },
         onFixGenerator = { 2, function(_, generator, player)
             local target = getSpecificPlayer and getSpecificPlayer(player) or nil
@@ -361,8 +551,8 @@ local function installVanillaGeneratorGuards()
             local scrap = findByType(inventory, "Base.ElectronicsScrap")
             if scrap then sendForGenerator(player, generator, "repair", { itemId = Utility.itemId(scrap) }) else notifyCode("UtilityGeneratorRepairMaterialMissing") end
         end },
-        onAddFuelGenerator = { 3, function(_, _, generator) notify(text("UtilityGenerator_UseCoinCharge", "请使用设备菜单以系统币充值。")) end },
-        doAddFuelGenerator = { 2, function(_, generator) notify(text("UtilityGenerator_UseCoinCharge", "请使用设备菜单以系统币充值。")) end },
+        onAddFuelGenerator = { 3, function(_, _, generator) notify(text("UtilityGenerator_UseCoinCharge", "Use the device menu to charge with system coins.")) end },
+        doAddFuelGenerator = { 2, function(_, generator) notify(text("UtilityGenerator_UseCoinCharge", "Use the device menu to charge with system coins.")) end },
         onTakeGenerator = { 2, function(_, generator, player) sendForGenerator(player, generator, "pickup") end },
     }
     for name, rule in pairs(callbacks) do
@@ -386,13 +576,21 @@ if Events and Events.OnFillWorldObjectContextMenu then
     Events.OnFillWorldObjectContextMenu.Add(Context.fillWorldMenu)
 end
 installVanillaGeneratorGuards()
+if Events and Events.OnGameStart then
+    Events.OnGameStart.Add(function()
+        if not Context._vanillaGuardsInstalled then
+            installVanillaGeneratorGuards()
+        end
+    end)
+end
 
 if not (isClient and isClient()) and Events and Events.OnTick then
     local lastTick = 0
     Events.OnTick.Add(function()
         local now = getTimestampMs and getTimestampMs() or math.floor(os.time() * 1000)
-        if now - lastTick < 1000 then return end
-        lastTick = now
+        if not Utility or type(Utility.worldData) ~= "function" then return end
+        if now - lastTick < 1000 and not (Utility.hasPendingWork and Utility.hasPendingWork(now)) then return end
+        if now - lastTick >= 1000 then lastTick = now end
         local root = Utility.worldData()
         Utility.tick(root, {
             square = function(x, y, z)
@@ -424,15 +622,14 @@ if not (isClient and isClient()) and Events and Events.OnTick then
     end
     if Events.OnLoadGridsquare then
         Events.OnLoadGridsquare.Add(function(square)
-            local x, y, z = value(square, "getX", nil), value(square, "getY", nil), value(square, "getZ", nil)
-            if x == nil or y == nil or z == nil then return end
-            local root = Utility.worldData()
-            for id in pairs(root.devices or {}) do
-                local row = Utility.ensureDevice(root, id)
-                if row and row.active and row.placed then
-                    Utility.scanSquare(root, id, { square = squareAt }, x, y, z)
-                end
-            end
+            Utility.onSquareLoaded(Utility.worldData(), square)
+        end)
+    end
+    if Events.OnWaterAmountChange then
+        Events.OnWaterAmountChange.Add(function(object)
+            local data = value(object, "getModData", nil)
+            local id = type(data) == "table" and tostring(data[Utility.GhostMarker] or data[Utility.TargetMarker] or "") or ""
+            if id ~= "" then Utility.markWaterTargetDirty(Utility.worldData(), id) end
         end)
     end
 end

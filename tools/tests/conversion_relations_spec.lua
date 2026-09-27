@@ -138,8 +138,14 @@ end
 local economySource = readSource("client/GodSystem_ItemEconomyUI.lua")
 assert(string.find(economySource, "function GodSystemItemEconomyWindow:applyPresets(presets)", 1, true) and
     string.find(economySource, "itemConfigPresetSave", 1, true) and
-    string.find(economySource, "EconomyAdmin_PresetDefaultProtected", 1, true),
-    "item economy window exposes the preset dropdown, save flow and default protection")
+    string.find(economySource, "GodSystemPresetSlotDialog", 1, true) and
+    string.find(economySource, "self.readButton:setEnable(hasData)", 1, true),
+    "item economy window exposes fixed preset slots and disables reading an empty slot")
+assert(string.find(readSource("server/GodSystem_ServerRuntime_RouterConfig.lua"),
+    "function Commands.itemConfigPresetRemark", 1, true) and
+    string.find(readSource("shared/GodSystem_Protocol.lua"),
+        "ItemConfigPresetRemark = \"itemConfigPresetRemark\"", 1, true),
+    "multiplayer remark changes use an administrator-checked server command")
 
 -- 3.16: both custom list painters clamp to the visible scroll band, otherwise rows
 -- scrolled out of view are drawn over the preset bar above the list.
@@ -154,7 +160,8 @@ require("GodSystem_ItemConfig")
 local ItemConfig = GodSystemItemConfig
 assert(ItemConfig.sanitizePresetName("   ") == nil and ItemConfig.sanitizePresetName("Default") == nil,
     "empty and default preset names are rejected")
-assert(ItemConfig.sanitizePresetName("  战备  ") == "战备", "preset names are trimmed")
+assert(ItemConfig.isPresetSlot("1") and ItemConfig.isPresetSlot("2") and ItemConfig.isPresetSlot("3")
+    and not ItemConfig.isPresetSlot("4"), "exactly three preset slots are valid")
 
 local data = {
     itemOverrides = { ["Base.Axe"] = { buyPrice = 50 } },
@@ -162,16 +169,18 @@ local data = {
     economyRevision = 3,
     conversionRevision = 4,
 }
-local store = ItemConfig.savePreset(data, "战备")
-assert(store and store.active == "战备" and #store.order == 1, "saving a preset activates it")
-assert(store.presets["战备"].itemOverrides["Base.Axe"].buyPrice == 50,
+local store = ItemConfig.savePreset(data, "1")
+assert(store and store.active == "1" and #store.order == 1, "saving a slot activates it")
+assert(store.presets["1"].itemOverrides["Base.Axe"].buyPrice == 50,
     "preset snapshots carry administrator item overrides")
-assert(store.presets["战备"].conversionBuiltinRemoved["b42:garbagebag_box"] == true,
+assert(store.presets["1"].conversionBuiltinRemoved["b42:garbagebag_box"] == true,
     "preset snapshots carry built-in deletion marks")
+assert(ItemConfig.setPresetRemark(data, "1", "战备") and store.remarks["1"] == "战备",
+    "remarks are stored separately from preset content")
 
 data.itemOverrides = {}
 data.conversionBuiltinRemoved = {}
-assert(ItemConfig.applyPreset(data, "战备") and data.itemOverrides["Base.Axe"].buyPrice == 50
+assert(ItemConfig.applyPreset(data, "1") and data.itemOverrides["Base.Axe"].buyPrice == 50
     and data.conversionBuiltinRemoved["b42:garbagebag_box"] == true,
     "applying a preset writes the snapshot back over live data")
 assert(data.economyRevision == 4 and data.conversionRevision == 5,
@@ -187,21 +196,74 @@ end
 assert(restoredGarbage ~= nil, "switching back to default brings deleted built-ins back")
 
 local payload = ItemConfig.presetListPayload(data)
-assert(payload.order[1] == "战备" and payload.active == ItemConfig.PRESET_DEFAULT,
-    "preset list payload mirrors order and active preset")
+assert(payload.order[1] == "1" and payload.remarks["1"] == "战备"
+    and payload.active == ItemConfig.PRESET_DEFAULT,
+    "preset list payload mirrors saved slots, remarks and active preset")
 assert(ItemConfig.deletePreset(data, ItemConfig.PRESET_DEFAULT) == nil and
     ItemConfig.deletePreset(data, "不存在") == nil,
     "the default preset is protected and unknown presets cannot be deleted")
-store = ItemConfig.deletePreset(data, "战备")
+store = ItemConfig.deletePreset(data, "1")
 assert(store and #store.order == 0 and store.active == ItemConfig.PRESET_DEFAULT,
     "deleting a preset removes it from the order list")
 
 local limitData = {}
 for index = 1, ItemConfig.PRESET_LIMIT do
-    assert(ItemConfig.savePreset(limitData, "p" .. index) ~= nil, "presets fill up to the limit")
+    assert(ItemConfig.savePreset(limitData, tostring(index)) ~= nil, "presets fill up to the limit")
 end
-local overflow, overflowError = ItemConfig.savePreset(limitData, "overflow")
-assert(overflow == nil and overflowError == "Limit", "preset count is capped at the limit")
+local overflow, overflowError = ItemConfig.savePreset(limitData, "4")
+assert(overflow == nil and overflowError == "Invalid", "only the fixed three slots can be saved")
+
+local fileText, failNextWrite
+local oldReader, oldWriter = getFileReader, getFileWriter
+getFileReader = function()
+    if not fileText then return nil end
+    local offset = 1
+    return {
+        readLine = function()
+            if offset > #fileText then return nil end
+            local finish = fileText:find("\n", offset, true) or (#fileText + 1)
+            local line = fileText:sub(offset, finish - 1)
+            offset = finish + 1
+            return line
+        end,
+        close = function() end,
+    }
+end
+getFileWriter = function()
+    local parts = {}
+    return {
+        write = function(_, part)
+            if failNextWrite then failNextWrite = false; error("simulated write failure") end
+            parts[#parts + 1] = part
+        end,
+        close = function() if #parts > 0 then fileText = table.concat(parts) end end,
+    }
+end
+local Library = require("GodSystem_ItemConfigPresetLibrary")
+Library.resetForTests()
+fileText = ""
+local oldWorld = { itemOverrides = { ["Base.Axe"] = { buyPrice = 73 } } }
+assert(Library.load(oldWorld) and #oldWorld.itemConfigPresets.order == 0,
+    "a zero-byte first-run file is treated as an empty library")
+assert(ItemConfig.savePreset(oldWorld, "2"))
+assert(ItemConfig.setPresetRemark(oldWorld, "2", "跨存档"))
+failNextWrite = true
+assert(not Library.commit(oldWorld), "failed write cannot claim the preset was persisted")
+assert(Library.commit(oldWorld), "saving a preset writes the shared file")
+Library.resetForTests()
+local newWorld = {}
+assert(Library.load(newWorld) and newWorld.itemConfigPresets.presets["2"]
+    and newWorld.itemConfigPresets.remarks["2"] == "跨存档"
+    and ItemConfig.applyPreset(newWorld, "2")
+    and newWorld.itemOverrides["Base.Axe"].buyPrice == 73,
+    "a different save can apply the shared slot and read its remark")
+assert(ItemConfig.deletePreset(newWorld, "2") and Library.commit(newWorld, "2"),
+    "slot deletion persists to the shared library")
+Library.resetForTests()
+assert(Library.load(oldWorld) and not oldWorld.itemConfigPresets.presets["2"],
+    "a deleted shared preset is not resurrected by an old save")
+getFileReader, getFileWriter = oldReader, oldWriter
+Library.resetForTests()
 
 local floors = Relations.compile({}, function(fullType)
     if fullType == "Base.Garbagebag" then return 16 end

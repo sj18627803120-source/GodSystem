@@ -106,7 +106,8 @@ foreach ($locale in @('CN', 'CH')) {
         $tooltip = $translation.PSObject.Properties[$tooltipKey].Value
         Assert-True (-not [string]::IsNullOrWhiteSpace($label)) "$locale sandbox label is missing: $labelKey"
         Assert-True (-not [string]::IsNullOrWhiteSpace($tooltip)) "$locale sandbox tooltip is missing: $tooltipKey"
-        Assert-True ($label -notmatch '^\[') "$locale sandbox label still has a duplicated category prefix: $labelKey"
+        Assert-True ($label -notmatch '^\[(?!性能\]|Performance\])') "$locale sandbox label has an unexpected category prefix: $labelKey"
+        Assert-True ($label -notmatch '^\[(性能|Performance)\]\s*\[') "$locale sandbox label has duplicated prefixes: $labelKey"
         # Static sandbox text has no formatting arguments. Literal percent
         # signs must be escaped for the game's Java Formatter (%%).
         Assert-True (-not $label.Replace('%%', '').Contains('%')) "$locale sandbox label has an unescaped percent sign: $labelKey"
@@ -124,6 +125,11 @@ foreach ($locale in @('CN', 'CH')) {
         Assert-True ($null -ne $property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) "$locale item tooltip is missing: $tooltipName"
     }
 }
+
+$enSandbox = Read-Utf8 (Join-Path $luaRoot 'shared\Translate\EN\Sandbox.json') | ConvertFrom-Json
+Assert-True ($enSandbox.Sandbox_GodSystem_EnableRecycleListing -eq 'Allow listing from recycling') 'EN recycle listing label is missing'
+Assert-True (-not [string]::IsNullOrWhiteSpace($enSandbox.Sandbox_GodSystem_EnableRecycleListing_tooltip)) 'EN recycle listing tooltip is missing'
+Assert-True ($enSandbox.Sandbox_Title_GS_Shop -eq '-------- Shop --------') 'EN sandbox group title is missing'
 
 $generatorText = Read-Utf8 $generatorPath
 Assert-True ($generatorText -notmatch 'GodSystem_AdminConfig') 'localization generator still depends on retired GodSystem_AdminConfig'

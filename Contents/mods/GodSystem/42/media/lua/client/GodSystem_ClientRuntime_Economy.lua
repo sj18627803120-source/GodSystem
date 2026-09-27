@@ -597,6 +597,7 @@ function GodSystemApp.services.runtime.unlockAutoShopItem(fullType, label, sellV
 end
 
 function GodSystemApp.services.runtime.listOnlyAutoShopItem(fullType, itemId)
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") == false then return false end
     if GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycle") == false or GodSystemApp.services.runtime.isFeatureEnabled("EnableShop") == false then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_ListOnlyDisabled", "This item cannot be listed."))
         return false

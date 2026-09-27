@@ -20,7 +20,7 @@ description: Project Zomboid Build 42 mod engineering workflow. Use when Codex n
 
 ## Current GodSystem Repository Discovery
 
-For GodSystem, read `docs/开发技术支援/README.md`, its engineering document, and the top `当前基线` section of `docs/GodSystem_DevHandoff_CN/00_继续开发入口.md` before using an older handoff. As of 2026-09-23 the worktree is `42.20_3.18.1` on B42.20.4; `42.20_3.16` is the last user-tested rolling backup. Splash combat, multiplayer fixes, and the utility generator in 3.17–3.18.1 still need the game tests listed in handoffs 110–112. Never infer acceptance from an automated suite or from pushing a development branch.
+For GodSystem, read `docs/开发技术支援/README.md`, its engineering document, and the top `当前基线` section of `docs/GodSystem_DevHandoff_CN/00_继续开发入口.md` before using an older handoff. As of 2026-09-24 the worktree and user-accepted rolling backup are `42.20_3.18.2` on B42.20.4. The user's overall test pass does not individually establish SP/host/dedicated-server behavior for splash combat, multiplayer fixes, or the utility generator; retain the specific game checks in handoffs 110–113. Never infer acceptance from an automated suite or from pushing a development branch.
 
 The working source is `GodSystem-main`. A sibling `历史资料` directory contains old UI test code, a discarded candidate ZIP, and notes; it is not a deployment or recovery source. The installable skill source is `tools/codex/skills/pz-mod-dev`; `docs/开发技术支援/skill-backup/pz-mod-dev` is a synchronized documentation backup. Update the repository source first, validate it, then synchronize both copies when the user asks to update the skill.
 

@@ -98,7 +98,7 @@ def parse_sandbox_options() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     current: dict[str, str] | None = None
     option_pattern = re.compile(r'^\s*option\s+GodSystem\.([A-Za-z0-9_]+)\s*$')
-    field_pattern = re.compile(r'^\s*(type|min|max|default|page|translation)\s*=\s*([^,]+),\s*$')
+    field_pattern = re.compile(r'^\s*(type|min|max|default|page|translation|title)\s*=\s*([^,]+),\s*$')
 
     for line_no, raw in enumerate(SANDBOX_OPTIONS_PATH.read_text(encoding="utf-8").splitlines(), 1):
         option = option_pattern.match(raw)
@@ -155,12 +155,20 @@ def write_sandbox_files(entries: dict[str, str], english_entries: dict[str, str]
     the deleted AdminConfig model or alter a server's option defaults.
     """
     rows = parse_sandbox_options()
+    performance_keys = {
+        "EnableRangeRecycle", "RangeRecycleRadius", "RangeRecycleBatchIntervalSeconds",
+        "LotteryItemCacheBuildRate", "HomeSafeZoneScanIntervalHours", "HomeSafeZoneScanBudget",
+        "HomeSafeZoneClearLimit", "CompanionAttackSearchSeconds",
+        "CompanionAttackSearchCandidateLimit", "MPBackgroundSyncMinutes",
+    }
     for row in rows:
         key = row["key"]
         required = (f"AdminSetting_{key}", f"AdminSetting_{key}_Desc")
         missing = [entry for entry in required if entry not in entries]
         if missing:
             raise ValueError(f"Sandbox option {key} is missing YAML entries: {', '.join(missing)}")
+        if "title" in row and f"SandboxTitle_{row['title']}" not in entries:
+            raise ValueError(f"Sandbox title {row['title']} is missing YAML text")
 
     for output_path in (CN_SANDBOX_PATH, CH_SANDBOX_PATH):
         existing = json.loads(output_path.read_text(encoding="utf-8"))
@@ -171,18 +179,25 @@ def write_sandbox_files(entries: dict[str, str], english_entries: dict[str, str]
         }
         for row in rows:
             key = row["key"]
-            output[f"Sandbox_GodSystem_{key}"] = entries[f"AdminSetting_{key}"]
+            label = entries[f"AdminSetting_{key}"]
+            output[f"Sandbox_GodSystem_{key}"] = ("[性能] " if key in performance_keys else "") + label
             output[f"Sandbox_GodSystem_{key}_tooltip"] = entries[f"AdminSetting_{key}_Desc"]
+            if "title" in row:
+                title = row["title"]
+                output[f"Sandbox_Title_{title}"] = entries[f"SandboxTitle_{title}"]
         output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     existing = json.loads(EN_SANDBOX_PATH.read_text(encoding="utf-8"))
     pages = sorted({row["page"] for row in rows})
     output = {f"Sandbox_{page}": existing.get(f"Sandbox_{page}", page) for page in pages}
     for row in rows:
         key = row["key"]
-        output[f"Sandbox_GodSystem_{key}"] = english_entries.get(
-            f"AdminSetting_{key}", existing.get(f"Sandbox_GodSystem_{key}", key))
+        label = english_entries.get(f"AdminSetting_{key}", existing.get(f"Sandbox_GodSystem_{key}", key))
+        output[f"Sandbox_GodSystem_{key}"] = ("[Performance] " if key in performance_keys else "") + label
         output[f"Sandbox_GodSystem_{key}_tooltip"] = english_entries.get(
             f"AdminSetting_{key}_Desc", existing.get(f"Sandbox_GodSystem_{key}_tooltip", ""))
+        if "title" in row:
+            title = row["title"]
+            output[f"Sandbox_Title_{title}"] = english_entries.get(f"SandboxTitle_{title}", title)
     EN_SANDBOX_PATH.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return len(rows)
 
@@ -395,7 +410,10 @@ def main() -> None:
     write_json(EN_TOOLTIP_JSON_PATH, {key: value for key, value in en_item_entries.items() if key.startswith("Tooltip_GodSystem_")})
     update_item_fallback(ITEM_FALLBACK_PATH, item_entries)
     update_override(OVERRIDE_PATH, ui_entries)
-    sandbox_count = write_sandbox_files(entries, en_utility_entries)
+    english_sandbox_entries = {}
+    for source in (EN_CARRY_SOURCE, EN_MIMIC_SOURCE, EN_SPLASH_SOURCE, EN_UTILITY_GENERATOR_SOURCE):
+        english_sandbox_entries.update(parse_flat_yaml(source))
+    sandbox_count = write_sandbox_files(entries, english_sandbox_entries)
     print(f"updated {len(ui_entries)} UI keys, {len(item_entries)} item keys, and {sandbox_count} sandbox options")
 
 

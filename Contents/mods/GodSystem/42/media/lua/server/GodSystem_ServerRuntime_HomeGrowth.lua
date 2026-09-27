@@ -552,6 +552,9 @@ function Commands.trait(_, _, player, args)
 end
 
 function Commands.toggleRecycleMode(_, _, player)
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableRecycleListing") == false then
+        return finishCode(player, false, "RecycleListingDisabled")
+    end
     local data = playerData(player)
     data.recycleUnlockMode = data.recycleUnlockMode ~= true
     finishCode(player, true, data.recycleUnlockMode and "RecycleModeUnlock" or "RecycleModeOnly")

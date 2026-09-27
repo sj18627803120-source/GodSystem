@@ -33,6 +33,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--game', required=True)
     args = parser.parse_args()
-    for name in ('text_runtime_spec.lua', 'impact_runtime_spec.lua', 'splash_runtime_spec.lua', 'utility_generator_spec.lua', 'terminal_spec.lua', 'carry_capacity_spec.lua', 'equipment_spec.lua', 'shop_catalog_spec.lua', 'shop_inflation_spec.lua', 'recycle_fingerprint_spec.lua', 'v38_regression_spec.lua', 'death_protection_spec.lua'):
+    for name in ('text_runtime_spec.lua', 'impact_runtime_spec.lua', 'splash_runtime_spec.lua', 'companion_target_spec.lua', 'utility_generator_spec.lua', 'terminal_spec.lua', 'item_preset_ui_spec.lua', 'range_filter_ui_spec.lua', 'carry_capacity_spec.lua', 'equipment_spec.lua', 'shop_catalog_spec.lua', 'shop_inflation_spec.lua', 'recycle_fingerprint_spec.lua', 'v38_regression_spec.lua', 'death_protection_spec.lua'):
         print('Running native ' + name, flush=True)
-        print(run(bundle((ROOT/'tools/tests'/name).read_text(encoding='utf-8')), args.game))
+        overrides = {}
+        if name == 'companion_target_spec.lua':
+            path = 'client/GodSystem_Companion.lua'
+            source = (LUA/path).read_text(encoding='utf-8-sig')
+            marker = 'return GodSystemCompanion'
+            assert source.rstrip().endswith(marker)
+            source = source.rstrip()[:-len(marker)] + '''Companion.testTargets = {
+    snapshot = zombieSnapshot, find = findAttackTarget, effects = collectEffectTargets,
+    updateAttack = updateAttackState, projectileHit = applyProjectileDamage,
+    renderProjectile = renderProjectile,
+}
+''' + marker + '\n'
+            overrides[path] = source
+        print(run(bundle((ROOT/'tools/tests'/name).read_text(encoding='utf-8'), overrides), args.game))

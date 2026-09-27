@@ -84,6 +84,7 @@ function GodSystemRangeRecycleDomain.newJob(spec)
         batchSize = clampInteger(spec.batchSize, 1, 20, 20),
         scanBudget = clampInteger(spec.scanBudget, 20, 2048, 256),
         filter = spec.filter,
+        includeCorpses = spec.includeCorpses ~= false,
         adapter = spec.adapter,
         squareOrder = GodSystemRangeRecycleDomain.buildSquareOrder(origin, radius),
         stageIndex = 1,
@@ -156,6 +157,10 @@ function GodSystemRangeRecycleDomain.step(job)
         end
 
         local stage = GodSystemRangeRecycleDomain.StageOrder[job.stageIndex]
+        while job.includeCorpses == false and (stage == "corpseItems" or stage == "corpses") do
+            advanceStage(job)
+            stage = GodSystemRangeRecycleDomain.StageOrder[job.stageIndex]
+        end
         if not stage then
             if job.passProcessed > 0 then
                 resetPass(job)

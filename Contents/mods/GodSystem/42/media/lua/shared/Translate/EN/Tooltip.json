@@ -1,4 +1,4 @@
 {
     "Tooltip_GodSystem_MimicKey": "One use. Right-click a locked vanilla door, key padlock, or vehicle to create its matching permanent key. Combination locks are removed and returned as a combination padlock. Doors and vehicles remain locked.",
-    "Tooltip_GodSystem_UtilityGenerator": "Place it to provide backup power within the vanilla generator range and water to fixed objects using the vanilla piped-water interface when public utilities are shut off. Anyone can operate it. Water and electricity share one balance, which stays with the device when picked up."
+    "Tooltip_GodSystem_UtilityGenerator": "When started, supplies power in the vanilla generator range. Select squares and bind plumbed fixtures or fixed water containers individually; each target defaults to 10 L and existing water sources take priority. Water and power have separate accounts. Anyone can operate it; balances and bindings stay with the device."
 }

@@ -1,7 +1,7 @@
 version=1
 id=3773949382
 title=神级系统 / God System CN [SP/MP]
-description=v42.20_3.18.1
+description=v42.20_3.18.5
 description=
 description=由于一直想体验一下末世系统，但是没找到和我想的比较像的，就用AI做了一个。当前测试环境 B42.20，100%纯AI制作，修复维护听天由命。
 description=

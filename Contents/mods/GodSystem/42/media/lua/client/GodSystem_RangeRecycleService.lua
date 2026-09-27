@@ -13,6 +13,28 @@ local syncSequence = 0
 local SYNC_CHUNK_SIZE = 64
 local SYNC_INTERVAL_MS = 50
 
+local function corpseFilename(player)
+    return "GodSystem_RangeRecycleCorpses_" .. GodSystemRangeFilterProfile.identity(player) .. ".txt"
+end
+
+local function loadCorpsePreference(player)
+    if not getFileReader then return true end
+    local ok, reader = pcall(getFileReader, corpseFilename(player), true)
+    if not ok or not reader then return true end
+    local readOk, line = pcall(function() return reader:readLine() end)
+    pcall(function() reader:close() end)
+    return not (readOk and line == "0")
+end
+
+local function saveCorpsePreference(player, enabled)
+    if not getFileWriter then return false end
+    local ok, writer = pcall(getFileWriter, corpseFilename(player), true, false)
+    if not ok or not writer then return false end
+    local wrote = pcall(function() writer:write(enabled and "1\n" or "0\n") end)
+    local closed = pcall(function() writer:close() end)
+    return wrote and closed
+end
+
 local function playerFor(playerNum)
     if getSpecificPlayer then return getSpecificPlayer(math.floor(tonumber(playerNum) or 0)) end
     return getPlayer and getPlayer() or nil
@@ -50,9 +72,14 @@ local function stateFor(playerNum, readOnly)
         filterReady = false,
         filterLoaded = false,
         filterSyncing = false,
+        includeCorpses = true,
     }
     local state = states[key]
     if not state.owner and player then state.owner = player end
+    if player and not state.corpsePreferenceLoaded and not readOnly then
+        state.includeCorpses = loadCorpsePreference(player)
+        state.corpsePreferenceLoaded = true
+    end
     if not state.filterLoaded and not readOnly and player
         and GodSystemScheduler.nowMs() >= (state.nextLoadAtMs or 0) then
         state.nextLoadAtMs = GodSystemScheduler.nowMs() + 5000
@@ -500,6 +527,7 @@ local function startLocal(playerNum, callback)
         batchSize = 20,
         scanBudget = 256,
         filter = compiledFilter,
+        includeCorpses = stateFor(playerNum).includeCorpses,
         adapter = adapter,
     })
     local nowMs = GodSystemScheduler.nowMs()
@@ -581,7 +609,8 @@ service:setExecutor(function(playerNum, intent, payload, callback)
         end
         sequence = sequence + 1
         local operationId = "range-mp-" .. tostring(GodSystemScheduler.nowMs()) .. "-" .. tostring(sequence)
-        local sent = GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("rangeRecycleStart", { operationId = operationId })
+        local sent = GodSystemNetwork and GodSystemNetwork.send and GodSystemNetwork.send("rangeRecycleStart", {
+            operationId = operationId, includeCorpses = currentState.includeCorpses ~= false })
         if sent then
             local state = stateFor(playerNum)
             state.pendingOperationId = operationId
@@ -593,6 +622,17 @@ service:setExecutor(function(playerNum, intent, payload, callback)
         return sent and operationId or nil
     elseif intent == "cancel" then
         return service:requestCancel(playerNum, stateFor(playerNum).operationId, callback)
+    elseif intent == "toggleCorpses" then
+        local state = stateFor(playerNum)
+        local desired = state.includeCorpses == false
+        if not saveCorpsePreference(playerFor(playerNum), desired) then
+            if callback then callback(result(false, "RangeRecyclePreferenceSaveFailed")) end
+            return nil
+        end
+        state.includeCorpses = desired
+        publish(playerNum, "corpsesChanged")
+        if callback then callback(result(true, "RangeRecycleCorpsesChanged")) end
+        return "corpses"
     elseif intent == "filterGet" then
         if isMultiplayer() then service:syncProfile(playerNum) end
         if callback then callback(result(true, "RangeFilterRequested", nil, { snapshot = stateFor(playerNum).filter })) end

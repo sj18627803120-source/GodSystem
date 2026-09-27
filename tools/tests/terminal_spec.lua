@@ -132,7 +132,7 @@ test("manual searches item names and body text, keeps stable selection and conte
     local articles=GodSystemTerminalManual.search("GodSystem.SystemRepairKit"); eq(#articles,1)
     eq(articles[1].fullType,"GodSystem.SystemRepairKit")
     eq(#GodSystemTerminalManual.search("no_such_item_zzz"),0)
-    local itemCount=0; for _,a in ipairs(GodSystemTerminalGuideData) do if a.fullType then itemCount=itemCount+1 end end; eq(itemCount,19)
+    local itemCount=0; for _,a in ipairs(GodSystemTerminalGuideData) do if a.fullType then itemCount=itemCount+1 end end; eq(itemCount,20)
     GodSystemUI.openMode("equipment"); click(w.terminalPageHelp); eq(w.mode,"info"); eq(w.terminalManualId,"equipment")
     w:populateList(); eq(w.terminalManualId,"equipment")
     GodSystemUI.openMode("rangeRecycle"); click(w.terminalPageHelp); eq(w.terminalManualId,"recycle")

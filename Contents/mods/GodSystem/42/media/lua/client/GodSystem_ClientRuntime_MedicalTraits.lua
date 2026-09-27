@@ -25,6 +25,7 @@ function GodSystemApp.services.runtime.getRecycleDailyRemaining()
 end
 
 function GodSystemApp.services.runtime.isRecycleUnlockMode()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") == false then return false end
     local data = GodSystemApp.services.runtime.getData()
     if data.recycleUnlockMode == nil then
         data.recycleUnlockMode = true
@@ -33,6 +34,7 @@ function GodSystemApp.services.runtime.isRecycleUnlockMode()
 end
 
 function GodSystemApp.services.runtime.toggleRecycleUnlockMode()
+    if GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") == false then return false end
     local data = GodSystemApp.services.runtime.getData()
     data.recycleUnlockMode = not GodSystemApp.services.runtime.isRecycleUnlockMode()
     GodSystemApp.services.runtime.save()

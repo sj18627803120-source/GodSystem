@@ -45,5 +45,5 @@ ItemName_CN = {
     Tooltip_GodSystem_MimicKey = "一次性使用。持有后右键已上锁的原版门、钥匙挂锁或车辆，可生成对应的永久钥匙；密码锁会被解除并返还密码挂锁。普通锁和车辆不会自动解锁。",
 
     ItemName_GodSystem.UtilityGenerator = "水电一体机",
-    Tooltip_GodSystem_UtilityGenerator = "可放置并接入原版发电机供电范围。公共水电停止后，可为范围内支持原版管道水接口的固定设备供水。任何玩家均可操作；水电共用余额，设备搬走时余额随设备保留。",
+    Tooltip_GodSystem_UtilityGenerator = "启动后按原版发电机范围供电。右键设备选择供水地块，逐个绑定已接管水龙头、水槽或固定储水容器；每个目标默认保有 10 升水，原有水源优先。水、电账户分别充值和扣费，任何玩家均可操作，余额及绑定随设备保留。",
 }

@@ -14,5 +14,5 @@
     "Tooltip_GodSystem_SystemVehicleRepairModule": "一次性使用。持有后右键目标车辆，可完整修复车辆及缺失的标准部件。不会补充燃油或修改车内物品；自定义车辆系统可能无法兼容。",
     "Tooltip_GodSystem_StorageController": "用于把一件已标记的固定网络家具设为系统仓库入口。家具无需清空，仍保留原容量、物品及正常网络储物能力。",
     "Tooltip_GodSystem_SystemAutoLoader": "将随身未收藏的散装弹药转为数字存储，每种弹药按设置拥有独立容量；可为随身的同类型弹匣装填。",
-    "Tooltip_GodSystem_UtilityGenerator": "可放置并接入原版发电机供电范围。公共水电停止后，可为范围内支持原版管道水接口的固定设备供水。任何玩家均可操作；水电共用余额，设备搬走时余额随设备保留。"
+    "Tooltip_GodSystem_UtilityGenerator": "启动后按原版发电机范围供电。右键设备选择供水地块，逐个绑定已接管水龙头、水槽或固定储水容器；每个目标默认保有 10 升水，原有水源优先。水、电账户分别充值和扣费，任何玩家均可操作，余额及绑定随设备保留。"
 }

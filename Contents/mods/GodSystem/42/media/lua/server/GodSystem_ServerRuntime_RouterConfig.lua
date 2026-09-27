@@ -562,27 +562,56 @@ end
 
 function Commands.itemConfigPresetsGet(_, _, player)
     if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
-    sendPresetList(player, itemConfigStore())
+    local data = itemConfigStore()
+    if not GodSystemItemConfigPresetLibrary.load(data) then return finishCode(player, false, "ItemConfigPresetLibraryFailed") end
+    sendPresetList(player, data)
 end
 
 function Commands.itemConfigPresetSave(_, _, player, args)
     if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
     local data = itemConfigStore()
+    if not GodSystemItemConfigPresetLibrary.load(data) then return finishCode(player, false, "ItemConfigPresetLibraryFailed") end
+    local previous = GodSystemItemConfigPresetLibrary.copy(data.itemConfigPresets)
     local store, err = GodSystemItemConfig.savePreset(data, args and args.name)
     if not store then
         return finishCode(player, false, err == "Limit" and "ItemConfigPresetLimitReached" or "ItemConfigPresetNameInvalid")
+    end
+    if not GodSystemItemConfigPresetLibrary.commit(data) then
+        data.itemConfigPresets = previous
+        return finishCode(player, false, "ItemConfigPresetLibraryFailed")
     end
     sendPresetList(player, data)
     finishCode(player, true, "ItemConfigPresetSaved", nil, { name = store.active })
 end
 
+function Commands.itemConfigPresetRemark(_, _, player, args)
+    if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
+    local data = itemConfigStore()
+    if not GodSystemItemConfigPresetLibrary.load(data) then return finishCode(player, false, "ItemConfigPresetLibraryFailed") end
+    local previous = GodSystemItemConfigPresetLibrary.copy(data.itemConfigPresets)
+    local store = GodSystemItemConfig.setPresetRemark(data, args and args.name, args and args.remark)
+    if not store then return finishCode(player, false, "ItemConfigPresetNameInvalid") end
+    if not GodSystemItemConfigPresetLibrary.commit(data) then
+        data.itemConfigPresets = previous
+        return finishCode(player, false, "ItemConfigPresetLibraryFailed")
+    end
+    sendPresetList(player, data)
+    finishCode(player, true, "ItemConfigPresetRemarkSaved", nil, { name = args.name })
+end
+
 function Commands.itemConfigPresetDelete(_, _, player, args)
     if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
     local data = itemConfigStore()
+    if not GodSystemItemConfigPresetLibrary.load(data) then return finishCode(player, false, "ItemConfigPresetLibraryFailed") end
+    local previous = GodSystemItemConfigPresetLibrary.copy(data.itemConfigPresets)
     local name = trim(args and args.name or "")
     if name == GodSystemItemConfig.PRESET_DEFAULT then return finishCode(player, false, "ItemConfigPresetDefaultProtected") end
     local store = GodSystemItemConfig.deletePreset(data, name)
     if not store then return finishCode(player, false, "ItemConfigPresetNotFound") end
+    if not GodSystemItemConfigPresetLibrary.commit(data, name) then
+        data.itemConfigPresets = previous
+        return finishCode(player, false, "ItemConfigPresetLibraryFailed")
+    end
     sendPresetList(player, data)
     finishCode(player, true, "ItemConfigPresetDeleted", nil, { name = name })
 end
@@ -590,6 +619,7 @@ end
 function Commands.itemConfigPresetApply(_, _, player, args)
     if not isAdminPlayer(player) then return finishCode(player, false, "AdminRequired") end
     local data = itemConfigStore()
+    if not GodSystemItemConfigPresetLibrary.load(data) then return finishCode(player, false, "ItemConfigPresetLibraryFailed") end
     local store = GodSystemItemConfig.applyPreset(data, trim(args and args.name or ""))
     if not store then return finishCode(player, false, "ItemConfigPresetNotFound") end
     applyRuntimeStores()

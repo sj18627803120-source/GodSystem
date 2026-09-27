@@ -1,12 +1,13 @@
 require "GodSystem_App"
 require "GodSystem_UITheme"
+require "GodSystem_UISafety"
 require "GodSystem_ItemConfig"
+require "GodSystem_ItemConfigPresetLibrary"
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISButton"
 require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISTextEntryBox"
-require "ISUI/ISComboBox"
 require "ISUI/ISTextBox"
 require "ISUI/ISModalDialog"
 
@@ -45,8 +46,6 @@ end
 
 local function multiplayer() return isClient and isClient() == true end
 
-local function trimmed(value) return tostring(value or ""):match("^%s*(.-)%s*$") or "" end
-
 local function notify(message)
     if GodSystemApp.services.runtime and GodSystemApp.services.runtime.notify then
         GodSystemApp.services.runtime.notify(message)
@@ -58,6 +57,67 @@ local function addLabel(owner, x, y, label)
     value:initialise()
     owner:addChild(value)
     return value
+end
+
+GodSystemPresetSlotDialog = ISCollapsableWindow:derive("GodSystemPresetSlotDialog")
+
+function GodSystemPresetSlotDialog:new(owner, slot)
+    local screenW = getCore and getCore():getScreenWidth() or 1280
+    local screenH = getCore and getCore():getScreenHeight() or 720
+    local width, height = 480, 230
+    local o = ISCollapsableWindow.new(self, math.max(12, (screenW - width) / 2),
+        math.max(12, (screenH - height) / 2), width, height)
+    o.title = text("EconomyAdmin_PresetSlot", "Preset") .. " " .. slot
+    o.owner, o.slot, o.resizable = owner, slot, false
+    return o
+end
+
+function GodSystemPresetSlotDialog:createChildren()
+    ISCollapsableWindow.createChildren(self)
+    self.statusLabel = addLabel(self, 18, 42, "")
+    self.remarkLabel = addLabel(self, 18, 76, "")
+    self.readButton = ISButton:new(18, 126, 108, 32, text("EconomyAdmin_PresetRead", "Read"), self, self.onRead)
+    self.readButton:initialise(); self:addChild(self.readButton)
+    self.overwriteButton = ISButton:new(134, 126, 108, 32, text("EconomyAdmin_PresetOverwrite", "Overwrite"), self, self.onOverwrite)
+    self.overwriteButton:initialise(); self:addChild(self.overwriteButton)
+    self.remarkButton = ISButton:new(250, 126, 108, 32, text("EconomyAdmin_PresetEditRemark", "Edit remark"), self, self.onRemark)
+    self.remarkButton:initialise(); self:addChild(self.remarkButton)
+    self.cancelButton = ISButton:new(366, 126, 96, 32, text("Btn_Close", "Close"), self, self.close)
+    self.cancelButton:initialise(); self:addChild(self.cancelButton)
+    self:refresh()
+end
+
+function GodSystemPresetSlotDialog:refresh()
+    local hasData = self.owner and self.owner.presetSaved[self.slot] == true
+    local reason = text("EconomyAdmin_PresetEmpty", "No saved data in this slot; read is unavailable.")
+    local status = hasData and text("EconomyAdmin_PresetHasData", "Saved configuration is available.") or reason
+    self.statusLabel:setName(GodSystemUISafety.fitText(status, UIFont.Small, 444))
+    local remark = self.owner and self.owner.presetRemarks[self.slot] or ""
+    self.remarkLabel:setName(GodSystemUISafety.fitText(text("EconomyAdmin_PresetRemark", "Remark") .. ": " ..
+        (remark ~= "" and remark or text("EconomyAdmin_PresetNoRemark", "(empty)")), UIFont.Small, 444))
+    self.readButton:setEnable(hasData)
+    self.readButton.tooltip = not hasData and reason or nil
+end
+
+function GodSystemPresetSlotDialog:onRead()
+    if not self.owner or not self.owner.presetSaved[self.slot] then return end
+    self.owner:requestPresetApply(self.slot)
+    self:close()
+end
+
+function GodSystemPresetSlotDialog:onOverwrite()
+    if self.owner then self.owner:requestPresetSave(self.slot) end
+    self:close()
+end
+
+function GodSystemPresetSlotDialog:onRemark()
+    if self.owner then self.owner:editPresetRemark(self.slot) end
+end
+
+function GodSystemPresetSlotDialog:close()
+    self:setVisible(false)
+    if self.removeFromUIManager then self:removeFromUIManager() end
+    if self.owner and self.owner.presetDialog == self then self.owner.presetDialog = nil end
 end
 
 GodSystemItemEconomyWindow = ISCollapsableWindow:derive("GodSystemItemEconomyWindow")
@@ -77,26 +137,27 @@ function GodSystemItemEconomyWindow:new(x, y, width, height, owner)
     o.riskConfirmation = nil
     o.presetOrder = {}
     o.presetActive = GodSystemItemConfig.PRESET_DEFAULT
+    o.presetSaved = {}
+    o.presetRemarks = {}
+    o.presetDialog = nil
     o.presetConfirmation = nil
-    o.presetNameBox = nil
+    o.presetRemarkBox = nil
+    o.presetRemarkSlot = nil
     return o
 end
 
 function GodSystemItemEconomyWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
 
-    self.presetBox = ISComboBox:new(12, 30, 260, 28, self, self.onPresetSelected)
-    self.presetBox:initialise()
-    self.presetBox:instantiate()
-    self:addChild(self.presetBox)
-
-    self.savePresetButton = ISButton:new(280, 30, 105, 28, text("EconomyAdmin_PresetSave", "保存预设"), self, self.onSavePreset)
-    self.savePresetButton:initialise()
-    self:addChild(self.savePresetButton)
-
-    self.deletePresetButton = ISButton:new(393, 30, 105, 28, text("EconomyAdmin_PresetDelete", "删除预设"), self, self.onDeletePreset)
-    self.deletePresetButton:initialise()
-    self:addChild(self.deletePresetButton)
+    self.presetButtons = {}
+    for index = 0, 3 do
+        local slot = index == 0 and GodSystemItemConfig.PRESET_DEFAULT or tostring(index)
+        local button = ISButton:new(12 + index * 130, 30, 122, 28, "", self, self.onPresetButton)
+        button:initialise()
+        button.presetSlot = slot
+        self:addChild(button)
+        self.presetButtons[slot] = button
+    end
 
     self.searchBox = ISTextEntryBox:new("", 12, 70, self.width - 24, 28)
     self.searchBox:initialise()
@@ -189,18 +250,27 @@ end
 function GodSystemItemEconomyWindow:applyPresets(presets)
     presets = (type(presets) == "table") and presets or {}
     self.presetOrder = (type(presets.order) == "table") and presets.order or {}
+    self.presetRemarks = (type(presets.remarks) == "table") and presets.remarks or {}
+    self.presetSaved = {}
+    for _, slot in ipairs(self.presetOrder) do
+        if GodSystemItemConfig.isPresetSlot(slot) then self.presetSaved[slot] = true end
+    end
     self.presetActive = (type(presets.active) == "string" and presets.active ~= "")
         and presets.active or GodSystemItemConfig.PRESET_DEFAULT
     if GodSystemApp.services.runtime then
-        GodSystemApp.services.runtime.itemConfigPresets = { order = self.presetOrder, active = self.presetActive }
+        GodSystemApp.services.runtime.itemConfigPresets = {
+            order = self.presetOrder, remarks = self.presetRemarks, active = self.presetActive }
     end
-    if not self.presetBox then return end
-    self.presetBox:clear()
-    self.presetBox:addOptionWithData(text("EconomyAdmin_PresetDefault", "默认"), GodSystemItemConfig.PRESET_DEFAULT)
-    for _, name in ipairs(self.presetOrder) do
-        self.presetBox:addOptionWithData(tostring(name), tostring(name))
+    for index = 0, 3 do
+        local slot = index == 0 and GodSystemItemConfig.PRESET_DEFAULT or tostring(index)
+        local button = self.presetButtons and self.presetButtons[slot]
+        if button then
+            local label = index == 0 and text("EconomyAdmin_PresetDefault", "默认")
+                or (text("EconomyAdmin_PresetSlot", "预设") .. " " .. slot)
+            button:setTitle((slot == self.presetActive and "[x] " or "") .. label)
+        end
     end
-    self.presetBox:selectData(self.presetActive)
+    if self.presetDialog then self.presetDialog:refresh() end
 end
 
 function GodSystemItemEconomyWindow:loadPresets()
@@ -212,6 +282,8 @@ function GodSystemItemEconomyWindow:loadPresets()
     end
     local data = GodSystemApp.services.runtime.getData()
     data.itemConfig = GodSystemItemConfig.migrate(data.itemConfig, data.adminConfig)
+    local loaded = GodSystemItemConfigPresetLibrary.load(data.itemConfig)
+    if not loaded then notify(text("EconomyAdmin_PresetLibraryFailed", "Preset library unavailable")) end
     self:applyPresets(GodSystemItemConfig.presetListPayload(data.itemConfig))
 end
 
@@ -222,15 +294,23 @@ function GodSystemItemEconomyWindow:localPreset(op, name)
     local data = runtime.getData()
     data.itemConfig = GodSystemItemConfig.migrate(data.itemConfig, data.adminConfig)
     local config = data.itemConfig
+    local loaded = GodSystemItemConfigPresetLibrary.load(config)
+    if not loaded then notify(text("EconomyAdmin_PresetLibraryFailed", "Preset library unavailable")); return false, "Library" end
+    local previous = GodSystemItemConfigPresetLibrary.copy(config.itemConfigPresets)
     local store, err
     if op == "save" then
         store, err = GodSystemItemConfig.savePreset(config, name)
-    elseif op == "delete" then
-        store = GodSystemItemConfig.deletePreset(config, name)
+    elseif op == "remark" then
+        store, err = GodSystemItemConfig.setPresetRemark(config, name, self.pendingPresetRemark)
     else
         store = GodSystemItemConfig.applyPreset(config, name)
     end
     if not store then return false, err end
+    if op ~= "apply" and not GodSystemItemConfigPresetLibrary.commit(config) then
+        config.itemConfigPresets = previous
+        notify(text("EconomyAdmin_PresetLibraryFailed", "Preset library unavailable"))
+        return false, "Library"
+    end
     if op == "apply" then
         GodSystemItemConfig.applyRuntime(config.itemOverrides, config.shopVariantOverrides, config.economyRevision, config)
         if GodSystemEconomyPolicy and GodSystemEconomyPolicy.rebuildConversionFloors then GodSystemEconomyPolicy.rebuildConversionFloors() end
@@ -250,88 +330,75 @@ function GodSystemItemEconomyWindow:requestPresetApply(name)
     if self:localPreset("apply", name) then notify(text("EconomyAdmin_PresetApplied", "预设已切换")) end
 end
 
-function GodSystemItemEconomyWindow:requestPresetDelete(name)
-    if multiplayer() then
-        if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetDelete", { name = name }) end
-        return
-    end
-    if self:localPreset("delete", name) then notify(text("EconomyAdmin_PresetDeleted", "预设已删除")) end
-end
-
-function GodSystemItemEconomyWindow:onPresetSelected(box)
+function GodSystemItemEconomyWindow:confirmPresetApply(name)
     if self.presetConfirmation then return end
-    local index = box and tonumber(box.selected) or 0
-    local name = index > 0 and box:getOptionData(index) or nil
-    name = name and tostring(name) or ""
-    if name == "" or name == self.presetActive then
-        if box then box:selectData(self.presetActive) end
-        return
-    end
-    -- Revert the visual selection until the switch is confirmed; selectData does
-    -- not re-enter this callback (only popup clicks fire onChange).
-    box:selectData(self.presetActive)
-    local modal = ISModalDialog:new(0, 0, 480, 200,
-        text("EconomyAdmin_PresetSwitchConfirm", "切换预设将覆盖当前未保存为预设的修改，确定继续吗？"),
-        true, self, function(target, pressed, payload)
+    if name ~= GodSystemItemConfig.PRESET_DEFAULT then return end
+    local prompt = text("EconomyAdmin_PresetDefaultConfirm", "恢复默认会覆盖当前物品配置，确定吗？")
+    local modal = ISModalDialog:new(0, 0, 480, 160, prompt, true, self,
+        function(target, button, slot)
             target.presetConfirmation = nil
-            if pressed and pressed.internal == "YES" then target:requestPresetApply(tostring(payload)) end
+            if button and button.internal == "YES" then target:requestPresetApply(slot) end
         end, 0, name)
     modal:initialise()
     self.presetConfirmation = modal
     GodSystemUI.presentOverlay(modal)
 end
 
-function GodSystemItemEconomyWindow:onSavePreset()
-    if self.presetConfirmation or self.presetNameBox then return end
-    local current = self.presetActive == GodSystemItemConfig.PRESET_DEFAULT and "" or tostring(self.presetActive)
-    local screenW = getCore and getCore():getScreenWidth() or 1280
-    local screenH = getCore and getCore():getScreenHeight() or 720
-    local box = ISTextBox:new(math.max(12, (screenW - 420) / 2), math.max(12, (screenH - 180) / 2), 420, 180,
-        text("EconomyAdmin_PresetNamePrompt", "输入预设名称，同名预设将被覆盖"), current,
-        self, self.onPresetNameResult, 0)
-    box.noEmpty = true
-    box.maxChars = GodSystemItemConfig.PRESET_NAME_MAX
-    box:initialise()
-    self.presetNameBox = box
-    GodSystemUI.presentOverlay(box)
-end
-
-function GodSystemItemEconomyWindow:onPresetNameResult(button)
-    local box = self.presetNameBox
-    self.presetNameBox = nil
-    if not (button and button.internal == "OK") then return end
-    local name = trimmed(box and box.entry and box.entry:getText() or "")
-    if name == "" then return end
+function GodSystemItemEconomyWindow:requestPresetSave(name)
     if multiplayer() then
         if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetSave", { name = name }) end
         return
     end
-    local ok, err = self:localPreset("save", name)
-    if ok then
-        notify(text("EconomyAdmin_PresetSaved", "预设已保存"))
-    elseif err == "Limit" then
-        notify(text("EconomyAdmin_PresetLimit", "预设数量已达上限"))
-    else
-        notify(text("EconomyAdmin_PresetNameInvalid", "预设名称无效"))
-    end
+    if self:localPreset("save", name) then notify(text("EconomyAdmin_PresetSaved", "预设已保存")) end
 end
 
-function GodSystemItemEconomyWindow:onDeletePreset()
-    if self.presetConfirmation then return end
-    local name = tostring(self.presetActive or "")
-    if name == "" or name == GodSystemItemConfig.PRESET_DEFAULT then
-        notify(text("EconomyAdmin_PresetDefaultProtected", "默认预设无法删除"))
+function GodSystemItemEconomyWindow:requestPresetRemark(name, remark)
+    if multiplayer() then
+        if GodSystemNetwork and GodSystemNetwork.send then
+            GodSystemNetwork.send("itemConfigPresetRemark", { name = name, remark = remark })
+        end
         return
     end
-    local modal = ISModalDialog:new(0, 0, 480, 200,
-        text("EconomyAdmin_PresetDeleteConfirm", "确定删除当前预设吗？此操作不可撤销。"),
-        true, self, function(target, pressed, payload)
-            target.presetConfirmation = nil
-            if pressed and pressed.internal == "YES" then target:requestPresetDelete(tostring(payload)) end
-        end, 0, name)
-    modal:initialise()
-    self.presetConfirmation = modal
-    GodSystemUI.presentOverlay(modal)
+    self.pendingPresetRemark = remark
+    local ok = self:localPreset("remark", name)
+    self.pendingPresetRemark = nil
+    if ok then notify(text("EconomyAdmin_PresetRemarkSaved", "备注已保存")) end
+end
+
+function GodSystemItemEconomyWindow:onPresetButton(button)
+    local slot = button and button.presetSlot
+    if slot == GodSystemItemConfig.PRESET_DEFAULT then
+        if self.presetDialog then self.presetDialog:close() end
+        self:confirmPresetApply(slot)
+        return
+    end
+    if not GodSystemItemConfig.isPresetSlot(slot) then return end
+    if self.presetDialog then self.presetDialog:close() end
+    local dialog = GodSystemPresetSlotDialog:new(self, slot)
+    dialog:initialise()
+    self.presetDialog = dialog
+    GodSystemUI.presentOverlay(dialog)
+end
+
+function GodSystemItemEconomyWindow:editPresetRemark(slot)
+    if self.presetRemarkBox then return end
+    local screenW = getCore and getCore():getScreenWidth() or 1280
+    local screenH = getCore and getCore():getScreenHeight() or 720
+    local box = ISTextBox:new(math.max(12, (screenW - 420) / 2), math.max(12, (screenH - 180) / 2), 420, 180,
+        text("EconomyAdmin_PresetRemarkPrompt", "输入预设备注，可留空"),
+        self.presetRemarks[slot] or "", self, self.onPresetRemarkResult, 0)
+    box.maxChars = 120
+    box:initialise()
+    self.presetRemarkBox, self.presetRemarkSlot = box, slot
+    GodSystemUI.presentOverlay(box)
+end
+
+function GodSystemItemEconomyWindow:onPresetRemarkResult(button)
+    local box, slot = self.presetRemarkBox, self.presetRemarkSlot
+    self.presetRemarkBox, self.presetRemarkSlot = nil, nil
+    if not (button and button.internal == "OK") then return end
+    local remark = box and box.entry and box.entry.getInternalText and tostring(box.entry:getInternalText() or "") or ""
+    self:requestPresetRemark(slot, remark)
 end
 
 function GodSystemItemEconomyWindow:prerender()
@@ -584,6 +651,15 @@ function GodSystemItemEconomyWindow:refreshSelected(requestDetails)
 end
 
 function GodSystemItemEconomyWindow:close()
+    if self.presetConfirmation then
+        self.presetConfirmation:destroy()
+        self.presetConfirmation = nil
+    end
+    if self.presetDialog then self.presetDialog:close() end
+    if self.presetRemarkBox then
+        self.presetRemarkBox:destroy()
+        self.presetRemarkBox, self.presetRemarkSlot = nil, nil
+    end
     if self.unsubscribe then self.unsubscribe(); self.unsubscribe = nil end
     self:setVisible(false)
     if self.removeFromUIManager then self:removeFromUIManager() end

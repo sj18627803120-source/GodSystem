@@ -259,7 +259,8 @@ function GodSystemItemConfig.applyCategory(fullType, category)
 end
 
 GodSystemItemConfig.PRESET_DEFAULT = "default"
-GodSystemItemConfig.PRESET_LIMIT = 32
+GodSystemItemConfig.PRESET_SLOTS = { "1", "2", "3" }
+GodSystemItemConfig.PRESET_LIMIT = 3
 GodSystemItemConfig.PRESET_NAME_MAX = 32
 
 local PRESET_CONTENT_KEYS = {
@@ -280,20 +281,40 @@ function GodSystemItemConfig.sanitizePresetName(input)
     return name
 end
 
+function GodSystemItemConfig.isPresetSlot(name)
+    return name == "1" or name == "2" or name == "3"
+end
+
+function GodSystemItemConfig.sanitizePresetRemark(input)
+    local remark = tostring(input or ""):match("^%s*(.-)%s*$") or ""
+    remark = remark:gsub("[%c]", " ")
+    if #remark <= 120 then return remark end
+    if #"\228\184\173" == 1 then return remark:sub(1, 120) end
+    local index, last = 1, 0
+    while index <= #remark do
+        local first = string.byte(remark, index)
+        local width = first < 128 and 1 or first < 224 and 2 or first < 240 and 3 or 4
+        if index + width - 1 > 120 then break end
+        last = index + width - 1
+        index = last + 1
+    end
+    return remark:sub(1, last)
+end
+
 function GodSystemItemConfig.ensurePresets(data)
     if type(data) ~= "table" then return nil end
     local store = data.itemConfigPresets
     if type(store) ~= "table" then
-        store = { order = {}, presets = {}, active = GodSystemItemConfig.PRESET_DEFAULT }
+        store = { order = {}, presets = {}, remarks = {}, active = GodSystemItemConfig.PRESET_DEFAULT }
         data.itemConfigPresets = store
     end
     if type(store.order) ~= "table" then store.order = {} end
     if type(store.presets) ~= "table" then store.presets = {} end
+    if type(store.remarks) ~= "table" then store.remarks = {} end
     local seen = {}
     local order = {}
-    for _, name in ipairs(store.order) do
-        name = tostring(name)
-        if type(store.presets[name]) == "table" and not seen[name] then
+    for _, name in ipairs(GodSystemItemConfig.PRESET_SLOTS) do
+        if type(store.presets[name]) == "table" then
             seen[name] = true
             order[#order + 1] = name
         end
@@ -319,10 +340,12 @@ end
 
 function GodSystemItemConfig.presetListPayload(data)
     local store = GodSystemItemConfig.ensurePresets(data)
-    if not store then return { order = {}, active = GodSystemItemConfig.PRESET_DEFAULT } end
+    if not store then return { order = {}, remarks = {}, active = GodSystemItemConfig.PRESET_DEFAULT } end
     local order = {}
     for index, name in ipairs(store.order) do order[index] = name end
-    return { order = order, active = store.active }
+    local remarks = {}
+    for _, name in ipairs(GodSystemItemConfig.PRESET_SLOTS) do remarks[name] = store.remarks[name] or "" end
+    return { order = order, remarks = remarks, active = store.active }
 end
 
 local function writePresetContent(data, snapshot)
@@ -337,7 +360,7 @@ function GodSystemItemConfig.savePreset(data, name)
     local store = GodSystemItemConfig.ensurePresets(data)
     if not store then return nil, "Invalid" end
     name = GodSystemItemConfig.sanitizePresetName(name)
-    if not name then return nil, "Invalid" end
+    if not GodSystemItemConfig.isPresetSlot(name) then return nil, "Invalid" end
     if store.presets[name] == nil and #store.order >= GodSystemItemConfig.PRESET_LIMIT then
         return nil, "Limit"
     end
@@ -354,11 +377,18 @@ function GodSystemItemConfig.savePreset(data, name)
     return store
 end
 
+function GodSystemItemConfig.setPresetRemark(data, name, remark)
+    local store = GodSystemItemConfig.ensurePresets(data)
+    if not store or not GodSystemItemConfig.isPresetSlot(name) then return nil, "Invalid" end
+    store.remarks[name] = GodSystemItemConfig.sanitizePresetRemark(remark)
+    return store
+end
+
 function GodSystemItemConfig.deletePreset(data, name)
     local store = GodSystemItemConfig.ensurePresets(data)
     if not store then return nil end
     name = tostring(name or "")
-    if name == GodSystemItemConfig.PRESET_DEFAULT then return nil end
+    if not GodSystemItemConfig.isPresetSlot(name) then return nil end
     if type(store.presets[name]) ~= "table" then return nil end
     store.presets[name] = nil
     local order = {}
@@ -379,6 +409,7 @@ function GodSystemItemConfig.applyPreset(data, name)
         store.active = GodSystemItemConfig.PRESET_DEFAULT
         return store
     end
+    if not GodSystemItemConfig.isPresetSlot(name) then return nil end
     local snapshot = store.presets[name]
     if type(snapshot) ~= "table" then return nil end
     writePresetContent(data, GodSystemItemConfig.normalize(snapshot))

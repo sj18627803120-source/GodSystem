@@ -353,6 +353,7 @@ end
 function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped)
     mode = tostring(mode or "")
     if mode ~= "recycle" and mode ~= "recycleAndList" and mode ~= "listOnly" then return false end
+    if mode ~= "recycle" and GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") == false then return false end
     if GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycle") == false then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_RecycleDisabled", "Recycle is disabled"))
         return false

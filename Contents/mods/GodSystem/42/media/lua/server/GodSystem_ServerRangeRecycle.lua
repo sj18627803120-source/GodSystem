@@ -407,6 +407,7 @@ function Commands.rangeRecycleStart(_, _, player, args)
         batchSize = 20,
         scanBudget = 256,
         filter = filter,
+        includeCorpses = not (args and args.includeCorpses == false),
         adapter = adapter,
     })
     local record = {

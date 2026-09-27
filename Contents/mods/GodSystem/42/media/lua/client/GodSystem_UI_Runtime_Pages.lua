@@ -76,7 +76,7 @@ function GodSystemWindow:populateRecycle()
     else
         gsSetButtonTitle(self.thirdButton, GodSystemApp.services.runtime.text("Btn_RecycleModeOnly", "Mode: recycle only"))
     end
-    self.thirdButton:setVisible(true)
+    self.thirdButton:setVisible(GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") ~= false)
     local groups, order = GodSystemApp.services.runtime.getInventoryRecycleGroups()
     local shown = 0
     for i = 1, #order do
@@ -807,6 +807,10 @@ function GodSystemWindow:populateRangeRecycle()
     gsSetButtonTitle(self.secondaryButton, GodSystemApp.services.runtime.text("RangeFilter_Open", "Item filter"))
     self.secondaryButton.enable = true
     self.thirdButton:setVisible(false)
+    gsSetButtonTitle(self.fourthButton, GodSystemApp.services.runtime.text(
+        model.includeCorpses == false and "RangeRecycle_CorpsesOff" or "RangeRecycle_CorpsesOn",
+        model.includeCorpses == false and "Corpses: OFF" or "Corpses: ON"))
+    self.fourthButton:setVisible(true)
 
     local status = tostring(model.status or "idle")
     local stage = tostring(model.stage or "verifying")

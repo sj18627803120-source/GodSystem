@@ -1,6 +1,7 @@
 require "GodSystem_App"
 require "GodSystem_ItemCatalog"
 require "GodSystem_RangeFilter"
+require "GodSystem_ListState"
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISButton"
 require "ISUI/ISLabel"
@@ -278,9 +279,13 @@ function GodSystemRangeFilterWindow:createChildren()
             local topic = event and tostring(event.topic or "") or ""
             if topic == "filter" or topic == "filterMode" or topic == "filterSyncing"
                 or topic == "filterSyncQueued" then
-                self.page = 1
-                self.selected = {}
-                self:refresh(true)
+                if topic == "filterMode" then
+                    self.page = 1
+                    self.selected = {}
+                    self:refresh(false)
+                else
+                    self:refresh(true)
+                end
             end
         end)
     end
@@ -360,6 +365,12 @@ function GodSystemRangeFilterWindow:refresh(keepPage)
         self.lastCatalogBuilt = #catalog.rows
         self:rebuildFilterChoices(catalog)
     end
+    local oldPage = self.result and self.result.page
+    local samePage = keepPage == true and not self.resetScrollOnRefresh and oldPage == self.page
+    local scrollState = samePage and GodSystemListState.capture(self.list, "rangeFilter", function(row)
+        return row.fullType
+    end) or nil
+    self.resetScrollOnRefresh = nil
     local result = catalog:queryFiltered(self:criteria(), self.page, self.PAGE_SIZE)
     self.page = result.page
     self.list:clear()
@@ -373,6 +384,13 @@ function GodSystemRangeFilterWindow:refresh(keepPage)
             displayCategory = row.displayCategory,
         })
     end
+    self.list:setScrollHeight(#result.rows * self.list.itemheight)
+    if scrollState and result.page == oldPage then
+        GodSystemListState.restore(self.list, scrollState, "rangeFilter", function(row)
+            return row.fullType
+        end)
+    end
+    if gsSyncScrollingListGeometry then gsSyncScrollingListGeometry(self.list) end
     self.result = result
     local selectedCount = 0
     for _ in pairs(self.selected) do selectedCount = selectedCount + 1 end
@@ -456,6 +474,7 @@ end
 function GodSystemRangeFilterWindow:onSearchChanged(entry)
     self.searchText = tostring(entry:getInternalText() or "")
     self.page = 1
+    self.resetScrollOnRefresh = true
     self.catalogRefreshAt = nowMs() + 180
 end
 
@@ -514,12 +533,12 @@ end
 
 function GodSystemRangeFilterWindow:onPreviousPage()
     self.page = math.max(1, self.page - 1)
-    self:refresh(true)
+    self:refresh(false)
 end
 
 function GodSystemRangeFilterWindow:onNextPage()
     self.page = math.min((self.result and self.result.pageCount) or 1, self.page + 1)
-    self:refresh(true)
+    self:refresh(false)
 end
 
 function GodSystemRangeFilterWindow:onClose()

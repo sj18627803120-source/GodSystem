@@ -469,6 +469,9 @@ function recycleSelectedInternal(player, args)
         if mode ~= "recycle" and mode ~= "recycleAndList" and mode ~= "listOnly" then
             return complete(false, "RecycleSelectionInvalid")
         end
+        if mode ~= "recycle" and GodSystemRuntimeConfig.isFeatureEnabled("EnableRecycleListing") == false then
+            return complete(false, "RecycleListingDisabled")
+        end
         local selected = {}
         local seen = {}
         local types = {}
@@ -665,7 +668,7 @@ function Commands.recycle(_, _, player, args)
         if payout > 0 then giveCurrency(player, payout) end
         data.stats.recycledItems = (data.stats.recycledItems or 0) + #removed
         data.stats.recycledPoints = (data.stats.recycledPoints or 0) + payout
-        if data.recycleUnlockMode == true then
+        if data.recycleUnlockMode == true and GodSystemRuntimeConfig.isFeatureEnabled("EnableRecycleListing") ~= false then
             for i = 1, #details do unlockAutoShopItem(data, details[i].fullType, details[i].label, details[i].sellValue, details[i].worldSprite) end
         end
         appendHistory(data, historyEntry("recycle", "Recycle", { #removed, payout }))
@@ -691,6 +694,9 @@ function Commands.listOnlyAutoShop(_, _, player, args)
             payload.opId = args and args.opId
             return finishCode(player, cached.ok == true, cached.code, cached.args, payload)
         end
+    end
+    if GodSystemRuntimeConfig.isFeatureEnabled("EnableRecycleListing") == false then
+        return finishCode(player, false, "RecycleListingDisabled")
     end
     if not guard(player) then return end
     if not GodSystemTransactionOps.begin(txRoot, txOwner, txKind, args) then
