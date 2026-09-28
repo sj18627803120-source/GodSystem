@@ -182,10 +182,11 @@ local function rangeFilterPayload(playerNum, items)
     if not state or not state.enabled then return nil end
     local active = state.members
     local all = collectFullTypes(items)
-    local missing, skipped = {}, 0
+    local missing, existing, skipped = {}, {}, 0
     for i = 1, #all do
         if active[all[i]] then
             skipped = skipped + 1
+            existing[#existing + 1] = all[i]
         elseif #missing < 256 then
             missing[#missing + 1] = all[i]
         else
@@ -195,6 +196,7 @@ local function rangeFilterPayload(playerNum, items)
     return {
         playerNum = playerNum,
         fullTypes = missing,
+        existingTypes = existing,
         skippedExisting = skipped,
         mode = state.mode,
         revision = state.revision,
@@ -230,6 +232,36 @@ function Context.addToRangeFilter(payload)
         if value and value.ok then
             GodSystemApp.services.runtime.notify(formatText(text("Context_RangeAdded", "Added {1} item types to the range list; {2} skipped"), {
                 #data.fullTypes, data.skippedExisting or 0,
+            }))
+        end
+    end)
+    return result ~= nil
+end
+
+function Context.removeFromRangeFilter(payload)
+    local data = payload or {}
+    if data.ready ~= true then
+        GodSystemApp.services.runtime.notify(text("Context_RangeSyncing", "Range recycle list is still syncing"))
+        return false
+    end
+    if #(data.existingTypes or {}) <= 0 then
+        GodSystemApp.services.runtime.notify(text("Notify_RecycleSelectionChanged", "Selection changed; reopen the menu"))
+        return false
+    end
+    local service = GodSystemApp.services.rangeRecycle
+    local state = rangeFilterView(data.playerNum)
+    if not state or not state.enabled or not state.ready or (data.token and state.token ~= data.token) then
+        GodSystemApp.services.runtime.notify(text("Notify_RecycleSelectionChanged", "Selection changed; reopen the menu"))
+        return false
+    end
+    local result = service:execute(data.playerNum, "filterDelta", {
+        baseRevision = state.revision,
+        op = "removeMany",
+        fullTypes = data.existingTypes,
+    }, function(value)
+        if value and value.ok then
+            GodSystemApp.services.runtime.notify(formatText(text("Context_RangeRemoved", "Removed {1} item types from the range list"), {
+                #data.existingTypes,
             }))
         end
     end)
@@ -445,21 +477,29 @@ function Context.fillInventoryMenu(playerNum, context, values)
     local rangeClassification = classifications.recycle
     local rangePayload = rangeFilterPayload(playerNum, rangeClassification.eligible)
     if rangePayload then
-        local labelKey = rangePayload.mode == "denylist" and "Menu_ContextRangeAddForbidden" or "Menu_ContextRangeAddAllowed"
-        local fallback = rangePayload.mode == "denylist" and "Add to forbidden range recycle" or "Add to allowed range recycle"
-        local label = text(labelKey, fallback)
-        if rangePayload.skippedExisting > 0 and #rangePayload.fullTypes > 0 then
-            label = label .. " (" .. tostring(#rangePayload.fullTypes) .. "/" .. tostring(#rangePayload.fullTypes + rangePayload.skippedExisting) .. ")"
-        end
-        local option = context:addOption(label, rangePayload, Context.addToRangeFilter)
-        if rangePayload.ready ~= true then
+        local function markSyncing(option)
             option.notAvailable = true
             option.toolTip = ISInventoryPaneContextMenu.addToolTip()
             option.toolTip.description = text("Context_RangeSyncing", "Range recycle list is still syncing")
-        elseif #rangePayload.fullTypes <= 0 then
-            option.notAvailable = true
-            option.toolTip = ISInventoryPaneContextMenu.addToolTip()
-            option.toolTip.description = formatText(text("Context_RangeAllPresent", "All selected item types are already in the current range list ({1} skipped)"), { rangePayload.skippedExisting })
+        end
+        -- Types not yet in the list: offer to add them.
+        if #rangePayload.fullTypes > 0 then
+            local labelKey = rangePayload.mode == "denylist" and "Menu_ContextRangeAddForbidden" or "Menu_ContextRangeAddAllowed"
+            local fallback = rangePayload.mode == "denylist" and "Add to forbidden range recycle" or "Add to allowed range recycle"
+            local label = text(labelKey, fallback)
+            if rangePayload.skippedExisting > 0 then
+                label = label .. " (" .. tostring(#rangePayload.fullTypes) .. "/" .. tostring(#rangePayload.fullTypes + rangePayload.skippedExisting) .. ")"
+            end
+            local option = context:addOption(label, rangePayload, Context.addToRangeFilter)
+            if rangePayload.ready ~= true then markSyncing(option) end
+        end
+        -- Types already in the denylist: replace the add entry with a remove
+        -- entry.  The allowlist mode intentionally offers no remove option:
+        -- moving a type out of the allowed list silently changes recycle
+        -- behavior and is done deliberately from the filter window instead.
+        if #rangePayload.existingTypes > 0 and rangePayload.mode == "denylist" then
+            local option = context:addOption(text("Menu_ContextRangeRemoveForbidden", "Remove from forbidden range recycle"), rangePayload, Context.removeFromRangeFilter)
+            if rangePayload.ready ~= true then markSyncing(option) end
         end
     end
 end

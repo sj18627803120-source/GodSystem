@@ -1271,6 +1271,8 @@
     "IGUI_GodSystem_Context_RangeSyncing": "The range recycle list is still syncing",
     "IGUI_GodSystem_Context_RangeAllPresent": "All selected item types are already in the current range list (skipped {1})",
     "IGUI_GodSystem_Context_RangeAdded": "Added {1} item types to the range list; skipped {2}",
+    "IGUI_GodSystem_Menu_ContextRangeRemoveForbidden": "Remove from forbidden range recycle",
+    "IGUI_GodSystem_Context_RangeRemoved": "Removed {1} item types from the range list",
     "IGUI_GodSystem_ItemConfig_Edit": "Item Config Edit",
     "IGUI_GodSystem_ItemConfig_Clear": "Item Config Clear",
     "IGUI_GodSystem_NotifyMP_RangeRecycleStarted": "Notify MP Range Recycle Started",

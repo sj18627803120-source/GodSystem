@@ -84,13 +84,11 @@ function Profile.save(player, state)
     local normalized = GodSystemRangeFilter.normalize(state)
     local ok, writer = pcall(getFileWriter, Profile.filename(player), true, false)
     if not ok or not writer then return false end
-    local success = pcall(function()
-        writer:write("# GodSystem Range Recycle filter v2\r\n")
-        writer:write("mode=" .. normalized.mode .. "\r\n")
-        for i = 1, #normalized.activeFullTypes do
-            writer:write(normalized.activeFullTypes[i] .. "\r\n")
-        end
-    end)
+    local parts = { "# GodSystem Range Recycle filter v2\r\n", "mode=" .. normalized.mode .. "\r\n" }
+    for i = 1, #normalized.activeFullTypes do
+        parts[#parts + 1] = normalized.activeFullTypes[i] .. "\r\n"
+    end
+    local success = pcall(function() writer:write(table.concat(parts)) end)
     local closeOk = pcall(function() writer:close() end)
     return success and closeOk
 end

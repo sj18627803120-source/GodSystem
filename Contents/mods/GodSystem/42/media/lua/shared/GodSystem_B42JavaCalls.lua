@@ -277,7 +277,6 @@ local CALLERS = {
     getNumKills = function(target, ...) return target:getNumKills(...) end,
     getPartByIndex = function(target, ...) return target:getPartByIndex(...) end,
     getPartCount = function(target, ...) return target:getPartCount(...) end,
-    getPartCount = function(target, ...) return target:getPartCount(...) end,
     getScratchTime = function(target, ...) return target:getScratchTime(...) end,
     getSharpness = function(target, ...) return target:getSharpness(...) end,
     getMaxSharpness = function(target, ...) return target:getMaxSharpness(...) end,

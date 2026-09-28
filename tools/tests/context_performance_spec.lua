@@ -588,4 +588,81 @@ test("multiple local players share the per-frame 64-entry budget", function()
     prep.clear(); eq(one.status, "cancelled"); eq(two.status, "cancelled")
 end)
 
+test("range context menu swaps add for remove when types are already listed", function()
+    local e = environment(); local values = selection(e, 3); preparation(e)
+    local deltas = {}
+    local state = {
+        enabled = true, ready = true, revision = 1, token = {}, mode = "denylist",
+        members = { ["Base.Nails"] = true },
+    }
+    e.GodSystemApp.services.rangeRecycle = {
+        getContextMenuState = function()
+            return {
+                enabled = state.enabled, ready = state.ready, members = state.members,
+                token = state.token, mode = state.mode, revision = state.revision,
+            }
+        end,
+        execute = function(_, playerNum, intent, payload, callback)
+            deltas[#deltas + 1] = { playerNum = playerNum, intent = intent, payload = payload }
+            if callback then callback({ ok = true }) end
+            return true
+        end,
+    }
+    local function rangeOptions(snapshot)
+        local c = menu()
+        e.GodSystemRecycleContext.fillInventoryMenu(0, c, snapshot)
+        local found = {}
+        for i = 1, #c.options do
+            local option = c.options[i]
+            if option.fn == e.GodSystemRecycleContext.addToRangeFilter
+                or option.fn == e.GodSystemRecycleContext.removeFromRangeFilter then
+                found[#found + 1] = option
+            end
+        end
+        return found
+    end
+    -- All selected types are already in the denylist: only a remove option.
+    local options = rangeOptions(e.GodSystemInventoryContext.createSnapshot(0, values))
+    eq(#options, 1)
+    eq(options[1].fn, e.GodSystemRecycleContext.removeFromRangeFilter)
+    eq(options[1].label, "Remove from forbidden range recycle")
+    eq(options[1].notAvailable, nil)
+    eq(#options[1].target.existingTypes, 1)
+    eq(options[1].target.existingTypes[1], "Base.Nails")
+    options[1].fn(options[1].target)
+    eq(deltas[1].intent, "filterDelta")
+    eq(deltas[1].payload.op, "removeMany")
+    eq(deltas[1].payload.baseRevision, 1)
+    eq(deltas[1].payload.fullTypes[1], "Base.Nails")
+    eq(e.lastMessage, "Removed 1 item types from the range list")
+
+    -- Mixed selection: add (missing) and remove (existing) options together.
+    values[2].fullType = "Base.New"
+    options = rangeOptions(e.GodSystemInventoryContext.createSnapshot(0, values))
+    eq(#options, 2)
+    eq(options[1].fn, e.GodSystemRecycleContext.addToRangeFilter)
+    eq(options[1].label, "Add to forbidden range recycle (1/2)")
+    eq(options[2].fn, e.GodSystemRecycleContext.removeFromRangeFilter)
+
+    -- Allowlist mode: listed types get no context-menu option at all (no add,
+    -- no remove) so a type can never be moved out of the allowed list by accident.
+    state.mode = "allowlist"
+    values[1].fullType, values[2].fullType, values[3].fullType = "Base.Nails", "Base.Nails", "Base.Nails"
+    options = rangeOptions(e.GodSystemInventoryContext.createSnapshot(0, values))
+    eq(#options, 0)
+    state.mode = "denylist"
+
+    -- Nothing listed yet: only the add option, with no remove option.
+    values[1].fullType, values[2].fullType, values[3].fullType = "Base.A", "Base.B", "Base.C"
+    options = rangeOptions(e.GodSystemInventoryContext.createSnapshot(0, values))
+    eq(#options, 1)
+    eq(options[1].fn, e.GodSystemRecycleContext.addToRangeFilter)
+    eq(#options[1].target.fullTypes, 3)
+
+    -- While the list is syncing, every range option is greyed.
+    state.ready = false
+    options = rangeOptions(e.GodSystemInventoryContext.createSnapshot(0, values))
+    eq(options[1].notAvailable, true)
+end)
+
 print(string.format("Behavior specs passed: %d", passed))

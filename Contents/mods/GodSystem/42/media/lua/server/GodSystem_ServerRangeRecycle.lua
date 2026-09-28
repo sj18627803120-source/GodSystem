@@ -538,11 +538,13 @@ function Commands.rangeFilterSyncCommit(_, _, player, args)
     if not staged or syncId ~= staged.syncId or #staged.values ~= staged.total then
         return finishCode(player, false, "RangeFilterSyncInvalid", nil, nil)
     end
+    -- Values arrived chunk-by-chunk from a client: always validate the whole
+    -- list, even if a forged trust marker were present.
     local state = GodSystemRangeFilter.normalize({
         mode = staged.mode,
         revision = math.max(1, staged.revision + 1),
         activeFullTypes = staged.values,
-    })
+    }, false)
     Range.filterStaging[key] = nil
     Range.filterCache[key] = {
         ready = true,

@@ -3,6 +3,10 @@ GodSystemRangeFilter = GodSystemRangeFilter or {}
 local Filter = GodSystemRangeFilter
 local MAX_FULL_TYPE_LENGTH = 120
 Filter.MAX_ACTIVE_ITEMS = 20000
+-- Private marker stamped only on states this module has validated itself.
+-- Tables arriving over the network never inherit this trust: callers pass
+-- allowTrusted=false so the full per-entry validation runs.
+local TRUSTED_MARKER = "__godSystemFilterTrusted"
 
 function Filter.cleanMode(value)
     value = tostring(value or "")
@@ -49,21 +53,34 @@ local function sourceValues(input)
     return type(input.fullTypes) == "table" and input.fullTypes or {}
 end
 
-function Filter.normalize(input)
+local function buildState(mode, revision, activeFullTypes)
+    return {
+        mode = mode,
+        revision = revision,
+        activeFullTypes = activeFullTypes,
+        -- Keep the legacy field in snapshots and old UI callers while all new
+        -- logic reads activeFullTypes.
+        allowedFullTypes = activeFullTypes,
+        [TRUSTED_MARKER] = true,
+    }
+end
+
+function Filter.normalize(input, allowTrusted)
     input = type(input) == "table" and input or {}
+    if allowTrusted ~= false and input[TRUSTED_MARKER] == true
+        and (input.mode == "allowlist" or input.mode == "denylist") then
+        -- Entries already passed cleanFullType when they first entered the
+        -- filter; copy the array defensively without re-validating every item.
+        local active = {}
+        for i = 1, #(input.activeFullTypes or {}) do active[i] = input.activeFullTypes[i] end
+        return buildState(input.mode, math.max(1, math.floor(tonumber(input.revision) or 1)), active)
+    end
     local mode = Filter.cleanMode(input.mode)
     -- The old blacklist format is intentionally fail-closed.  Only the old
     -- allowedFullTypes format is migrated into the new safe mode.
     if not mode then mode = "allowlist" end
     local activeFullTypes = Filter.cleanBatch(sourceValues(input)) or {}
-    return {
-        mode = mode,
-        revision = math.max(1, math.floor(tonumber(input.revision) or 1)),
-        activeFullTypes = activeFullTypes,
-        -- Keep the legacy field in snapshots and old UI callers while all new
-        -- logic reads activeFullTypes.
-        allowedFullTypes = activeFullTypes,
-    }
+    return buildState(mode, math.max(1, math.floor(tonumber(input.revision) or 1)), activeFullTypes)
 end
 
 function Filter.compile(input)
@@ -102,9 +119,17 @@ function Filter.applyDelta(input, delta)
         return { ok = false, code = "RangeFilterRevisionConflict", state = state }
     end
 
-    local nextState = Filter.normalize(state)
+    -- Shallow working copy: its activeFullTypes are replaced wholesale below,
+    -- never mutated in place, so sharing the validated array is safe.
+    local nextState = {
+        mode = state.mode,
+        revision = state.revision,
+        activeFullTypes = state.activeFullTypes,
+        allowedFullTypes = state.activeFullTypes,
+        [TRUSTED_MARKER] = true,
+    }
     local members = {}
-    for i = 1, #nextState.activeFullTypes do members[nextState.activeFullTypes[i]] = true end
+    for i = 1, #state.activeFullTypes do members[state.activeFullTypes[i]] = true end
     local operation = tostring(delta.op or "")
     if operation == "setMode" then
         local mode = Filter.cleanMode(delta.mode)
@@ -147,13 +172,35 @@ function Filter.applyDelta(input, delta)
     end
 
     if changed then
-        nextState.activeFullTypes = {}
-        for fullType in pairs(members) do nextState.activeFullTypes[#nextState.activeFullTypes + 1] = fullType end
-        table.sort(nextState.activeFullTypes)
-        if #nextState.activeFullTypes > Filter.MAX_ACTIVE_ITEMS then
+        -- Rebuild the sorted array in a single linear pass instead of
+        -- re-collecting via pairs() and re-sorting the whole list.
+        local merged = {}
+        if operation == "add" or operation == "addMany" then
+            local current = state.activeFullTypes
+            local i, j = 1, 1
+            while i <= #current or j <= #values do
+                local a, b = current[i], values[j]
+                if a and (not b or a < b) then
+                    merged[#merged + 1] = a; i = i + 1
+                elseif b and (not a or b < a) then
+                    merged[#merged + 1] = b; j = j + 1
+                else
+                    merged[#merged + 1] = a; i = i + 1; j = j + 1
+                end
+            end
+        else
+            local removed = {}
+            for i = 1, #values do removed[values[i]] = true end
+            for i = 1, #state.activeFullTypes do
+                local fullType = state.activeFullTypes[i]
+                if not removed[fullType] then merged[#merged + 1] = fullType end
+            end
+        end
+        if #merged > Filter.MAX_ACTIVE_ITEMS then
             return { ok = false, code = "RangeFilterTooManyItems", state = state }
         end
-        nextState.allowedFullTypes = nextState.activeFullTypes
+        nextState.activeFullTypes = merged
+        nextState.allowedFullTypes = merged
         nextState.revision = state.revision + 1
     end
     return {

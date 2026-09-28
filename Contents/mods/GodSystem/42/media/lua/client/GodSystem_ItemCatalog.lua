@@ -94,7 +94,7 @@ function Catalog:buildStep(requested)
                     key = tostring(metadata.key or fullType),
                     fullType = fullType,
                     label = localizedItemLabel(fullType, metadata.label),
-                    moduleName = tostring(metadata.moduleName or fullType:match("^([^%.]+)\.") or ""),
+                    moduleName = tostring(metadata.moduleName or fullType:match("^([^%.]+)%.") or ""),
                     displayCategory = tostring(metadata.displayCategory or ""),
                     variantKey = metadata.variantKey,
                     worldSprite = metadata.worldSprite,

@@ -139,3 +139,66 @@ assert(syncGeometry > 0, "scrollbar geometry must be synchronized")
 window:close()
 assert(catalogListener == nil and filterListener == nil, "closed window left subscriptions behind")
 print("range filter scroll regression passed")
+
+do
+    local Filter = GodSystemRangeFilter
+    -- The bare Kahlua probe has no os library; the timing guard only really
+    -- runs under Lua 5.1 (run_lua_tests.py).
+    local clock = (os and os.clock) or function() return 0 end
+    local function sorted(values)
+        local copy = {}
+        for i = 1, #values do copy[i] = values[i] end
+        table.sort(copy)
+        return copy
+    end
+    local function assertArray(actual, expected)
+        assert(#actual == #expected, "length " .. #actual .. " ~= " .. #expected)
+        for i = 1, #expected do
+            assert(actual[i] == expected[i], "index " .. i .. ": " .. tostring(actual[i]) .. " ~= " .. tostring(expected[i]))
+        end
+    end
+
+    -- addMany merges in sorted order with deduplication.
+    local base = Filter.normalize({ mode = "denylist", revision = 3, activeFullTypes = sorted { "Base.A", "Base.C", "Base.E" } })
+    local r = Filter.applyDelta(base, { baseRevision = 3, op = "addMany", fullTypes = sorted { "Base.B", "Base.D", "Base.F", "Base.A" } })
+    assert(r.ok and r.code == "RangeFilterUpdated", r.code)
+    assertArray(r.state.activeFullTypes, { "Base.A", "Base.B", "Base.C", "Base.D", "Base.E", "Base.F" })
+    assert(r.state.revision == 4)
+
+    -- removeMany preserves order; single add/remove and unchanged deltas work.
+    r = Filter.applyDelta(r.state, { baseRevision = 4, op = "removeMany", fullTypes = { "Base.B", "Base.E" } })
+    assertArray(r.state.activeFullTypes, { "Base.A", "Base.C", "Base.D", "Base.F" })
+    r = Filter.applyDelta(r.state, { baseRevision = 5, op = "remove", fullType = "Base.A" })
+    assertArray(r.state.activeFullTypes, { "Base.C", "Base.D", "Base.F" })
+    r = Filter.applyDelta(r.state, { baseRevision = 6, op = "add", fullType = "Base.Z" })
+    assertArray(r.state.activeFullTypes, { "Base.C", "Base.D", "Base.F", "Base.Z" })
+    r = Filter.applyDelta(r.state, { baseRevision = 7, op = "add", fullType = "Base.Z" })
+    assert(r.code == "RangeFilterUnchanged" and #r.state.activeFullTypes == 4)
+
+    -- Trust boundary: a marker produced by the module fast-paths validation,
+    -- while a network-originated table (allowTrusted=false) is fully rechecked.
+    local marked = Filter.normalize({ mode = "denylist", activeFullTypes = { "Base.A" } })
+    marked.activeFullTypes[#marked.activeFullTypes + 1] = "Bad Type"
+    local trusted = Filter.normalize(marked)
+    assert(#trusted.activeFullTypes == 2 and trusted.activeFullTypes[2] == "Bad Type")
+    local untrusted = Filter.normalize(marked, false)
+    assert(#untrusted.activeFullTypes == 0, "bad network entry must fail closed")
+    assert(untrusted.__godSystemFilterTrusted == true)
+
+    -- Performance guard: deltas on a large filter must not re-validate or
+    -- re-sort all N existing entries.
+    local many = {}
+    for i = 1, 10000 do many[i] = string.format("Base.M%05d", i) end
+    local big = Filter.normalize({ mode = "denylist", activeFullTypes = many })
+    local started = clock()
+    r = Filter.applyDelta(big, { baseRevision = big.revision, op = "addMany", fullTypes = { "Base.ZzzNew" } })
+    assert(clock() - started < 0.2, "large addMany too slow")
+    assert(#r.state.activeFullTypes == 10001)
+    assert(r.state.activeFullTypes[1] == "Base.M00001")
+    assert(r.state.activeFullTypes[10001] == "Base.ZzzNew")
+    started = clock()
+    r = Filter.applyDelta(r.state, { baseRevision = r.state.revision, op = "removeMany", fullTypes = { "Base.M05000" } })
+    assert(clock() - started < 0.2, "large removeMany too slow")
+    assert(#r.state.activeFullTypes == 10000)
+    print("range filter delta merge and trust regression passed")
+end
