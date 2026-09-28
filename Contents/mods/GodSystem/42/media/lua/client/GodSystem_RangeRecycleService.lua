@@ -782,7 +782,8 @@ function service:handleFilterAck(snapshot, ready, syncId)
         publishFilter(playerNum, "filterSyncing")
         return
     end
-    replaceFilter(state, GodSystemRangeFilter.normalize(snapshot))
+    -- Snapshot came over the network: never inherit a trust marker from it.
+    replaceFilter(state, GodSystemRangeFilter.normalize(snapshot, false))
     state.filterLoaded = true
     state.filterReady = true
     state.filterSyncing = false

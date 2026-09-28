@@ -2391,4 +2391,7 @@ IGUI_CN = {
     IGUI_GodSystem_NotifyMP_UtilityGeneratorTargetUnbound = "供水目标已解除绑定。",
     IGUI_GodSystem_NotifyMP_UtilityGeneratorTargetAmountInvalid = "保有水量须为 1—1000 升整数。",
     IGUI_GodSystem_NotifyMP_UtilityGeneratorTargetAmountSaved = "每个目标保有水量已保存。",
+
+    IGUI_GodSystem_Menu_ContextRangeRemoveForbidden = "移出禁止范围回收",
+    IGUI_GodSystem_Context_RangeRemoved = "已从范围回收名单移出 {1} 项物品类型",
 }
