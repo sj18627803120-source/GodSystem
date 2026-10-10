@@ -157,7 +157,7 @@ function GodSystemRangeRecycleDomain.step(job)
         end
 
         local stage = GodSystemRangeRecycleDomain.StageOrder[job.stageIndex]
-        while job.includeCorpses == false and (stage == "corpseItems" or stage == "corpses") do
+        while job.includeCorpses == false and stage == "corpses" do
             advanceStage(job)
             stage = GodSystemRangeRecycleDomain.StageOrder[job.stageIndex]
         end

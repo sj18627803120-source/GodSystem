@@ -10,9 +10,12 @@ local function text(key, fallback, a, b)
     return value
 end
 
+---@class GodSystemRecyclePreparationWindow: ISCollapsableWindow
+---@field new fun(self: GodSystemRecyclePreparationWindow, job: table): GodSystemRecyclePreparationWindow
 GodSystemRecyclePreparationWindow = ISCollapsableWindow:derive("GodSystemRecyclePreparationWindow")
 local Window = GodSystemRecyclePreparationWindow
 
+---@param job table
 function Window:new(job)
     local x = math.max(20, (getCore():getScreenWidth() - 600) / 2)
     local y = math.max(20, (getCore():getScreenHeight() - 300) / 2)

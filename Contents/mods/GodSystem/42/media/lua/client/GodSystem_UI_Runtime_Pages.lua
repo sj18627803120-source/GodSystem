@@ -23,7 +23,7 @@ function GodSystemWindow:populateShop()
     if not filteredShopItems then
         self.shopAwaitingSnapshot = true
         GodSystemShopCatalog.ensure()
-        local progress, processed, total = GodSystemShopCatalog.progress()
+        local _progress, processed, total = GodSystemShopCatalog.progress()
         if self.primaryButton and self.primaryButton.setEnable then self.primaryButton:setEnable(false) end
         self:addListItem(GodSystemApp.services.runtime.text("Shop_Loading", "Loading shop catalogue") .. " " .. tostring(processed) .. (total and ("/" .. tostring(total)) or ""), {
             kind = "empty", detail = GodSystemApp.services.runtime.text("Shop_LoadingHint", "Preparing available items. Purchase will unlock when loading finishes.")

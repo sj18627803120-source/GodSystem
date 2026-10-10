@@ -81,12 +81,12 @@ local function localRows(search, page)
     local all, text = GodSystemConversionRelations.all(data.itemConfig), string.lower(trimmed(search))
     local filtered = {}
     for _, row in ipairs(all) do
-        local words = row.id .. " " .. row.sourceFullType .. " " .. (row.recipeName or "") .. " " .. (row.note or "")
-            .. " " .. itemName(row.sourceFullType)
+        local words = { row.id, row.sourceFullType, row.recipeName or "", row.note or "", itemName(row.sourceFullType) }
         for _, out in ipairs(row.outputs or {}) do
-            words = words .. " " .. tostring(out.fullType or "") .. " " .. itemName(out.fullType)
+            words[#words + 1] = tostring(out.fullType or "")
+            words[#words + 1] = itemName(out.fullType)
         end
-        if text == "" or string.find(string.lower(words), text, 1, true) then filtered[#filtered+1] = row end
+        if GodSystemPinyin.matchCached("relationsClient", row.id, words, text) then filtered[#filtered+1] = row end
     end
     local size = 20; page = math.max(1, math.min(math.floor(tonumber(page) or 1), math.max(1, math.ceil(#filtered / size))))
     local rows = {}; for i=(page-1)*size+1, math.min(#filtered, page*size) do rows[#rows+1] = filtered[i] end
@@ -146,6 +146,7 @@ local function localSave(relation, selectedId, action)
     return true, nil, selectedId
 end
 
+---@class GodSystemConversionRelationsWindow: ISCollapsableWindow
 UI.Window = ISCollapsableWindow:derive("GodSystemConversionRelationsWindow")
 function UI.Window:new(x, y, width, height)
     local o = ISCollapsableWindow.new(self, x, y, width, height)
@@ -157,6 +158,7 @@ function UI.Window:new(x, y, width, height)
     o.resizable = false; return o
 end
 function UI.Window:createChildren()
+    self.catalogUnsubscribe = GodSystemItemCatalog.subscribe(function() end)
     ISCollapsableWindow.createChildren(self)
     self.newRelation = ISButton:new(0, 0, 10, 10, label("ConversionRisk_New", "新增关系"), self, self.newRow)
     self.newRelation:initialise(); privateButton(self.newRelation, "buttonPrimary"); self:addChild(self.newRelation)
@@ -681,6 +683,8 @@ function UI.Window:deleteRow()
     end
 end
 function UI.Window:close()
+    if self.catalogUnsubscribe then self.catalogUnsubscribe(); self.catalogUnsubscribe=nil end
+    if GodSystemPinyin then GodSystemPinyin.clearCaches("relationsClient") end
     self:setVisible(false)
     if self.removeFromUIManager then self:removeFromUIManager() end
     UI.window=nil

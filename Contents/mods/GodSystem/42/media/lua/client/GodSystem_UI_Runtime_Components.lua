@@ -1,4 +1,5 @@
 require "GodSystem_UISafety"
+require "GodSystem_Pinyin"
 _G.GodSystemUIRuntimeInstallers = _G.GodSystemUIRuntimeInstallers or {}
 GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Components"] = function(runtimeEnvironment)
     if runtimeEnvironment.__GodSystemInstalled_GodSystem_UI_Runtime_Components then return end
@@ -340,6 +341,7 @@ function gsHasServerState()
     return GodSystemNetwork and GodSystemNetwork.hasServerState == true
 end
 
+---@class GodSystemFloatingButton: ISPanel
 GodSystemFloatingButton = ISPanel:derive("GodSystemFloatingButton")
 
 function GodSystemFloatingButton:new(x, y, width, height)
@@ -386,7 +388,7 @@ function GodSystemFloatingButton:onMouseDown(x, y)
     return true
 end
 
-function GodSystemFloatingButton:onMouseMove(dx, dy)
+function GodSystemFloatingButton:onMouseMove(_dx, _dy)
     if self.dragging then
         local nextX, nextY = self:clampDragPosition(getMouseX() - self.downX, getMouseY() - self.downY)
         self:setX(nextX)
@@ -399,7 +401,7 @@ function GodSystemFloatingButton:onMouseMove(dx, dy)
     return false
 end
 
-function GodSystemFloatingButton:onMouseUp(x, y)
+function GodSystemFloatingButton:onMouseUp(_x, _y)
     if self.dragging then
         self.dragging = false
         self:setCapture(false)
@@ -448,6 +450,7 @@ function gsGetActiveTaskRows()
     return rows
 end
 
+---@class GodSystemTaskTracker: ISPanel
 GodSystemTaskTracker = ISPanel:derive("GodSystemTaskTracker")
 
 function GodSystemTaskTracker:new(x, y, width, height)
@@ -556,7 +559,7 @@ function GodSystemTaskTracker:onMouseDown(x, y)
     return true
 end
 
-function GodSystemTaskTracker:onMouseMove(dx, dy)
+function GodSystemTaskTracker:onMouseMove(_dx, _dy)
     if self.resizing then
         local newW = (self.resizeStartW or self.width) + (getMouseX() - (self.resizeStartMouseX or getMouseX()))
         local newH = (self.resizeStartH or self.height) + (getMouseY() - (self.resizeStartMouseY or getMouseY()))
@@ -580,7 +583,7 @@ function GodSystemTaskTracker:onMouseMove(dx, dy)
     return false
 end
 
-function GodSystemTaskTracker:onMouseUp(x, y)
+function GodSystemTaskTracker:onMouseUp(_x, _y)
     if self.resizing then
         self.resizing = false
         local data = GodSystemApp.services.runtime.getData()
@@ -625,6 +628,7 @@ function GodSystemTaskTracker:close()
     end
 end
 
+---@class GodSystemShortcutWindow: ISCollapsableWindow
 GodSystemShortcutWindow = ISCollapsableWindow:derive("GodSystemShortcutWindow")
 GodSystemShortcutWindow.RefreshIntervalMs = 5000
 
@@ -847,6 +851,7 @@ function GodSystemShortcutWindow:close()
     end
 end
 
+---@class GodSystemSecretGrantDialog: ISCollapsableWindow
 GodSystemSecretGrantDialog = ISCollapsableWindow:derive("GodSystemSecretGrantDialog")
 
 function GodSystemSecretGrantDialog:new(x, y, width, height, owner)
@@ -911,6 +916,7 @@ function GodSystemSecretGrantDialog:onCancel()
     end
 end
 
+---@class GodSystemBankAmountDialog: ISCollapsableWindow
 GodSystemBankAmountDialog = ISCollapsableWindow:derive("GodSystemBankAmountDialog")
 
 function GodSystemBankAmountDialog:new(x, y, width, height, owner, payload)
@@ -987,6 +993,7 @@ function GodSystemBankAmountDialog:onCancel(preserveActionSelection)
     end
 end
 
+---@class GodSystemShopHiddenWindow: ISCollapsableWindow
 GodSystemShopHiddenWindow = ISCollapsableWindow:derive("GodSystemShopHiddenWindow")
 
 function GodSystemShopHiddenWindow:new(x, y, width, height, owner)
@@ -1206,14 +1213,16 @@ end
 
 function GodSystemShopHiddenWindow:updateButtons()
     local row = self:getSelected()
-    local blocked = self.waitingForServer == true
+    local blocked = self.waitingForServer == true or self.catalogLoading == true
     local visibleRows = self:selectedVariantRows(false)
     local hiddenRows = self:selectedVariantRows(true)
     local selectedCount = #visibleRows + #hiddenRows
     self.hideButton.enable = not blocked and #visibleRows > 0
     self.showButton.enable = not blocked and #hiddenRows > 0
     self.deleteButton.enable = not blocked and row ~= nil and row.empty ~= true
-    gsSetLabel(self.selectionLabel, GodSystemApp.services.runtime.text("ShopHidden_SelectedCount", "Selected: {1}"):gsub("{1}", tostring(selectedCount)))
+    local label = self.catalogLoading and GodSystemApp.services.runtime.text("ShopHidden_Loading", "Loading player-listed items...")
+        or GodSystemApp.services.runtime.text("ShopHidden_SelectedCount", "Selected: {1}"):gsub("{1}", tostring(selectedCount))
+    gsSetLabel(self.selectionLabel, label)
 end
 
 function GodSystemShopHiddenWindow:statusLabel()
@@ -1236,25 +1245,36 @@ function GodSystemShopHiddenWindow:matches(row, category)
     if self.statusFilter == "hidden" and row.hidden ~= true then return false end
     local query = string.lower(gsTrim(self.searchText or ""))
     if query == "" then return true end
-    local haystack = table.concat({
+    local fields = {
         tostring(row.label or ""),
         tostring(row.fullType or ""),
         tostring(category.key or ""),
         tostring(category.label or ""),
         tostring(row.worldSprite or ""),
-    }, " ")
-    return string.find(string.lower(haystack), query, 1, true) ~= nil
+    }
+    return GodSystemPinyin.matchCached("hidden", tostring(row.fullType)..":"..tostring(row.worldSprite), fields, query)
 end
 
 function GodSystemShopHiddenWindow:populateItems(preserveState)
     if not self.list then return end
+    local rows, ready = GodSystemApp.services.runtime.getUnlockedShopItemsList(true)
+    self.catalogLoading = ready == false
+    if self.catalogLoading then
+        -- Keep the last completed view and selection, but never act on stale rows.
+        if #self.list.items == 0 or self.list.items[1].item.empty then
+            self.list:clear()
+            self.list:addItem(GodSystemApp.services.runtime.text("ShopHidden_Loading", "Loading player-listed items..."), { empty = true })
+            self.list.selected = 0
+        end
+        self:updateButtons()
+        return
+    end
     local listState = preserveState ~= false and self:captureListState() or nil
     self.list:clear()
     self.list.selected = 0
     self.list:setScrollHeight(0)
     self.list.smoothScrollTargetY = nil
     self.list.smoothScrollY = nil
-    local rows = GodSystemApp.services.runtime.getUnlockedShopItemsList(true)
     local categories, categoryMap = {}, {}
     for i = 1, #rows do
         local category = GodSystemApp.services.runtime.getShopPrimaryCategory(rows[i])
@@ -1342,6 +1362,7 @@ function GodSystemShopHiddenWindow:onSearchChange(entry)
 end
 
 function GodSystemShopHiddenWindow:setSelectedHidden(hidden)
+    if self.catalogLoading then return end
     local rows = self:selectedVariantRows(nil)
     if #rows == 0 then return end
     local keys = {}
@@ -1363,6 +1384,7 @@ function GodSystemShopHiddenWindow:onShow()
 end
 
 function GodSystemShopHiddenWindow:onDelete()
+    if self.catalogLoading then return end
     local row = self:getSelected()
     if not row or not row.variantKey or row.empty then return end
     local message = gsFormatTemplate(GodSystemApp.services.runtime.text("Confirm_ShopItemDelete", "Delete the listing for {1}? No currency will be refunded; relisting will charge the normal fee."), {
@@ -1403,11 +1425,13 @@ function GodSystemShopHiddenWindow:onServerStateChanged()
 end
 
 function GodSystemShopHiddenWindow:close()
+    if GodSystemPinyin then GodSystemPinyin.clearCaches("hidden") end
     self:setVisible(false)
     if self.removeFromUIManager then self:removeFromUIManager() end
     if GodSystemUI.shopHiddenWindow == self then GodSystemUI.shopHiddenWindow = nil end
 end
 
+---@class GodSystemTaskTurnInDialog: ISCollapsableWindow
 GodSystemTaskTurnInDialog = ISCollapsableWindow:derive("GodSystemTaskTurnInDialog")
 
 function GodSystemTaskTurnInDialog:new(x, y, width, height, owner, task, candidates)
@@ -1547,6 +1571,7 @@ function GodSystemTaskTurnInDialog:close()
     if GodSystemUI.taskTurnInDialog == self then GodSystemUI.taskTurnInDialog = nil end
 end
 
+---@class GodSystemWindow: ISCollapsableWindow
 GodSystemWindow = ISCollapsableWindow:derive("GodSystemWindow")
 
 GS_NON_SELECTABLE_KINDS = {

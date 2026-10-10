@@ -393,7 +393,7 @@ function Commands.rangeRecycleStart(_, _, player, args)
     local nowMs = GodSystemScheduler.nowMs()
     local operationId = tostring(args and (args.operationId or args.opId) or ("range-" .. key .. "-" .. tostring(nowMs)))
     if #operationId > 96 then operationId = "range-" .. key .. "-" .. tostring(nowMs) end
-    local data = playerData(player)
+    playerData(player)
     local filter = filterFor(player)
     if not filter then return finishCode(player, false, "RangeFilterSyncRequired", nil, nil) end
     if not GodSystemRangeFilter.canStart(filter) then

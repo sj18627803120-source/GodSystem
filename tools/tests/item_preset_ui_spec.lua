@@ -108,4 +108,31 @@ window:requestPresetRemark("3", "服务器备注")
 assert(sentCommand == "itemConfigPresetRemark" and sentArgs.name == "3"
     and sentArgs.remark == "服务器备注", "multiplayer sends only slot and remark intent")
 window:close()
+GodSystemApp.services.runtime.itemConfigPresets = nil
+sentCommand = nil
+window = GodSystemItemEconomyUI.open()
+assert(sentCommand == "itemConfigPresetsGet" and window.presetActive == nil,
+    "a fresh multiplayer window requests authority instead of selecting default")
+assert(window.presetButtons.default.enable == false and window.presetButtons.default.tooltip,
+    "loading status disables preset mutation with an explanation")
+sentCommand = nil
+window:onPresetButton(window.presetButtons.default)
+assert(window.presetConfirmation == nil and sentCommand == nil, "loading cannot restore defaults")
+window:applyPresets({ order = { "1" }, remarks = {}, active = "1" })
+assert(window.presetActive == "1" and window.presetButtons.default.enable == true,
+    "authoritative reply selects the stored slot and enables controls")
+window:applyPresets({ order = {}, remarks = {}, active = "1" })
+assert(window.presetActive == "1", "missing template does not label live prices as default")
+window:onPresetButton(window.presetButtons["1"])
+assert(window.presetDialog.readButton.enable == false, "missing template remains unreadable")
+window:applyPresets(nil)
+assert(window.presetDialog == nil and window.presetActive == nil,
+    "session invalidation closes the old slot dialog")
+sentCommand = nil
+assert(window:requestPresetApply("default") == false and window:requestPresetSave("1") == false,
+    "stale preset callbacks cannot mutate before the next authority reply")
+assert(sentCommand == nil)
+assert(GodSystemItemEconomyUI.open() == window and sentCommand == "itemConfigPresetsGet",
+    "manually reopening an unknown retained window retries the existing preset request")
+window:close()
 print("PASS item preset UI: fixed slots, confirmation and cancel, overwrite, remark and cross-save file")

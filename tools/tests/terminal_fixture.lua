@@ -138,7 +138,7 @@ GodSystemCompanionConfig={isEnabled=function() return true end}
 GodSystemPanelKey.registerToggle=function() end
 GodSystemPanelKey.registerRangeRecycle=function() end
 GodSystemNetwork={isMultiplayer=false}
-GodSystemItemCatalog={}
+GodSystemItemCatalog={ subscribe=function() return function() end end }
 GodSystemShopVariants={getKey=function(ft,sprite) return tostring(ft)..tostring(sprite or "") end}
 GodSystemAttributes={getXpPerCoin=function() return 1 end}
 GodSystemConfig={Version="42.20_3.7",EnableTasks=true,EnableShop=true,EnableBank=true,EnableEquipment=true,RefreshTaskCost=100,ShopItems={},TaskTemplates={}}
@@ -214,7 +214,7 @@ function require(name)
     if loaded[name] then return end
     local client=name=="GodSystem_UI" or name:find("GodSystem_UI_Runtime_",1,true)==1 or name:find("GodSystem_Terminal",1,true)==1 or name=="GodSystem_EquipmentUI" or name=="GodSystem_UITheme" or name=="GodSystem_UISafety" or name=="GodSystem_ShopCatalog" or name=="GodSystem_UIRefresh"
     client=client or name=="GodSystem_ListState" or name=="GodSystem_PageSections" or name=="GodSystem_AutoLoaderUI"
-    local shared=name=="GodSystem_TaskOrder"
+    local shared=name=="GodSystem_TaskOrder" or name=="GodSystem_Pinyin" or name=="GodSystem_PinyinData"
     if name=="GodSystem_TerminalGuideData" then client=false; shared=true end
     if not client and not shared then return end
     loaded[name]=true

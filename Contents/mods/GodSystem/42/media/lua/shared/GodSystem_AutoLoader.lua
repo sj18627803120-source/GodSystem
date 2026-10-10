@@ -469,7 +469,8 @@ end
 function AutoLoader.nowMs()
     if getTimestampMs then
         local ok, value = pcall(getTimestampMs)
-        if ok and tonumber(value) then return math.floor(tonumber(value)) end
+        local number = ok and tonumber(value) or nil
+    if number then return math.floor(number) end
     end
     return math.floor((os.time and os.time() or 0) * 1000)
 end

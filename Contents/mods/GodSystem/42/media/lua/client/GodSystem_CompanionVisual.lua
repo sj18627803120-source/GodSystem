@@ -122,7 +122,7 @@ end
 
 local function screenPoint(x, y, z)
     if not ISCoordConversion or not ISCoordConversion.ToScreen then return nil, nil, nil end
-    local sx, sy = ISCoordConversion.ToScreen(x, y, z)
+    local sx, sy = ISCoordConversion.ToScreen(x, y, z, 0)
     local zoom = getCore():getZoom(0)
     return sx / zoom, sy / zoom, zoom
 end

@@ -6,6 +6,18 @@ GodSystemB42JavaCalls = GodSystemB42JavaCalls or {}
 local Bridge = GodSystemB42JavaCalls
 
 local CALLERS = {
+    canAccessContainer = function(target, ...) return target:canAccessContainer(...) end,
+    getItemContainer = function(target, ...) return target:getItemContainer(...) end,
+    getPartById = function(target, ...) return target:getPartById(...) end,
+    getStaticMovingObjectIndex = function(target, ...) return target:getStaticMovingObjectIndex(...) end,
+    getVehicleContainer = function(target, ...) return target:getVehicleContainer(...) end,
+    getWorldItem = function(target, ...) return target:getWorldItem(...) end,
+    haveThisKeyId = function(target, ...) return target:haveThisKeyId(...) end,
+    isExistYet = function(target, ...) return target:isExistYet(...) end,
+    isLockedByPadlock = function(target, ...) return target:isLockedByPadlock(...) end,
+    isLockedToCharacter = function(target, ...) return target:isLockedToCharacter(...) end,
+    isRemoveItemAllowed = function(target, ...) return target:isRemoveItemAllowed(...) end,
+
     addFluid = function(target, ...) return target:addFluid(...) end,
     teleportTo = function(target, ...) return target:teleportTo(...) end,
     AddItem = function(target, ...) return target:AddItem(...) end,
@@ -276,7 +288,6 @@ local CALLERS = {
     getKills = function(target, ...) return target:getKills(...) end,
     getNumKills = function(target, ...) return target:getNumKills(...) end,
     getPartByIndex = function(target, ...) return target:getPartByIndex(...) end,
-    getPartCount = function(target, ...) return target:getPartCount(...) end,
     getPartCount = function(target, ...) return target:getPartCount(...) end,
     getScratchTime = function(target, ...) return target:getScratchTime(...) end,
     getSharpness = function(target, ...) return target:getSharpness(...) end,

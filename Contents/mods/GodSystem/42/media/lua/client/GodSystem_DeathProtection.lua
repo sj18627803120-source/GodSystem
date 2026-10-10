@@ -115,7 +115,7 @@ end
 local function danger(p)
     return p:getHealth()<=.15 or p:getBodyDamage():getOverallBodyHealth()<=15
 end
-function P.onDamage(p, damageType, damage)
+function P.onDamage(p, _damageType, _damage)
     if p~=getSpecificPlayer(0) or active or not cachedData or P.count()<1 then return end
     -- Health threshold and drag-down hooks also cover damage events with no amount.
     if danger(p) then P.activate(p,true) end

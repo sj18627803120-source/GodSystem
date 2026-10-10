@@ -24,7 +24,7 @@ function T.install(Main)
         local pad=12; local top=self.terminalEmbedded and 0 or self:titleBarHeight()+8
         local captionH,bodyH=D.height("caption"),D.height("body")
         local buttonH=bodyH+14; local bottom=self.height-buttonH-8
-        local usable=self.height-top; local left=math.max(190,math.floor(self.width*.29)); local rx=left+26; local rw=self.width-rx-pad
+        local left=math.max(190,math.floor(self.width*.29)); local rx=left+26; local rw=self.width-rx-pad
         self.terminalLeft,self.terminalRightX,self.terminalRightW=left,rx,rw
         if self.terminalEmbedded then
             for _,key in ipairs({"closeButton","pinButton","collapseButton","resizeWidget","resizeWidget2"}) do if self[key] then self[key]:setVisible(false) end end
@@ -151,7 +151,7 @@ function T.install(Main)
         end
         self.pageTitleLabel:setVisible(true)
     end
-    function GodSystemEquipmentUI.open(playerNum)
+    function GodSystemEquipmentUI.open(_playerNum)
         return GodSystemUI.openMode("equipment")
     end
 end

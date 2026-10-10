@@ -432,7 +432,7 @@ function U.updatePower(row, generator)
     return true
 end
 
-local function currentWater(object, modData)
+local function currentWater(object)
     local amount = tonumber(U.value(object, "getFluidAmount", nil))
     return math.max(0, amount or 0)
 end
@@ -579,7 +579,7 @@ local function genWaterCents(generator)
     return math.max(0, tonumber(type(modData) == "table" and modData[genWaterCentsKey()] or 0) or 0)
 end
 
-function U.refillGeneratorWater(root, device, generator, requestedLiters)
+function U.refillGeneratorWater(_root, device, generator, requestedLiters)
     if not device or not generator then return false end
     local modData = U.value(generator, "getModData", nil)
     if type(modData) ~= "table" then return false end
@@ -709,7 +709,7 @@ function U.updateWaterFixture(root, device, object, x, y, z, index)
     local owner = tostring(modData[U.WaterMarker] or "")
     if owner ~= "" and owner ~= device.id then return false end
     if owner == "" and hasForeignWaterMarker(modData) then return false end
-    local amount = currentWater(object, modData)
+    local amount = currentWater(object)
     if externalWaterAvailable(object, amount) then
         if owner == device.id then
             return U.releaseWaterFixture(root, device, object, fixtureKey(x, y, z, index), modData)
@@ -750,7 +750,6 @@ function U.updateWaterFixture(root, device, object, x, y, z, index)
     if settleWaterConsumption(device, modData, amount) then changed = true end
     modData[U.WaterLast] = amount
     local paid = math.max(0, tonumber(modData[U.WaterPaid]) or 0)
-    local free = math.max(0, tonumber(modData[U.WaterFree]) or 0)
     local room = math.max(0, capacity - amount)
     local want = math.min(room, math.max(0, U.FixtureWaterBufferLiters - paid))
     local availableCents = math.max(0, tonumber(device.waterBalanceCents) or 0)
@@ -762,7 +761,7 @@ function U.updateWaterFixture(root, device, object, x, y, z, index)
         if costCents <= availableCents then
             local actual = amount + want
             if setWaterAmount(object, modData, container, actual) then
-                local updated = currentWater(object, modData)
+                local updated = currentWater(object)
                 local added = math.max(0, updated - amount)
                 local actualCost = price > 0 and math.ceil(added * price - 0.000001) or 0
                 device.waterBalanceCents = math.max(0, availableCents - actualCost)
@@ -785,12 +784,12 @@ function U.updateWaterFixture(root, device, object, x, y, z, index)
     return true
 end
 
-function U.releaseWaterFixture(root, device, object, key, modData, container)
+function U.releaseWaterFixture(_root, device, object, key, modData, container)
     modData = modData or U.value(object, "getModData", nil)
     if type(modData) ~= "table" or tostring(modData[U.WaterMarker] or "") ~= tostring(device and device.id or "") then return false end
     local paid = math.max(0, tonumber(modData[U.WaterPaid]) or 0)
     local paidCents = math.max(0, math.floor(tonumber(modData[U.WaterPaidCents]) or 0))
-    local amount = currentWater(object, modData)
+    local amount = currentWater(object)
     settleWaterConsumption(device, modData, amount)
     paid = math.max(0, tonumber(modData[U.WaterPaid]) or 0)
     paidCents = math.max(0, math.floor(tonumber(modData[U.WaterPaidCents]) or 0))
@@ -812,7 +811,7 @@ function U.releaseWaterFixture(root, device, object, key, modData, container)
     return true
 end
 
-function U.status(root, row, generator)
+function U.status(_root, row, generator)
     local result = U.describeStatus(row, generator)
     local count, targets = 0, {}
     for id, record in pairs(row and row.waterTargets or {}) do
@@ -955,7 +954,7 @@ function U.bindWaterTarget(root, row, args, env)
     return true, "UtilityGeneratorTargetBound", { targetId = targetId }
 end
 
-function U.unbindWaterTarget(root, row, targetId, adapter)
+function U.unbindWaterTarget(_root, row, targetId, adapter)
     local record = row.waterTargets[tostring(targetId or "")]
     if not record then return false, "UtilityGeneratorTargetMissing" end
     local object, loaded = U.findWaterTarget(record, adapter)
@@ -1689,8 +1688,8 @@ function U.execute(player, args, env)
             if env.persist then env.persist(root) end
             return false, "UtilityGeneratorCleanupPending"
         end
-        local success, item = false, nil
-        if env.pickup then success, item = env.pickup(player, generator, id) end
+        local success = false
+        if env.pickup then success = env.pickup(player, generator, id) end
         if not success then return false, "UtilityGeneratorPickupFailed" end
         row.placed, row.x, row.y, row.z = false, nil, nil, nil
         refreshDeviceWatch(root, row)

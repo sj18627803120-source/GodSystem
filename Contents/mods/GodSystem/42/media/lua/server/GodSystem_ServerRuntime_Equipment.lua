@@ -28,7 +28,7 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"] = function
         for key,entry in pairs(value) do size=size+estimate(key)+estimate(entry) end
         return size
     end
-    adapter.sync=function(player,item,record,active,syncNativeFields,cfg)
+    adapter.sync=function(player,item,record,active,syncNativeFields,_cfg)
         local started=GodSystemScheduler.nowMs()
         if not item then return false end
         serial=serial+1

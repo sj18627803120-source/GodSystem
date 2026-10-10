@@ -11,6 +11,7 @@ require "ISUI/ISTextEntryBox"
 require "ISUI/ISComboBox"
 require "ISUI/ISModalDialog"
 
+---@class GodSystemRangeFilterListViewport: ISPanel
 local GodSystemRangeFilterListViewport = ISPanel:derive("GodSystemRangeFilterListViewport")
 
 function GodSystemRangeFilterListViewport:new(x, y, width, height)
@@ -27,6 +28,7 @@ function GodSystemRangeFilterListViewport:render()
     self:clearStencilRect()
 end
 
+---@class GodSystemRangeFilterWindow: ISCollapsableWindow
 GodSystemRangeFilterWindow = ISCollapsableWindow:derive("GodSystemRangeFilterWindow")
 GodSystemRangeFilterWindow.PAGE_SIZE = 40
 GodSystemRangeFilterWindow.CATALOG_REFRESH_MS = 250
@@ -478,7 +480,7 @@ function GodSystemRangeFilterWindow:onSearchChanged(entry)
     self.catalogRefreshAt = nowMs() + 180
 end
 
-function GodSystemRangeFilterWindow:onFilterChanged(box)
+function GodSystemRangeFilterWindow:onFilterChanged(_box)
     self.moduleName = self.moduleBox.selected > 1 and self.moduleBox:getOptionText(self.moduleBox.selected) or ""
     self.displayCategory = self.categoryBox.selected > 1 and self.categoryBox:getOptionText(self.categoryBox.selected) or ""
     self.page = 1
@@ -552,7 +554,7 @@ function GodSystemRangeFilterWindow:close()
     if GodSystemUI then GodSystemUI.rangeFilterWindow = nil end
 end
 
-function GodSystemRangeFilterUI_open(owner)
+function GodSystemRangeFilterUI_open(_owner)
     if GodSystemUI and GodSystemUI.rangeFilterWindow and GodSystemUI.rangeFilterWindow:getIsVisible() then
         GodSystemUI.rangeFilterWindow:bringToTop()
         return GodSystemUI.rangeFilterWindow

@@ -1,5 +1,6 @@
 require "ISUI/ISScrollingListBox"
 require "GodSystem_TerminalDesign"
+---@class GodSystemTerminalList: ISScrollingListBox
 GodSystemTerminalList=ISScrollingListBox:derive("GodSystemTerminalList")
 local L,D=GodSystemTerminalList,GodSystemTerminalDesign
 function L:new(x,y,w,h,owner,callback)
@@ -63,7 +64,7 @@ function L:prerender()
     end
     self:updateTooltip()
 end
-function L:doDrawItem(y,item,alt)
+function L:doDrawItem(y,item,_alt)
     local p=item.item or {}; local h=item.height or self.itemheight; local scroll=self:getYScroll()
     local top,bottom=math.max(y,-scroll),math.min(y+h-(self.compact and 0 or 6),self.height-scroll)
     if bottom<=top then return y+h end

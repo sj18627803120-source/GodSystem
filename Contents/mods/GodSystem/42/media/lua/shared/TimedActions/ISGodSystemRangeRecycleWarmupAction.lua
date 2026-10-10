@@ -1,5 +1,6 @@
 require "TimedActions/ISBaseTimedAction"
 
+---@class ISGodSystemRangeRecycleWarmupAction: ISBaseTimedAction
 ISGodSystemRangeRecycleWarmupAction = ISBaseTimedAction:derive("ISGodSystemRangeRecycleWarmupAction")
 
 function ISGodSystemRangeRecycleWarmupAction:isValid()

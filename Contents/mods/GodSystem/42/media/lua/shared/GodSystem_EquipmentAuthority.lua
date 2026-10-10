@@ -5,7 +5,7 @@ require "GodSystem_EconomyPolicy"
 require "GodSystem_ShopVariants"
 
 GodSystemEquipmentAuthority = GodSystemEquipmentAuthority or {}
-local A, E, I = GodSystemEquipmentAuthority, GodSystemEquipment, GodSystemEquipmentItems
+local A, I = GodSystemEquipmentAuthority, GodSystemEquipmentItems
 
 function A.defaults(multiplayer)
     return {

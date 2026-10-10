@@ -24,6 +24,26 @@ local function sortedSignatureIds(signatures)
     return result
 end
 
+local function sortedSources(args)
+    local values = {}
+    if tonumber(args.selectionVersion) ~= 2 then return values end
+    local function field(value)
+        local stringValue = tostring(value or "")
+        return tostring(#stringValue) .. ":" .. stringValue
+    end
+    for i = 1, #(args.sources or {}) do
+        local row = args.sources[i]
+        if type(row) == "table" then
+            values[#values + 1] = table.concat({ field(row.kind), field(row.itemId),
+                field(row.x), field(row.y), field(row.z), field(row.anchor),
+                field(row.containerType), field(row.containerIndex), field(row.path),
+                field(row.partId) }, "")
+        end
+    end
+    table.sort(values)
+    return values
+end
+
 local function newHash()
     return { a = 5381, b = 7919 }
 end
@@ -41,7 +61,7 @@ local function digest(count, hash)
     return "h:" .. tostring(count) .. ":" .. tostring(hash.a) .. "-" .. tostring(hash.b)
 end
 
-local function writeNormalized(hash, args, ids, signatures, signatureIds)
+local function writeNormalized(hash, args, ids, signatures, signatureIds, sources)
     writeHash(hash, "recycle")
     writeHash(hash, "|")
     writeHash(hash, tostring(args.mode or ""))
@@ -58,6 +78,10 @@ local function writeNormalized(hash, args, ids, signatures, signatureIds)
         writeHash(hash, "=")
         writeHash(hash, tostring(signatures[id] or ""))
     end
+    if tonumber(args.selectionVersion) == 2 then
+        writeHash(hash, "|v:2")
+        for i = 1, #sources do writeHash(hash, "|e:"); writeHash(hash, sources[i]) end
+    end
 end
 
 function F.fingerprint(args)
@@ -65,9 +89,10 @@ function F.fingerprint(args)
     local ids = sortedValues(args.itemIds)
     local signatures = type(args.containerContentSignatures) == "table" and args.containerContentSignatures or {}
     local signatureIds = sortedSignatureIds(signatures)
+    local sources = sortedSources(args)
     if #ids > F.FullFingerprintItemLimit then
         local hash = newHash()
-        writeNormalized(hash, args, ids, signatures, signatureIds)
+        writeNormalized(hash, args, ids, signatures, signatureIds, sources)
         return digest(#ids, hash)
     end
     local parts = {
@@ -79,6 +104,10 @@ function F.fingerprint(args)
     for i = 1, #signatureIds do
         local id = signatureIds[i]
         parts[#parts + 1] = "s:" .. id .. "=" .. tostring(signatures[id] or "")
+    end
+    if tonumber(args.selectionVersion) == 2 then
+        parts[#parts + 1] = "v:2"
+        for i = 1, #sources do parts[#parts + 1] = "e:" .. sources[i] end
     end
     return table.concat(parts, "|")
 end

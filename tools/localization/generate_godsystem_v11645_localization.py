@@ -12,6 +12,7 @@ EN_CARRY_SOURCE = Path(__file__).with_name("godsystem_carry_en.yml")
 EN_MIMIC_SOURCE = Path(__file__).with_name("godsystem_mimic_en.yml")
 EN_SPLASH_SOURCE = Path(__file__).with_name("godsystem_splash_en.yml")
 EN_UTILITY_GENERATOR_SOURCE = Path(__file__).with_name("godsystem_utilitygenerator_en.yml")
+EN_RECYCLE_SOURCE = Path(__file__).with_name("godsystem_recycle_en.yml")
 EN_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "IG_UI_EN.txt"
 CN_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "IG_UI_CN.txt"
 CH_PATH = LUA_ROOT / "shared" / "Translate" / "CH" / "IG_UI_CH.txt"
@@ -31,6 +32,15 @@ SANDBOX_OPTIONS_PATH = LUA_ROOT.parent / "sandbox-options.txt"
 CN_SANDBOX_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "Sandbox.json"
 CH_SANDBOX_PATH = LUA_ROOT / "shared" / "Translate" / "CH" / "Sandbox.json"
 EN_SANDBOX_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "Sandbox.json"
+SANDBOX_TRANSLATION_PREFIX = "GodSystemSettings_"
+REMOVED_SANDBOX_UI_KEYS = {
+    # 3.20.3 removes settings without runtime consumers and their empty section.
+    "AdminSetting_EconomyUnknownDynamicOutputCount",
+    "AdminSetting_EconomyUnknownDynamicOutputCount_Desc",
+    "AdminSetting_MPBackgroundSyncMinutes",
+    "AdminSetting_MPBackgroundSyncMinutes_Desc",
+    "SandboxTitle_GS_Multiplayer",
+}
 REMOVED_UI_KEYS = {
     # 3.15 removed the restore-default action; built-in relations are now
     # disabled or deleted, and switching presets brings them back.
@@ -72,7 +82,7 @@ REMOVED_UI_KEYS = {
     "Equipment_Attr_recoil",
     "Equipment_BaseNote",
     "Equipment_GrowthRule",
-}
+} | REMOVED_SANDBOX_UI_KEYS
 
 
 def parse_flat_yaml(path: Path) -> dict[str, str]:
@@ -114,7 +124,7 @@ def parse_sandbox_options() -> list[dict[str, str]]:
             missing = required.difference(current)
             if missing:
                 raise ValueError(f"Sandbox option {current['key']} is missing {', '.join(sorted(missing))}")
-            expected_translation = f"GodSystem_{current['key']}"
+            expected_translation = f"{SANDBOX_TRANSLATION_PREFIX}{current['key']}"
             if current["translation"] != expected_translation:
                 raise ValueError(
                     f"Sandbox option {current['key']} must use translation {expected_translation}, "
@@ -159,7 +169,7 @@ def write_sandbox_files(entries: dict[str, str], english_entries: dict[str, str]
         "EnableRangeRecycle", "RangeRecycleRadius", "RangeRecycleBatchIntervalSeconds",
         "LotteryItemCacheBuildRate", "HomeSafeZoneScanIntervalHours", "HomeSafeZoneScanBudget",
         "HomeSafeZoneClearLimit", "CompanionAttackSearchSeconds",
-        "CompanionAttackSearchCandidateLimit", "MPBackgroundSyncMinutes",
+        "CompanionAttackSearchCandidateLimit",
     }
     for row in rows:
         key = row["key"]
@@ -169,32 +179,37 @@ def write_sandbox_files(entries: dict[str, str], english_entries: dict[str, str]
             raise ValueError(f"Sandbox option {key} is missing YAML entries: {', '.join(missing)}")
         if "title" in row and f"SandboxTitle_{row['title']}" not in entries:
             raise ValueError(f"Sandbox title {row['title']} is missing YAML text")
+    pages = sorted({row["page"] for row in rows})
+    for page in pages:
+        if f"SandboxPage_{page}" not in entries or f"SandboxPage_{page}" not in english_entries:
+            raise ValueError(f"Sandbox page {page} is missing CN or EN text")
 
     for output_path in (CN_SANDBOX_PATH, CH_SANDBOX_PATH):
-        existing = json.loads(output_path.read_text(encoding="utf-8"))
-        pages = sorted({row["page"] for row in rows})
         output: dict[str, str] = {
-            f"Sandbox_{page}": existing.get(f"Sandbox_{page}", page)
+            f"Sandbox_{page}": entries[f"SandboxPage_{page}"]
             for page in pages
         }
         for row in rows:
             key = row["key"]
             label = entries[f"AdminSetting_{key}"]
-            output[f"Sandbox_GodSystem_{key}"] = ("[性能] " if key in performance_keys else "") + label
-            output[f"Sandbox_GodSystem_{key}_tooltip"] = entries[f"AdminSetting_{key}_Desc"]
+            translation_key = f"Sandbox_{row['translation']}"
+            output[translation_key] = ("[性能] " if key in performance_keys else "") + label
+            output[f"{translation_key}_tooltip"] = entries[f"AdminSetting_{key}_Desc"]
             if "title" in row:
                 title = row["title"]
                 output[f"Sandbox_Title_{title}"] = entries[f"SandboxTitle_{title}"]
         output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     existing = json.loads(EN_SANDBOX_PATH.read_text(encoding="utf-8"))
-    pages = sorted({row["page"] for row in rows})
-    output = {f"Sandbox_{page}": existing.get(f"Sandbox_{page}", page) for page in pages}
+    output = {f"Sandbox_{page}": english_entries[f"SandboxPage_{page}"] for page in pages}
     for row in rows:
         key = row["key"]
-        label = english_entries.get(f"AdminSetting_{key}", existing.get(f"Sandbox_GodSystem_{key}", key))
-        output[f"Sandbox_GodSystem_{key}"] = ("[Performance] " if key in performance_keys else "") + label
-        output[f"Sandbox_GodSystem_{key}_tooltip"] = english_entries.get(
-            f"AdminSetting_{key}_Desc", existing.get(f"Sandbox_GodSystem_{key}_tooltip", ""))
+        translation_key = f"Sandbox_{row['translation']}"
+        legacy_key = f"Sandbox_GodSystem_{key}"
+        label = english_entries.get(f"AdminSetting_{key}", existing.get(translation_key, existing.get(legacy_key, key)))
+        label = re.sub(r"^(?:\[Performance\]\s*)+", "", label)
+        output[translation_key] = ("[Performance] " if key in performance_keys else "") + label
+        output[f"{translation_key}_tooltip"] = english_entries.get(
+            f"AdminSetting_{key}_Desc", existing.get(f"{translation_key}_tooltip", existing.get(f"{legacy_key}_tooltip", "")))
         if "title" in row:
             title = row["title"]
             output[f"Sandbox_Title_{title}"] = english_entries.get(f"SandboxTitle_{title}", title)
@@ -210,9 +225,10 @@ def translate_line(key: str, value: str) -> str:
 def update_translate(path: Path, entries: dict[str, str], remove_obsolete: bool = True) -> None:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
+    removed_keys = REMOVED_UI_KEYS if remove_obsolete else REMOVED_SANDBOX_UI_KEYS
     lines = [
         line for line in lines
-        if not remove_obsolete or not any(re.match(rf'\s*IGUI_GodSystem_{re.escape(key)}\s*=', line) for key in REMOVED_UI_KEYS)
+        if not any(re.match(rf'\s*IGUI_GodSystem_{re.escape(key)}\s*=', line) for key in removed_keys)
     ]
     existing_keys = set()
     for idx, line in enumerate(lines):
@@ -373,6 +389,7 @@ def main() -> None:
     # Carry English text is source-controlled alongside the Chinese YAML.
     # Preserve unrelated legacy English entries until their own migration.
     update_translate(EN_PATH, parse_flat_yaml(EN_CARRY_SOURCE), remove_obsolete=False)
+    update_translate(EN_PATH, parse_flat_yaml(EN_RECYCLE_SOURCE), remove_obsolete=False)
     en_mimic_entries = parse_flat_yaml(EN_MIMIC_SOURCE)
     update_translate(EN_PATH, {key: value for key, value in en_mimic_entries.items() if not key.startswith(("ItemName_", "Tooltip_GodSystem_"))}, remove_obsolete=False)
     update_translate(EN_PATH, parse_flat_yaml(EN_SPLASH_SOURCE), remove_obsolete=False)
@@ -411,7 +428,7 @@ def main() -> None:
     update_item_fallback(ITEM_FALLBACK_PATH, item_entries)
     update_override(OVERRIDE_PATH, ui_entries)
     english_sandbox_entries = {}
-    for source in (EN_CARRY_SOURCE, EN_MIMIC_SOURCE, EN_SPLASH_SOURCE, EN_UTILITY_GENERATOR_SOURCE):
+    for source in (EN_CARRY_SOURCE, EN_MIMIC_SOURCE, EN_SPLASH_SOURCE, EN_UTILITY_GENERATOR_SOURCE, EN_RECYCLE_SOURCE):
         english_sandbox_entries.update(parse_flat_yaml(source))
     sandbox_count = write_sandbox_files(entries, english_sandbox_entries)
     print(f"updated {len(ui_entries)} UI keys, {len(item_entries)} item keys, and {sandbox_count} sandbox options")

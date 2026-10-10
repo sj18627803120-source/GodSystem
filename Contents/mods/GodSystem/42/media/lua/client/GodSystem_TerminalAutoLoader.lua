@@ -23,7 +23,7 @@ function T.install()
         local h=D.height("body")+14; local titleH=self:titleBarHeight()
         local top=titleH+D.height("caption")+24; local y=self.height-h-24
         D.bounds(self.statusLabel,16,titleH+8,self.width-32,D.height("caption")); self.statusLabel.font=D.font("caption")
-        local c=D.colors.muted; self.statusLabel:setColor(c.r,c.g,c.b,1)
+        local c=D.colors.muted; self.statusLabel:setColor(c.r,c.g,c.b)
         D.bounds(self.list,16,top,self.width-32,y-top-20)
         self.list.itemheight=D.height("body")+D.height("caption")+32
         self.list.font=D.font("body"); self.list.backgroundColor=D.copy(D.colors.panel)
@@ -36,7 +36,7 @@ function T.install()
         end
         D.style(self.amountEntry)
     end
-    function W:drawAmmoRow(list,y,row,alternate)
+    function W:drawAmmoRow(list,y,row,_alternate)
         local p=row.item or {}; local h=row.height or list.itemheight; local scroll=list:getYScroll()
         local top,bottom=math.max(y,-scroll),math.min(y+h-6,list.height-scroll)
         if bottom<=top then return y+h end

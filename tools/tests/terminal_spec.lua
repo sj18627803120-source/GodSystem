@@ -215,6 +215,36 @@ test("recycle summary distinguishes allowed and forbidden lists",function()
     assert(w.detailText:find("7",1,true))
     service.getViewModel=original
 end)
+
+test("range corpse toggle stays visible and clickable through refresh, resize and reopening",function()
+    local service=GodSystemApp.services.rangeRecycle
+    local originalView,originalExecute=service.getViewModel,service.execute
+    local includeCorpses,changes=nil,0 -- Missing legacy preference defaults to enabled.
+    service.getViewModel=function() return {status="idle",filterReady=true,includeCorpses=includeCorpses,filter={activeFullTypes={}}} end
+    service.execute=function(_,playerNum,intent,_payload,callback)
+        eq(playerNum,0); eq(intent,"toggleCorpses")
+        includeCorpses=includeCorpses==false; changes=changes+1
+        callback({ok=true}); return "corpses"
+    end
+    for _,screen in ipairs({{1280,720},{1920,1080}}) do
+        screenW,screenH=screen[1],screen[2]
+        for _,font in ipairs({"small","normal","large"}) do
+            w.terminalPrefs={font=font,size="auto"}; w:applyTerminalPreferences()
+            GodSystemUI.openMode("shop"); GodSystemUI.openMode("rangeRecycle")
+            assert(w.fourthButton:getIsVisible(),"range corpse switch was hidden by the action bar")
+            local expected=GodSystemApp.services.runtime.text(includeCorpses==false and "RangeRecycle_CorpsesOff" or "RangeRecycle_CorpsesOn",includeCorpses==false and "Corpses: OFF" or "Corpses: ON")
+            eq(w.fourthButton.fullTitle,expected)
+            assert(w.fourthButton.x>=w.secondaryButton.x+w.secondaryButton.width)
+            assert(w.fourthButton.x+w.fourthButton.width<=w.width and w.fourthButton.y+w.fourthButton.height<=w.height)
+            click(w.fourthButton); assert(w.fourthButton:getIsVisible())
+            expected=GodSystemApp.services.runtime.text(includeCorpses==false and "RangeRecycle_CorpsesOff" or "RangeRecycle_CorpsesOn",includeCorpses==false and "Corpses: OFF" or "Corpses: ON")
+            eq(w.fourthButton.fullTitle,expected)
+            w:populateList(); w:updateDetail(); assert(w.fourthButton:getIsVisible())
+        end
+    end
+    eq(changes,6)
+    service.getViewModel,service.execute=originalView,originalExecute
+end)
 test("feedback: full Chinese detail survives wrapping across pages, widths and font sizes",function()
     local runtime=GodSystemApp.services.runtime
     local oldDescription=runtime.getShopDescription

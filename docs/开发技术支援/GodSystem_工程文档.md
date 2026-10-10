@@ -1,11 +1,11 @@
 # GodSystem 工程文档
 
-更新时间：2026-09-27。目标游戏：Project Zomboid B42.20.4，Lua 5.1/Kahlua。源码版本：`42.20_3.18.5`，范围回收筛选窗口滚动修复已通过自动检查，待实机验收；已验收滚动备份仍为 3.18.4。此前未逐项确认的多人及原生接口场景仍以最新交接为准。此文描述当前代码组织，不替代逐项实机验收。
+更新时间：2026-10-10。目标游戏：Project Zomboid B42.21，Lua 5.1/Kahlua。源码及唯一滚动备份：`42.21_3.21.4`；用户确认当前测试通过，授权同步GitHub main，验收/归档见交接130。尸体本体开关、地面回收核对/备用拾取及配置优化分别见交接129、128、125。此前未逐项确认的多人及原生接口场景保留原状态。开发期诊断工具由 `python tools/analysis/setup.py` 安装，随后运行 `pwsh tools/Test-GodSystem.ps1`；工具不进入运行包。此文描述当前代码组织，不替代逐项实机验收。
 
 ## 项目身份与目录
 
 - 源码仓库：`C:\APPS\Pzmodproject\GodSystem-main`；游戏测试副本：`C:\Users\wan20\Zomboid\Workshop\GodSystem-main`。后者是部署产物，不作为编辑源。
-- 滚动备份：`C:\APPS\Pzmodproject\GodSystem-main.zip`，对应已验收的 3.18.4；`C:\APPS\Pzmodproject\历史资料` 存放旧 UI 测试树、候选归档和笔记。
+- 滚动备份：`C:\APPS\Pzmodproject\GodSystem-main.zip`，对应当前已验收的 3.21.4；`C:\APPS\Pzmodproject\历史资料` 存放旧 UI 测试树、候选归档和笔记。
 - Workshop ID `3773949382`，Mod ID `GodSystem_CN`，存档键 `GodSystem_CN_Data`。文档整理不改变这些身份。
 - 上传结构：`workshop.txt`、`preview.png` 和 `Contents/mods/GodSystem/{mod.info,42/mod.info,42/media}`。`docs`、`tools`、`.git`、`.test-runtime` 与历史资料不属于游戏运行包。
 
@@ -18,7 +18,7 @@
 | `server` | `GodSystem_Server.lua`、`GodSystem_ServerRuntime_*.lua`、`GodSystem_TransactionOps.lua` | MP 命令分发、真实物品/玩家/世界对象复核、结算、回执和同步 |
 | 资源 | `media/scripts/GodSystem_Items.txt`、`media/sandbox-options.txt`、`media/lua/shared/Translate` | 物品、沙盒选项及生成的 CN/CH/EN 文本 |
 
-当前包有 136 个 Lua 文件；精确数量以后以测试输出为准。ServerRuntime 以 installer 注册并由 `GodSystem_Server.lua` 装配；新增命令应先核对 `GodSystem_Protocol.lua`，再核对服务端路由与客户端回执。SP 与 MP 尽量复用 shared 业务规则，由适配器决定真实玩家、存档和同步路径。
+当前包有 142 个 Lua 文件；精确数量以后以测试输出为准。ServerRuntime 以 installer 注册并由 `GodSystem_Server.lua` 装配；新增命令应先核对 `GodSystem_Protocol.lua`，再核对服务端路由与客户端回执。SP 与 MP 尽量复用 shared 业务规则，由适配器决定真实玩家、存档和同步路径。
 
 ## 核心状态与交易
 
@@ -51,3 +51,27 @@ git diff --check
 第一项用 Lua 5.1 VM 编译打包 Lua 并执行行为规格；第二项在目标游戏 Kahlua 环境运行回归；第三项检查包结构、版本、本地化和脚本/协议等静态条件。模拟测试不证明 Java 重载、真实 UI 绘制、世界对象生命周期、反作弊或多人同步。
 
 源码修改后如需部署，先确认测试目录与 Robocopy 进程，用绝对路径镜像 `Contents`、Workshop 元数据及仓库测试所需文件，再逐文件核对 SHA-256 并在目标目录运行静态检查。GitHub 开发分支同步、更新 `main`、覆盖滚动 ZIP 和 Steam Workshop 发布是不同动作。3.17–3.18.1 的实机项目见 [交接 110–112](../GodSystem_DevHandoff_CN/112_v42.20_3.18.1_水电一体机.md)。
+
+### 3.21 补充
+
+当前集中更新见[交接125](../GodSystem_DevHandoff_CN/125_v42.21_3.21_配置一致性与批量回收优化交接.md)。配置核查见[沙盒生效矩阵](沙盒配置生效矩阵.md)，调用量与模拟耗时见[性能评估](3.21_回收性能评估.md)。准备任务比较业务令牌与会话代次；回收同步使用请求内分组，原生删除和恢复验证保留。超时不是失败结算；提交后仅通知失败保留原回执。原生MP收包与世界效果仍待集中实机验收。
+
+## 3.21.1 隐藏管理修复
+
+多人隐藏管理和上架预检通过Runtime.getShopListingRows读取现有ShopListingStore，保留ready和家具变体；最后一块消费完补一次展示刷新。服务端仍独立核验，不改变商品存档或收费规则。详见[交接126](../GodSystem_DevHandoff_CN/126_v42.21_3.21.1_多人隐藏商品管理修复.md)。
+
+## 最新验收状态（2026-10-10）
+
+用户确认42.21_3.21.4当前测试通过，唯一滚动ZIP更新为此版；源码和技术资料集成至GitHub main。验收/归档见[交接130](../GodSystem_DevHandoff_CN/130_v42.21_3.21.4_验收备份与源码同步.md)。多人尚不方便实测，未逐项确认的专项仍保留原状态。可复用的原生返回语义、删除生命周期与真实动作栏验证经验见[开发经验03](../GodSystem_DevHandoff_CN/03_开发经验与踩坑.md)。
+
+## 3.21.2 多人预设状态
+
+当前价格保存在服务器当前世界ModData，共用文件仅保存可复用模板。模板缺失不重置价格或选中标记；MP首次加载和重连等待权威状态，不先选中默认。正常重启及单项修改保持已有存储规则。代码与模拟证据、待实测边界见[交接127](../GodSystem_DevHandoff_CN/127_v42.21_3.21.2_多人价格预设重启显示修复.md)。
+
+## 3.21.3 地面回收
+
+原生世界移除成功后不重复执行生命周期；异常或暂时核验失败后进行一次有界状态复查，确认身份、两个地块列表及世界引用全部清除才结算。失败诊断带步骤和异常摘要。全部恢复并确认失败的地面回收可自动原版拾取后按背包回收一次；多人需匹配操作回执，等待原生物品与背包同步，不对超时/未知结果启动备用。用户已确认回收正常，详见[交接128](../GodSystem_DevHandoff_CN/128_v42.21_3.21.3_地面回收核对与备用拾取.md)。
+
+## 3.21.4 范围回收动作栏与规则
+
+populateList动作栏显式列出fourth按钮，复用既有toggleCorpses意图及个人偏好。共享RangeRecycleDomain在includeCorpses=false时仅跳过corpses，corpseItems继续按原筛选处理。没有新增扫描或网络消息；真实UI及Domain回归覆盖显示与规则独立性，详见交接129。

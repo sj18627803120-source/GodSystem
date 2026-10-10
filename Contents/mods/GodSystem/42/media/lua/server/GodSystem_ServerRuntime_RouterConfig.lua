@@ -98,6 +98,10 @@ function finish(player, ok, message, payload)
 end
 
 function finishCode(player, ok, code, args, payload)
+    if ok ~= true and GodSystemDiagnostics.isUnexpected(code) then
+        local operationId = type(payload) == "table" and (payload.operationId or payload.opId) or diagnostics.lastOperationId
+        GodSystemDiagnostics.issue("server", diagnostics.lastCommand or "command", "result", code, operationId)
+    end
     if recordTaskCompletions then recordTaskCompletions(player, playerData(player)) end
     diagnostics.lastResultOk = ok == true
     diagnostics.lastResultMessage = tostring(code or "")
@@ -274,11 +278,11 @@ function Commands.hello(_, _, player)
     GodSystemServerRangeRecycle.sendFilterSnapshot(player)
 end
 
-function Commands.syncClientData(_, _, player, args)
+function Commands.syncClientData(_, _, player, _args)
     sendState(player)
 end
 
-function Commands.refresh(_, _, player, args)
+function Commands.refresh(_, _, player, _args)
     local data = playerData(player)
     if updateTaskAuthoritativeProgress then updateTaskAuthoritativeProgress(player, data) end
     sendState(player)
@@ -413,15 +417,15 @@ end
 local function relationRows(data, search, page)
     local rows, text = {}, string.lower(trim(search or ""))
     for _, relation in ipairs(GodSystemConversionRelations.all(data)) do
-        local haystack = string.lower(table.concat({ relation.id, relation.sourceFullType, relation.recipeName, relation.note }, " "))
+        local fields = { relation.id, relation.sourceFullType, relation.recipeName or "", relation.note or "" }
         local sourceName = itemDisplayName(relation.sourceFullType)
-        if sourceName ~= "" then haystack = haystack .. " " .. string.lower(sourceName) end
+        if sourceName ~= "" then fields[#fields + 1] = sourceName end
         for _, output in ipairs(relation.outputs or {}) do
-            haystack = haystack .. " " .. string.lower(output.fullType or "")
+            fields[#fields + 1] = output.fullType or ""
             local outputName = itemDisplayName(output.fullType)
-            if outputName ~= "" then haystack = haystack .. " " .. string.lower(outputName) end
+            if outputName ~= "" then fields[#fields + 1] = outputName end
         end
-        if text == "" or string.find(haystack, text, 1, true) then rows[#rows + 1] = relation end
+        if GodSystemPinyin.matchCached("relationsServer", relation.id, fields, text) then rows[#rows + 1] = relation end
     end
     local total, pageSize = #rows, 20
     page = math.max(1, floor(page, 1))
@@ -631,7 +635,7 @@ function Commands.itemConfigPresetApply(_, _, player, args)
     finishCode(player, true, "ItemConfigPresetApplied", nil, { name = store.active })
 end
 
-function Commands.syncKills(_, _, player, args)
+function Commands.syncKills(_, _, player, _args)
     applyRuntimeStores()
     local data = playerData(player)
     local kills = math.max(0, floor(player and player.getZombieKills and player:getZombieKills() or 0))

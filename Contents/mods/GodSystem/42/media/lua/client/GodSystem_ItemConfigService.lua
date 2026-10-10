@@ -58,7 +58,7 @@ local function viewModel()
             details = GodSystemApp.services.runtime.itemConfigDetails or {},
         }
     end
-    if not catalog.complete then catalog:buildStep(64) end
+    -- Only the shared worker advances construction; UI reads do not spend a second budget.
     local page = catalog:query(state.search, 1, service.MAX_RESULTS)
     return {
         allowed = true,
@@ -72,7 +72,7 @@ service:setViewModelProvider(function()
     return viewModel()
 end)
 
-service:setExecutor(function(playerNum, intent, payload, callback)
+service:setExecutor(function(_playerNum, intent, payload, callback)
     intent = tostring(intent or "")
     payload = type(payload) == "table" and payload or {}
     if not GodSystemApp.services.runtime.isItemConfigAllowed() then
@@ -144,6 +144,6 @@ GodSystemItemCatalog.subscribe(function(catalog, built)
     if catalog == GodSystemItemCatalog.Shared then
         service:publish(0, "catalogChanged", { built = built, complete = catalog.complete == true })
     end
-end)
+end, true)
 
 return service

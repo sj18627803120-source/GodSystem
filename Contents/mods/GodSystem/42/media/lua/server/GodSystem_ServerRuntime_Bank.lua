@@ -94,7 +94,7 @@ function prepareBankInvestment(data, tierId, amount)
     return profile, bank.investments[profile.id], amount, nil, nil
 end
 
-function addBankInvestment(data, bank, profile, account, amount, source)
+function addBankInvestment(data, _bank, profile, account, amount, source)
     if (account.balance or 0) <= 0 then
         account.balance = 0
         account.onlineHours = 0

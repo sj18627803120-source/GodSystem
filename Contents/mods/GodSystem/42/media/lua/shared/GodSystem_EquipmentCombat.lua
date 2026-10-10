@@ -42,7 +42,7 @@ function C.new(service,adapter)
     return self
 end
 
-function C:apply(zombie,token)
+function C:apply(zombie,_token)
     self.derived=self.derived+1
     -- Same call as B42.20.4 DebugContextMenu.OnSelectedZombieKnockDown.
     -- Do not substitute state flags for the engine's actual knockdown transition.
@@ -127,7 +127,7 @@ function C:hit(zombie,player,weapon)
         end
     end
     if ledger.impactReleased or not ledger.impactReadyAtStart or zombie:isDead() then return didSomething end
-    local record,cfg=self.service:activeRecord(player,weapon)
+    local record=self.service:activeRecord(player,weapon)
     if not record or record.id~=ledger.equipmentId or record.generation~=ledger.generation or record.revision~=ledger.revision then return didSomething end
     local level=E.level(record,"impact") or 0
     local rule=P.rule(level)

@@ -1,6 +1,7 @@
 require "TimedActions/ISBaseTimedAction"
 require "GodSystem_AutoLoader"
 
+---@class ISGodSystemAutoLoaderDepositAction: ISBaseTimedAction
 ISGodSystemAutoLoaderDepositAction = ISBaseTimedAction:derive("ISGodSystemAutoLoaderDepositAction")
 
 function ISGodSystemAutoLoaderDepositAction:loader()

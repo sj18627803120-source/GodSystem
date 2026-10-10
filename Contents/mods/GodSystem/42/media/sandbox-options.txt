@@ -4,9 +4,8 @@ option GodSystem.EnableEquipment
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    title = GS_Equipment,
-    translation = GodSystem_EnableEquipment,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EnableEquipment,
 }
 
 option GodSystem.EquipmentMaxSlots
@@ -15,8 +14,8 @@ option GodSystem.EquipmentMaxSlots
     min = 1,
     max = 20,
     default = 3,
-    page = GodSystem,
-    translation = GodSystem_EquipmentMaxSlots,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentMaxSlots,
 }
 
 option GodSystem.EquipmentSlotTaskBase
@@ -25,8 +24,8 @@ option GodSystem.EquipmentSlotTaskBase
     min = 0,
     max = 1000000,
     default = 25,
-    page = GodSystem,
-    translation = GodSystem_EquipmentSlotTaskBase,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentSlotTaskBase,
 }
 
 option GodSystem.EquipmentSlotTaskMultiplier
@@ -35,24 +34,24 @@ option GodSystem.EquipmentSlotTaskMultiplier
     min = 1,
     max = 10,
     default = 2,
-    page = GodSystem,
-    translation = GodSystem_EquipmentSlotTaskMultiplier,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentSlotTaskMultiplier,
 }
 
 option GodSystem.EnableEquipmentFreeze
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableEquipmentFreeze,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EnableEquipmentFreeze,
 }
 
 option GodSystem.EnableEquipmentSplash
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableEquipmentSplash,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EnableEquipmentSplash,
 }
 
 option GodSystem.EquipmentFreezeRadius
@@ -61,8 +60,8 @@ option GodSystem.EquipmentFreezeRadius
     min = 1,
     max = 10,
     default = 3,
-    page = GodSystem,
-    translation = GodSystem_EquipmentFreezeRadius,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentFreezeRadius,
 }
 
 option GodSystem.EquipmentFreezeSeconds
@@ -71,16 +70,16 @@ option GodSystem.EquipmentFreezeSeconds
     min = 0.1,
     max = 30,
     default = 3,
-    page = GodSystem,
-    translation = GodSystem_EquipmentFreezeSeconds,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentFreezeSeconds,
 }
 
 option GodSystem.EquipmentFreezeVisuals
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EquipmentFreezeVisuals,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentFreezeVisuals,
 }
 
 option GodSystem.EquipmentMaxLevel
@@ -89,8 +88,8 @@ option GodSystem.EquipmentMaxLevel
     min = 1,
     max = 9999,
     default = 999,
-    page = GodSystem,
-    translation = GodSystem_EquipmentMaxLevel,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentMaxLevel,
 }
 
 option GodSystem.EquipmentGrowthPercent
@@ -99,8 +98,8 @@ option GodSystem.EquipmentGrowthPercent
     min = 0.01,
     max = 100,
     default = 10,
-    page = GodSystem,
-    translation = GodSystem_EquipmentGrowthPercent,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentGrowthPercent,
 }
 
 option GodSystem.EquipmentBaseCost
@@ -109,8 +108,8 @@ option GodSystem.EquipmentBaseCost
     min = 1,
     max = 1000000,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_EquipmentBaseCost,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentBaseCost,
 }
 
 option GodSystem.EquipmentCostExponent
@@ -119,8 +118,8 @@ option GodSystem.EquipmentCostExponent
     min = 0.1,
     max = 3,
     default = 1.5,
-    page = GodSystem,
-    translation = GodSystem_EquipmentCostExponent,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentCostExponent,
 }
 
 option GodSystem.EquipmentBaseChance
@@ -129,8 +128,8 @@ option GodSystem.EquipmentBaseChance
     min = 0.01,
     max = 100,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_EquipmentBaseChance,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentBaseChance,
 }
 
 option GodSystem.EquipmentChanceDecay
@@ -139,8 +138,8 @@ option GodSystem.EquipmentChanceDecay
     min = 0.001,
     max = 1,
     default = 0.9,
-    page = GodSystem,
-    translation = GodSystem_EquipmentChanceDecay,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentChanceDecay,
 }
 
 option GodSystem.EquipmentChanceFloor
@@ -149,8 +148,8 @@ option GodSystem.EquipmentChanceFloor
     min = 0.01,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_EquipmentChanceFloor,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentChanceFloor,
 }
 
 option GodSystem.EquipmentBoostCost
@@ -159,8 +158,8 @@ option GodSystem.EquipmentBoostCost
     min = 1,
     max = 1000000,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_EquipmentBoostCost,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentBoostCost,
 }
 
 option GodSystem.EquipmentRepairCost
@@ -169,8 +168,8 @@ option GodSystem.EquipmentRepairCost
     min = 1,
     max = 1000000,
     default = 300,
-    page = GodSystem,
-    translation = GodSystem_EquipmentRepairCost,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentRepairCost,
 }
 
 option GodSystem.EquipmentRetrieveMultiplier
@@ -179,8 +178,8 @@ option GodSystem.EquipmentRetrieveMultiplier
     min = 0.01,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_EquipmentRetrieveMultiplier,
+    page = GodSystemSettingsEquipment,
+    translation = GodSystemSettings_EquipmentRetrieveMultiplier,
 }
 
 option GodSystem.StartingPoints
@@ -189,9 +188,8 @@ option GodSystem.StartingPoints
     min = 0,
     max = 100000,
     default = 60,
-    page = GodSystem,
-    title = GS_General,
-    translation = GodSystem_StartingPoints,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_StartingPoints,
 }
 
 option GodSystem.KillPointReward
@@ -200,17 +198,17 @@ option GodSystem.KillPointReward
     min = 0,
     max = 1000,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_KillPointReward,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_KillPointReward,
 }
 
 option GodSystem.EnableTasks
 {
     type = boolean,
     default = true,
-    page = GodSystem,
+    page = GodSystemSettingsGeneralTasks,
     title = GS_Tasks,
-    translation = GodSystem_EnableTasks,
+    translation = GodSystemSettings_EnableTasks,
 }
 
 option GodSystem.DailyTaskCount
@@ -219,8 +217,8 @@ option GodSystem.DailyTaskCount
     min = 0,
     max = 20,
     default = 5,
-    page = GodSystem,
-    translation = GodSystem_DailyTaskCount,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_DailyTaskCount,
 }
 
 option GodSystem.MaxActiveTasks
@@ -229,8 +227,8 @@ option GodSystem.MaxActiveTasks
     min = 0,
     max = 10,
     default = 3,
-    page = GodSystem,
-    translation = GodSystem_MaxActiveTasks,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_MaxActiveTasks,
 }
 
 option GodSystem.RefreshTaskCost
@@ -239,8 +237,8 @@ option GodSystem.RefreshTaskCost
     min = 0,
     max = 100000,
     default = 30,
-    page = GodSystem,
-    translation = GodSystem_RefreshTaskCost,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_RefreshTaskCost,
 }
 
 option GodSystem.DefaultTaskLimitHours
@@ -249,8 +247,8 @@ option GodSystem.DefaultTaskLimitHours
     min = 1,
     max = 168,
     default = 24,
-    page = GodSystem,
-    translation = GodSystem_DefaultTaskLimitHours,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_DefaultTaskLimitHours,
 }
 
 option GodSystem.TaskRewardMultiplier
@@ -259,8 +257,8 @@ option GodSystem.TaskRewardMultiplier
     min = 0,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_TaskRewardMultiplier,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_TaskRewardMultiplier,
 }
 
 option GodSystem.TaskPenaltyMultiplier
@@ -269,17 +267,16 @@ option GodSystem.TaskPenaltyMultiplier
     min = 0,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_TaskPenaltyMultiplier,
+    page = GodSystemSettingsGeneralTasks,
+    translation = GodSystemSettings_TaskPenaltyMultiplier,
 }
 
 option GodSystem.EnableShop
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    title = GS_Shop,
-    translation = GodSystem_EnableShop,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_EnableShop,
 }
 
 option GodSystem.ShopBuyPriceMultiplier
@@ -288,16 +285,16 @@ option GodSystem.ShopBuyPriceMultiplier
     min = 0.01,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_ShopBuyPriceMultiplier,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_ShopBuyPriceMultiplier,
 }
 
 option GodSystem.EnableShopDynamicInflation
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableShopDynamicInflation,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_EnableShopDynamicInflation,
 }
 
 option GodSystem.ShopDynamicInflationPercent
@@ -306,8 +303,8 @@ option GodSystem.ShopDynamicInflationPercent
     min = 0,
     max = 100,
     default = 10,
-    page = GodSystem,
-    translation = GodSystem_ShopDynamicInflationPercent,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_ShopDynamicInflationPercent,
 }
 
 option GodSystem.ShopDynamicInflationHours
@@ -316,16 +313,16 @@ option GodSystem.ShopDynamicInflationHours
     min = 1,
     max = 720,
     default = 24,
-    page = GodSystem,
-    translation = GodSystem_ShopDynamicInflationHours,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_ShopDynamicInflationHours,
 }
 
 option GodSystem.EnableAutoLoaderShop
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableAutoLoaderShop,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_EnableAutoLoaderShop,
 }
 
 option GodSystem.EconomyConversionSafetyMargin
@@ -334,35 +331,25 @@ option GodSystem.EconomyConversionSafetyMargin
     min = 0,
     max = 10,
     default = 0.10,
-    page = GodSystem,
-    translation = GodSystem_EconomyConversionSafetyMargin,
-}
-
-option GodSystem.EconomyUnknownDynamicOutputCount
-{
-    type = integer,
-    min = 1,
-    max = 1000000,
-    default = 500,
-    page = GodSystem,
-    translation = GodSystem_EconomyUnknownDynamicOutputCount,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_EconomyConversionSafetyMargin,
 }
 
 option GodSystem.EnableRecycle
 {
     type = boolean,
     default = true,
-    page = GodSystem,
+    page = GodSystemSettingsShopRecycle,
     title = GS_Recycle,
-    translation = GodSystem_EnableRecycle,
+    translation = GodSystemSettings_EnableRecycle,
 }
 
 option GodSystem.EnableRecycleListing
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableRecycleListing,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_EnableRecycleListing,
 }
 
 option GodSystem.AutoShopListOnlyCostRatio
@@ -371,8 +358,8 @@ option GodSystem.AutoShopListOnlyCostRatio
     min = 0,
     max = 100,
     default = 0.5,
-    page = GodSystem,
-    translation = GodSystem_AutoShopListOnlyCostRatio,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_AutoShopListOnlyCostRatio,
 }
 
 option GodSystem.AutoShopListOnlyMinCost
@@ -381,8 +368,8 @@ option GodSystem.AutoShopListOnlyMinCost
     min = 0,
     max = 100000000,
     default = 50,
-    page = GodSystem,
-    translation = GodSystem_AutoShopListOnlyMinCost,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_AutoShopListOnlyMinCost,
 }
 
 option GodSystem.RecycleSellPriceMultiplier
@@ -391,16 +378,16 @@ option GodSystem.RecycleSellPriceMultiplier
     min = 0,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_RecycleSellPriceMultiplier,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_RecycleSellPriceMultiplier,
 }
 
 option GodSystem.EnableRangeRecycle
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableRangeRecycle,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_EnableRangeRecycle,
 }
 
 option GodSystem.RangeRecycleRadius
@@ -409,8 +396,8 @@ option GodSystem.RangeRecycleRadius
     min = 1,
     max = 10,
     default = 5,
-    page = GodSystem,
-    translation = GodSystem_RangeRecycleRadius,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_RangeRecycleRadius,
 }
 
 option GodSystem.RangeRecycleBatchIntervalSeconds
@@ -419,8 +406,8 @@ option GodSystem.RangeRecycleBatchIntervalSeconds
     min = 0.10,
     max = 2.00,
     default = 0.25,
-    page = GodSystem,
-    translation = GodSystem_RangeRecycleBatchIntervalSeconds,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_RangeRecycleBatchIntervalSeconds,
 }
 
 option GodSystem.LotteryItemCacheBuildRate
@@ -429,34 +416,33 @@ option GodSystem.LotteryItemCacheBuildRate
     min = 1,
     max = 10000,
     default = 100,
-    page = GodSystem,
+    page = GodSystemSettingsShopRecycle,
     title = GS_Lottery,
-    translation = GodSystem_LotteryItemCacheBuildRate,
+    translation = GodSystemSettings_LotteryItemCacheBuildRate,
 }
 
 option GodSystem.EnableBank
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    title = GS_Bank,
-    translation = GodSystem_EnableBank,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_EnableBank,
 }
 
 option GodSystem.EnableBankLoan
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableBankLoan,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_EnableBankLoan,
 }
 
 option GodSystem.EnableBankInvestments
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableBankInvestments,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_EnableBankInvestments,
 }
 
 option GodSystem.BankLoanBaseCredit
@@ -465,8 +451,8 @@ option GodSystem.BankLoanBaseCredit
     min = 0,
     max = 100000000,
     default = 2000,
-    page = GodSystem,
-    translation = GodSystem_BankLoanBaseCredit,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanBaseCredit,
 }
 
 option GodSystem.BankLoanCreditSpendStep
@@ -475,8 +461,8 @@ option GodSystem.BankLoanCreditSpendStep
     min = 1,
     max = 1000000,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_BankLoanCreditSpendStep,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanCreditSpendStep,
 }
 
 option GodSystem.BankLoanCreditPerStep
@@ -485,8 +471,8 @@ option GodSystem.BankLoanCreditPerStep
     min = 0,
     max = 1000000,
     default = 5,
-    page = GodSystem,
-    translation = GodSystem_BankLoanCreditPerStep,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanCreditPerStep,
 }
 
 option GodSystem.BankLoanSingleInterestRate
@@ -495,8 +481,8 @@ option GodSystem.BankLoanSingleInterestRate
     min = 0,
     max = 10,
     default = 0.05,
-    page = GodSystem,
-    translation = GodSystem_BankLoanSingleInterestRate,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanSingleInterestRate,
 }
 
 option GodSystem.BankLoanOverduePenaltyDailyRate
@@ -505,8 +491,8 @@ option GodSystem.BankLoanOverduePenaltyDailyRate
     min = 0,
     max = 10,
     default = 0.05,
-    page = GodSystem,
-    translation = GodSystem_BankLoanOverduePenaltyDailyRate,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanOverduePenaltyDailyRate,
 }
 
 option GodSystem.BankLoanOverduePenaltyMaxRate
@@ -515,8 +501,8 @@ option GodSystem.BankLoanOverduePenaltyMaxRate
     min = 0,
     max = 10,
     default = 0.5,
-    page = GodSystem,
-    translation = GodSystem_BankLoanOverduePenaltyMaxRate,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanOverduePenaltyMaxRate,
 }
 
 option GodSystem.BankLoanBankruptcyGraceHours
@@ -525,8 +511,8 @@ option GodSystem.BankLoanBankruptcyGraceHours
     min = 1,
     max = 10000,
     default = 240,
-    page = GodSystem,
-    translation = GodSystem_BankLoanBankruptcyGraceHours,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanBankruptcyGraceHours,
 }
 
 option GodSystem.BankLoanFreezeHours
@@ -535,8 +521,8 @@ option GodSystem.BankLoanFreezeHours
     min = 0,
     max = 10000,
     default = 168,
-    page = GodSystem,
-    translation = GodSystem_BankLoanFreezeHours,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanFreezeHours,
 }
 
 option GodSystem.BankLoanZombieDebtPerZombie
@@ -545,8 +531,8 @@ option GodSystem.BankLoanZombieDebtPerZombie
     min = 1,
     max = 1000000,
     default = 50,
-    page = GodSystem,
-    translation = GodSystem_BankLoanZombieDebtPerZombie,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanZombieDebtPerZombie,
 }
 
 option GodSystem.BankLoanZombieMaxCount
@@ -555,8 +541,8 @@ option GodSystem.BankLoanZombieMaxCount
     min = 0,
     max = 1000,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_BankLoanZombieMaxCount,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankLoanZombieMaxCount,
 }
 
 option GodSystem.BankInvestmentMinAmount
@@ -565,8 +551,8 @@ option GodSystem.BankInvestmentMinAmount
     min = 1,
     max = 100000000,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentMinAmount,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentMinAmount,
 }
 
 option GodSystem.BankInvestmentStableGainChance
@@ -575,8 +561,8 @@ option GodSystem.BankInvestmentStableGainChance
     min = 0,
     max = 100,
     default = 70,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentStableGainChance,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentStableGainChance,
 }
 
 option GodSystem.BankInvestmentStableLossChance
@@ -585,8 +571,8 @@ option GodSystem.BankInvestmentStableLossChance
     min = 0,
     max = 100,
     default = 5,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentStableLossChance,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentStableLossChance,
 }
 
 option GodSystem.BankInvestmentStableGainPercent
@@ -595,8 +581,8 @@ option GodSystem.BankInvestmentStableGainPercent
     min = 0,
     max = 1000,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentStableGainPercent,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentStableGainPercent,
 }
 
 option GodSystem.BankInvestmentStableLossPercent
@@ -605,8 +591,8 @@ option GodSystem.BankInvestmentStableLossPercent
     min = 0,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentStableLossPercent,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentStableLossPercent,
 }
 
 option GodSystem.BankInvestmentBalancedGainChance
@@ -615,8 +601,8 @@ option GodSystem.BankInvestmentBalancedGainChance
     min = 0,
     max = 100,
     default = 55,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentBalancedGainChance,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentBalancedGainChance,
 }
 
 option GodSystem.BankInvestmentBalancedLossChance
@@ -625,8 +611,8 @@ option GodSystem.BankInvestmentBalancedLossChance
     min = 0,
     max = 100,
     default = 30,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentBalancedLossChance,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentBalancedLossChance,
 }
 
 option GodSystem.BankInvestmentBalancedGainPercent
@@ -635,8 +621,8 @@ option GodSystem.BankInvestmentBalancedGainPercent
     min = 0,
     max = 1000,
     default = 3,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentBalancedGainPercent,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentBalancedGainPercent,
 }
 
 option GodSystem.BankInvestmentBalancedLossPercent
@@ -645,8 +631,8 @@ option GodSystem.BankInvestmentBalancedLossPercent
     min = 0,
     max = 100,
     default = 2,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentBalancedLossPercent,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentBalancedLossPercent,
 }
 
 option GodSystem.BankInvestmentAggressiveGainChance
@@ -655,8 +641,8 @@ option GodSystem.BankInvestmentAggressiveGainChance
     min = 0,
     max = 100,
     default = 45,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentAggressiveGainChance,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentAggressiveGainChance,
 }
 
 option GodSystem.BankInvestmentAggressiveLossChance
@@ -665,8 +651,8 @@ option GodSystem.BankInvestmentAggressiveLossChance
     min = 0,
     max = 100,
     default = 45,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentAggressiveLossChance,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentAggressiveLossChance,
 }
 
 option GodSystem.BankInvestmentAggressiveGainPercent
@@ -675,8 +661,8 @@ option GodSystem.BankInvestmentAggressiveGainPercent
     min = 0,
     max = 1000,
     default = 8,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentAggressiveGainPercent,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentAggressiveGainPercent,
 }
 
 option GodSystem.BankInvestmentAggressiveLossPercent
@@ -685,33 +671,32 @@ option GodSystem.BankInvestmentAggressiveLossPercent
     min = 0,
     max = 100,
     default = 5,
-    page = GodSystem,
-    translation = GodSystem_BankInvestmentAggressiveLossPercent,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_BankInvestmentAggressiveLossPercent,
 }
 
 option GodSystem.EnableUtilityGenerator
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    title = GS_Utility,
-    translation = GodSystem_EnableUtilityGenerator,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_EnableUtilityGenerator,
 }
 
 option GodSystem.EnableUtilityGeneratorWater
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableUtilityGeneratorWater,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_EnableUtilityGeneratorWater,
 }
 
 option GodSystem.EnableUtilityGeneratorElectricity
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableUtilityGeneratorElectricity,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_EnableUtilityGeneratorElectricity,
 }
 
 option GodSystem.UtilityGeneratorWaterPricePer100L
@@ -720,8 +705,8 @@ option GodSystem.UtilityGeneratorWaterPricePer100L
     min = 0,
     max = 1000000,
     default = 20,
-    page = GodSystem,
-    translation = GodSystem_UtilityGeneratorWaterPricePer100L,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_UtilityGeneratorWaterPricePer100L,
 }
 
 option GodSystem.UtilityGeneratorElectricityPricePerFuelUnit
@@ -730,25 +715,25 @@ option GodSystem.UtilityGeneratorElectricityPricePerFuelUnit
     min = 0,
     max = 1000000,
     default = 5,
-    page = GodSystem,
-    translation = GodSystem_UtilityGeneratorElectricityPricePerFuelUnit,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_UtilityGeneratorElectricityPricePerFuelUnit,
 }
 
 option GodSystem.EnableTeleport
 {
     type = boolean,
     default = true,
-    page = GodSystem,
+    page = GodSystemSettingsWorld,
     title = GS_Home,
-    translation = GodSystem_EnableTeleport,
+    translation = GodSystemSettings_EnableTeleport,
 }
 
 option GodSystem.EnableTeleportFallback
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableTeleportFallback,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_EnableTeleportFallback,
 }
 
 option GodSystem.HomeSetCost
@@ -757,8 +742,8 @@ option GodSystem.HomeSetCost
     min = 0,
     max = 100000,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_HomeSetCost,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_HomeSetCost,
 }
 
 option GodSystem.HomeTravelCost
@@ -767,8 +752,8 @@ option GodSystem.HomeTravelCost
     min = 0,
     max = 100000,
     default = 10,
-    page = GodSystem,
-    translation = GodSystem_HomeTravelCost,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_HomeTravelCost,
 }
 
 option GodSystem.TempTeleportSlotCost
@@ -777,8 +762,8 @@ option GodSystem.TempTeleportSlotCost
     min = 0,
     max = 100000,
     default = 500,
-    page = GodSystem,
-    translation = GodSystem_TempTeleportSlotCost,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_TempTeleportSlotCost,
 }
 
 option GodSystem.TempTeleportSetCost
@@ -787,8 +772,8 @@ option GodSystem.TempTeleportSetCost
     min = 0,
     max = 100000,
     default = 100,
-    page = GodSystem,
-    translation = GodSystem_TempTeleportSetCost,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_TempTeleportSetCost,
 }
 
 option GodSystem.HomeSafeZoneScanIntervalHours
@@ -797,8 +782,8 @@ option GodSystem.HomeSafeZoneScanIntervalHours
     min = 0.25,
     max = 24.00,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_HomeSafeZoneScanIntervalHours,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_HomeSafeZoneScanIntervalHours,
 }
 
 option GodSystem.HomeSafeZoneScanBudget
@@ -807,8 +792,8 @@ option GodSystem.HomeSafeZoneScanBudget
     min = 1,
     max = 4096,
     default = 256,
-    page = GodSystem,
-    translation = GodSystem_HomeSafeZoneScanBudget,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_HomeSafeZoneScanBudget,
 }
 
 option GodSystem.HomeSafeZoneClearLimit
@@ -817,25 +802,24 @@ option GodSystem.HomeSafeZoneClearLimit
     min = 1,
     max = 1024,
     default = 64,
-    page = GodSystem,
-    translation = GodSystem_HomeSafeZoneClearLimit,
+    page = GodSystemSettingsWorld,
+    translation = GodSystemSettings_HomeSafeZoneClearLimit,
 }
 
 option GodSystem.EnableTraits
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    title = GS_Traits,
-    translation = GodSystem_EnableTraits,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_EnableTraits,
 }
 
 option GodSystem.EnableAttributes
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    translation = GodSystem_EnableAttributes,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_EnableAttributes,
 }
 
 option GodSystem.PositiveTraitCostPerPoint
@@ -844,8 +828,8 @@ option GodSystem.PositiveTraitCostPerPoint
     min = 0,
     max = 100000,
     default = 800,
-    page = GodSystem,
-    translation = GodSystem_PositiveTraitCostPerPoint,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_PositiveTraitCostPerPoint,
 }
 
 option GodSystem.NegativeTraitRemoveCostPerPoint
@@ -854,8 +838,8 @@ option GodSystem.NegativeTraitRemoveCostPerPoint
     min = 0,
     max = 100000,
     default = 500,
-    page = GodSystem,
-    translation = GodSystem_NegativeTraitRemoveCostPerPoint,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_NegativeTraitRemoveCostPerPoint,
 }
 
 option GodSystem.AttributeXPPerCoin
@@ -864,8 +848,8 @@ option GodSystem.AttributeXPPerCoin
     min = 1,
     max = 1000000,
     default = 10,
-    page = GodSystem,
-    translation = GodSystem_AttributeXPPerCoin,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_AttributeXPPerCoin,
 }
 
 option GodSystem.MedicalCheckInfectionCost
@@ -874,9 +858,9 @@ option GodSystem.MedicalCheckInfectionCost
     min = 0,
     max = 1000000,
     default = 50,
-    page = GodSystem,
+    page = GodSystemSettingsCharacter,
     title = GS_Medical,
-    translation = GodSystem_MedicalCheckInfectionCost,
+    translation = GodSystemSettings_MedicalCheckInfectionCost,
 }
 
 option GodSystem.DeathProtectionCost
@@ -885,8 +869,8 @@ option GodSystem.DeathProtectionCost
     min = 0,
     max = 1000000,
     default = 20000,
-    page = GodSystem,
-    translation = GodSystem_DeathProtectionCost,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_DeathProtectionCost,
 }
 
 option GodSystem.MedicalHealInjuriesCost
@@ -895,8 +879,8 @@ option GodSystem.MedicalHealInjuriesCost
     min = 0,
     max = 1000000,
     default = 5000,
-    page = GodSystem,
-    translation = GodSystem_MedicalHealInjuriesCost,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_MedicalHealInjuriesCost,
 }
 
 option GodSystem.MedicalCureInfectionCost
@@ -905,17 +889,16 @@ option GodSystem.MedicalCureInfectionCost
     min = 0,
     max = 1000000,
     default = 2000,
-    page = GodSystem,
-    translation = GodSystem_MedicalCureInfectionCost,
+    page = GodSystemSettingsCharacter,
+    translation = GodSystemSettings_MedicalCureInfectionCost,
 }
 
 option GodSystem.EnableCompanion
 {
     type = boolean,
     default = true,
-    page = GodSystem,
-    title = GS_Companion,
-    translation = GodSystem_EnableCompanion,
+    page = GodSystemSettingsOther,
+    translation = GodSystemSettings_EnableCompanion,
 }
 
 option GodSystem.CompanionPriceMultiplier
@@ -924,8 +907,8 @@ option GodSystem.CompanionPriceMultiplier
     min = 0.01,
     max = 100,
     default = 1,
-    page = GodSystem,
-    translation = GodSystem_CompanionPriceMultiplier,
+    page = GodSystemSettingsOther,
+    translation = GodSystemSettings_CompanionPriceMultiplier,
 }
 
 option GodSystem.CompanionAttackSearchSeconds
@@ -934,8 +917,8 @@ option GodSystem.CompanionAttackSearchSeconds
     min = 0.10,
     max = 10.00,
     default = 0.5,
-    page = GodSystem,
-    translation = GodSystem_CompanionAttackSearchSeconds,
+    page = GodSystemSettingsOther,
+    translation = GodSystemSettings_CompanionAttackSearchSeconds,
 }
 
 option GodSystem.CompanionAttackSearchCandidateLimit
@@ -944,8 +927,8 @@ option GodSystem.CompanionAttackSearchCandidateLimit
     min = 1,
     max = 64,
     default = 8,
-    page = GodSystem,
-    translation = GodSystem_CompanionAttackSearchCandidateLimit,
+    page = GodSystemSettingsOther,
+    translation = GodSystemSettings_CompanionAttackSearchCandidateLimit,
 }
 
 option GodSystem.AutoLoaderAmmoCapacity
@@ -954,18 +937,7 @@ option GodSystem.AutoLoaderAmmoCapacity
     min = 100,
     max = 10000,
     default = 2000,
-    page = GodSystem,
+    page = GodSystemSettingsOther,
     title = GS_AutoLoader,
-    translation = GodSystem_AutoLoaderAmmoCapacity,
-}
-
-option GodSystem.MPBackgroundSyncMinutes
-{
-    type = double,
-    min = 1,
-    max = 60,
-    default = 5,
-    page = GodSystem,
-    title = GS_Multiplayer,
-    translation = GodSystem_MPBackgroundSyncMinutes,
+    translation = GodSystemSettings_AutoLoaderAmmoCapacity,
 }

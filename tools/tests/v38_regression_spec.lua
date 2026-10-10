@@ -2,6 +2,15 @@ local function load(path) return assert(loadstring(readSource(path)))() end
 local function eq(a,b) assert(a==b,tostring(a).." ~= "..tostring(b)) end
 local function test(name,fn) fn(); print("PASS 3.8 regression: "..name) end
 load("shared/GodSystem_ShopInflation.lua")
+load("shared/GodSystem_B42JavaCalls.lua")
+load("shared/GodSystem_ExternalRecycle.lua")
+load("shared/GodSystem_RecycleResult.lua")
+local previousRequire = require
+require = function(name)
+    if name == "GodSystem_ExternalRecycle" then return GodSystemExternalRecycle end
+    if name == "GodSystem_RecycleResult" then return GodSystemRecycleResult end
+    return previousRequire and previousRequire(name)
+end
 local S=GodSystemShopInflation
 local function config() return {EnableShopDynamicInflation=true,ShopDynamicInflationPercent=10,ShopDynamicInflationHours=24} end
 

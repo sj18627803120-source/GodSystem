@@ -327,11 +327,11 @@ function GodSystemApp.services.runtime.getShopItemUnitPrice(shopItem)
     return quote and quote.total or GodSystemApp.services.runtime.getShopBaseUnitPrice(shopItem)
 end
 
-function GodSystemApp.services.runtime.getAutoShopBuyPriceForItem(fullType, sellValue)
+function GodSystemApp.services.runtime.getAutoShopBuyPriceForItem(fullType, _sellValue)
     return GodSystemEconomyPolicy.quote(fullType, nil, { kind = "shop" }).finalBuy
 end
 
-function GodSystemApp.services.runtime.getAutoShopListOnlyCost(fullType, sellValue)
+function GodSystemApp.services.runtime.getAutoShopListOnlyCost(fullType, _sellValue)
     return GodSystemEconomyPolicy.listingCost(fullType, nil)
 end
 
@@ -383,7 +383,7 @@ function GodSystemApp.services.runtime.getEconomyQuoteDetail(fullType, item, adm
     return table.concat(lines, "\n"), quote
 end
 
-function GodSystemApp.services.runtime.calculateRecyclePayout(fullType, rawValue, removedCount)
+function GodSystemApp.services.runtime.calculateRecyclePayout(_fullType, rawValue, _removedCount)
     rawValue = math.floor(tonumber(rawValue) or 0)
     if rawValue <= 0 then
         return 0
@@ -670,10 +670,21 @@ function GodSystemApp.services.runtime.listOnlyAutoShopItem(fullType, itemId)
     return true
 end
 
+function GodSystemApp.services.runtime.getShopListingRows(data)
+    data = data or GodSystemApp.services.runtime.getData()
+    if GodSystemShopListingStore then return GodSystemShopListingStore.rowsFor(data) end
+    return data and data.unlockedShopItems or {}, true
+end
+
 function GodSystemApp.services.runtime.getUnlockedShopItemsList(includeHidden)
     local data = GodSystemApp.services.runtime.getData()
+    local listings, ready = GodSystemApp.services.runtime.getShopListingRows(data)
+    if not ready then
+        if GodSystemShopListingStore then GodSystemShopListingStore.request() end
+        return {}, false
+    end
     local result = {}
-    local rows = GodSystemShopVariants.getUnlockedRows(data, includeHidden)
+    local rows = GodSystemShopVariants.getUnlockedRows({ unlockedShopItems = listings }, includeHidden)
     for i = 1, #rows do
         local item = rows[i]
         local variantKey = item.variantKey or GodSystemShopVariants.getKey(item.fullType, item.worldSprite)
@@ -701,7 +712,7 @@ function GodSystemApp.services.runtime.getUnlockedShopItemsList(includeHidden)
         if left == right then return tostring(a.variantKey or a.id) < tostring(b.variantKey or b.id) end
         return left < right
     end)
-    return result
+    return result, true
 end
 
 function GodSystemApp.services.runtime.setShopItemHidden(variantKey, hidden)

@@ -35,16 +35,39 @@ local function append(result, seen, item)
     seen[item] = true
     local typeName = fullType(item)
     local ok, source = pcall(function() return item:getContainer() end)
+    source = ok and source or nil
+    local potentialWorld = not source
+    if source then
+        local isFloor = result.floorSources[source]
+        if isFloor == nil then
+            local okType, sourceType = pcall(function()
+                return source.getType and source:getType() or nil
+            end)
+            isFloor = okType and sourceType == "floor"
+            result.floorSources[source] = isFloor
+        end
+        potentialWorld = isFloor
+    end
+    if potentialWorld then
+        local okWorld, worldObject = pcall(function() return item:getWorldItem() end)
+        if okWorld and worldObject then
+            local okSquare, square = pcall(function() return worldObject:getSquare() end)
+            if okSquare and square then
+                result.worldObjects[item] = worldObject
+                result.worldSquares[item] = square
+            end
+        end
+    end
     result.items[#result.items + 1] = item
     result.fullTypes[item] = typeName
-    result.sources[item] = ok and source or false
+    result.sources[item] = source or false
     local group = result.types[typeName] or { count = 0, item = item }
     result.types[typeName] = group
     group.count = group.count + 1
 end
 
 local function expand(values)
-    local snapshot = { __godSystemInventorySnapshot = true, items = {}, entries = {}, byId = {}, fullTypes = {}, sources = {}, types = {} }
+    local snapshot = { __godSystemInventorySnapshot = true, items = {}, entries = {}, byId = {}, fullTypes = {}, sources = {}, floorSources = {}, worldObjects = {}, worldSquares = {}, types = {} }
     local seen = {}
     for _, value in ipairs(values or {}) do
         if instanceof(value, "InventoryItem") then
@@ -65,7 +88,8 @@ function Dispatcher.getEntry(snapshot, index)
     local sprite = worldSprite(item)
     local typeName = snapshot.fullTypes[item]
     local meta = { item = item, id = id, fullType = typeName, worldSprite = sprite,
-        source = snapshot.sources[item], variantKey = GodSystemShopVariants.getKey(typeName, sprite) }
+        source = snapshot.sources[item], worldObject = snapshot.worldObjects[item],
+        worldSquare = snapshot.worldSquares[item], variantKey = GodSystemShopVariants.getKey(typeName, sprite) }
     snapshot.entries[index] = meta
     if id then
         if snapshot.byId[id] and snapshot.byId[id].item ~= item then snapshot.invalid = true end

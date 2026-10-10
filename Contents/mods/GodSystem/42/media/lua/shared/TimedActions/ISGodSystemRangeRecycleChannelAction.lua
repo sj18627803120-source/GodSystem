@@ -1,5 +1,6 @@
 require "TimedActions/ISBaseTimedAction"
 
+---@class ISGodSystemRangeRecycleChannelAction: ISBaseTimedAction
 ISGodSystemRangeRecycleChannelAction = ISBaseTimedAction:derive("ISGodSystemRangeRecycleChannelAction")
 
 local function rangeService()

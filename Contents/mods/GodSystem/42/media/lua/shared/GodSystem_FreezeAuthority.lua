@@ -60,7 +60,7 @@ function A:flush(now)
     if not self.mp or #self.pending==0 then return end
     -- Every bounded tick sends at most one 32-target batch; never delay final clears.
     local rows={}
-    for n=1,math.min(32,#self.pending) do
+    for _n=1,math.min(32,#self.pending) do
         local entry=table.remove(self.pending); self.pendingSet[entry]=nil
         local z=entry.object
         rows[#rows+1]={id=z:getOnlineID(),token=entry.token,x=z:getX(),y=z:getY(),z=z:getZ(),

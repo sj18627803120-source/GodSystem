@@ -70,7 +70,7 @@ function T.install()
         self.terminalPageHelp=button(self,"?",function(win) win.terminalManualTopic=win.mode; win:onModeButton({internal="info"}) end)
         self.terminalPageLabel=label(self)
         self.terminalSearch=ISTextEntryBox:new("",0,0,240,34); self.terminalSearch:initialise(); self.terminalSearch:instantiate()
-        self.terminalSearch.onTextChange=function(entry) if self.mode=="info" and not self.terminalSearchUpdating then self:populateList() end end
+        self.terminalSearch.onTextChange=function(_entry) if self.mode=="info" and not self.terminalSearchUpdating then self:populateList() end end
         self:addChild(self.terminalSearch)
         self.terminalFont=button(self,"",function(win)
             local cycle={small="normal",normal="large",large="small"}; win.terminalPrefs.font=cycle[win.terminalPrefs.font]; win:populateList()

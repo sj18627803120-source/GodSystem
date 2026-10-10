@@ -311,11 +311,9 @@ function GodSystemItemConfig.ensurePresets(data)
     if type(store.order) ~= "table" then store.order = {} end
     if type(store.presets) ~= "table" then store.presets = {} end
     if type(store.remarks) ~= "table" then store.remarks = {} end
-    local seen = {}
     local order = {}
     for _, name in ipairs(GodSystemItemConfig.PRESET_SLOTS) do
         if type(store.presets[name]) == "table" then
-            seen[name] = true
             order[#order + 1] = name
         end
     end
@@ -323,7 +321,10 @@ function GodSystemItemConfig.ensurePresets(data)
     if type(store.active) ~= "string" or store.active == "" then
         store.active = GodSystemItemConfig.PRESET_DEFAULT
     end
-    if store.active ~= GodSystemItemConfig.PRESET_DEFAULT and not seen[store.active] then
+    -- Active describes this world's applied configuration, not the availability
+    -- of a reusable template. Losing a template does not restore live prices.
+    -- Explicit delete/default operations update active separately.
+    if store.active ~= GodSystemItemConfig.PRESET_DEFAULT and not GodSystemItemConfig.isPresetSlot(store.active) then
         store.active = GodSystemItemConfig.PRESET_DEFAULT
     end
     return store

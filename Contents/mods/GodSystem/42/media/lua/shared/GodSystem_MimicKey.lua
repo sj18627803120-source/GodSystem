@@ -25,7 +25,8 @@ end
 
 local function integer(raw, fallback)
     local number = tonumber(raw)
-    return number == nil and fallback or math.floor(number)
+    if number == nil then return fallback end
+    return math.floor(number)
 end
 
 function Mimic.itemId(item)

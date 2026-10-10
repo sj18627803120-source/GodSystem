@@ -106,7 +106,7 @@ end
 
 local function prepareRewards(drawCount)
     local rewards, types = {}, {}
-    for draw = 1, drawCount do
+    for _draw = 1, drawCount do
         local reward, fullType = nil, nil
         for _ = 1, 8 do
             fullType = GodSystemLottery and GodSystemLottery.drawCandidate and GodSystemLottery.drawCandidate() or nil

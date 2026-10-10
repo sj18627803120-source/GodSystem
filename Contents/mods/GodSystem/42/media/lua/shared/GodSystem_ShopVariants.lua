@@ -33,7 +33,7 @@ function GodSystemShopVariants.getConfiguredKeySet(shopItems)
     return result
 end
 
-function GodSystemShopVariants.normalizeUnlocked(data, configuredKeys)
+function GodSystemShopVariants.normalizeUnlocked(data, _configuredKeys)
     if type(data) ~= "table" then return {} end
     data.unlockedShopItems = type(data.unlockedShopItems) == "table" and data.unlockedShopItems or {}
     local migrated = {}

@@ -2,6 +2,7 @@
 -- authority for availability, prices and settlement; this only avoids doing
 -- the same catalogue work again for every page turn or text keystroke.
 GodSystemShopCatalog = GodSystemShopCatalog or {}
+require "GodSystem_Pinyin"
 
 local Catalog = GodSystemShopCatalog
 Catalog.MAX_STEP_RECORDS = 50
@@ -138,6 +139,7 @@ local function buildRow(builder, source)
         builder.categoryMap[category.key] = true; builder.categories[#builder.categories + 1] = category
     end
     return { item = item, key = key, category = category, label = label, sortLabel = text(label),
+        searchIndex = GodSystemPinyin.buildIndex({ label, tostring(item.fullType or ""), tostring(category.label or ""), tostring(category.key or ""), tostring(item.group or "") }),
         searchText = text(label .. " " .. tostring(item.fullType or "") .. " " .. tostring(category.label or "") .. " " .. tostring(category.key or "") .. " " .. tostring(item.group or "")),
         order = builder.cursor }
 end
@@ -284,7 +286,7 @@ function Catalog.view(categoryKey, searchText)
     local result = {}
     for i = 1, #snapshot.rows do
         local row = snapshot.rows[i]
-        if (categoryKey == "all" or row.category.key == categoryKey) and (searchText == "" or string.find(row.searchText, searchText, 1, true)) then
+        if (categoryKey == "all" or row.category.key == categoryKey) and GodSystemPinyin.matches(row.searchIndex, searchText) then
             row.favoriteRank = favorites[row.key] == true and 1 or 0
             row.recentRank = ranks[row.key] or 999999
             result[#result + 1] = row

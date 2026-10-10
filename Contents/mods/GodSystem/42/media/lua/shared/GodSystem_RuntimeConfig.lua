@@ -51,7 +51,7 @@ end
 
 local function clampNumber(value, fallback, minimum, maximum)
     local number = tonumber(value)
-    if number == nil then number = fallback end
+    if number == nil or number ~= number or number == math.huge or number == -math.huge then number = fallback end
     if number < minimum then return minimum end
     if number > maximum then return maximum end
     return number
@@ -62,7 +62,8 @@ local function copyScalars(source)
     if type(source) ~= "table" then return result end
     for key, value in pairs(source) do
         local valueType = type(value)
-        if valueType == "boolean" or valueType == "number" or valueType == "string" then
+        if valueType == "boolean" or valueType == "string"
+            or (valueType == "number" and value == value and value ~= math.huge and value ~= -math.huge) then
             result[tostring(key)] = value
         end
     end
@@ -159,15 +160,15 @@ local function applyBankInvestmentProfiles(snapshot)
     for i = 1, #tiers do
         local tier = tiers[i]
         local current = GodSystemConfig.BankInvestmentProfiles[tier.id] or {}
-        local gainChance = tonumber(snapshot[tier.prefix .. "GainChance"])
-        local lossChance = tonumber(snapshot[tier.prefix .. "LossChance"])
+        local gainChance = clampNumber(snapshot[tier.prefix .. "GainChance"], current.gainChance or 0, 0, 100)
+        local lossChance = clampNumber(snapshot[tier.prefix .. "LossChance"], current.lossChance or 0, 0, 100)
         GodSystemConfig.BankInvestmentProfiles[tier.id] = {
             id = current.id or tier.id,
             labelKey = current.labelKey,
-            gainChance = gainChance or current.gainChance,
-            lossChance = math.min(lossChance or current.lossChance or 0, 100 - (gainChance or current.gainChance or 0)),
-            gainPercent = tonumber(snapshot[tier.prefix .. "GainPercent"]) or current.gainPercent,
-            lossPercent = tonumber(snapshot[tier.prefix .. "LossPercent"]) or current.lossPercent,
+            gainChance = gainChance,
+            lossChance = math.min(lossChance, 100 - gainChance),
+            gainPercent = clampNumber(snapshot[tier.prefix .. "GainPercent"], current.gainPercent or 0, 0, 1000),
+            lossPercent = clampNumber(snapshot[tier.prefix .. "LossPercent"], current.lossPercent or 0, 0, 100),
         }
     end
 end
@@ -234,6 +235,24 @@ end
 
 function GodSystemRuntimeConfig.isFeatureEnabled(key, fallback)
     return boolValue(GodSystemRuntimeConfig.get(key, fallback ~= false), fallback ~= false)
+end
+
+-- Only preparation dependencies, never table identity or unrelated wallet state.
+function GodSystemRuntimeConfig.recyclePreparationToken(mode)
+    local parts = { tostring(GodSystemRuntimeConfig.isFeatureEnabled("EnableRecycle")) }
+    if mode == "rangeFilter" then
+        parts[#parts + 1] = tostring(GodSystemRuntimeConfig.isFeatureEnabled("EnableRangeRecycle"))
+    else
+        parts[#parts + 1] = tostring(GodSystemRuntimeConfig.PricingRevision)
+        parts[#parts + 1] = tostring(GodSystemRuntimeConfig.get("RecycleSellPriceMultiplier", 1))
+        if mode ~= "recycle" then
+            for _, key in ipairs({ "EnableShop", "EnableRecycleListing", "EnableAutoLoaderShop",
+                "AutoShopListOnlyCostRatio", "AutoShopListOnlyMinCost" }) do
+                parts[#parts + 1] = key .. "=" .. tostring(GodSystemRuntimeConfig.get(key))
+            end
+        end
+    end
+    return table.concat(parts, "|")
 end
 
 function GodSystemRuntimeConfig.applyTaskReward(value)

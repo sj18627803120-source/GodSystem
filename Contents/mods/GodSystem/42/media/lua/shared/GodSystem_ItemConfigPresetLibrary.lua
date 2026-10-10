@@ -242,8 +242,7 @@ function Library.load(data)
     end
     local active = localStore.active
     data.itemConfigPresets = { order = slots.order, presets = slots.presets, remarks = slots.remarks,
-        active = active ~= GodSystemItemConfig.PRESET_DEFAULT and slots.presets[active] and active
-            or GodSystemItemConfig.PRESET_DEFAULT }
+        active = active }
     GodSystemItemConfig.ensurePresets(data)
     return true
 end

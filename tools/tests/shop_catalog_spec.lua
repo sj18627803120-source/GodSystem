@@ -1,3 +1,15 @@
+local originalRequire = require
+function require(name)
+    if name == "GodSystem_Pinyin" then
+        assert(loadstring(readSource("shared/GodSystem_Pinyin.lua"), "@Pinyin"))()
+        return GodSystemPinyin
+    end
+    if name == "GodSystem_PinyinData" then
+        GodSystemPinyinData = {}
+        return GodSystemPinyinData
+    end
+    return originalRequire(name)
+end
 local source = readSource("client/GodSystem_ShopCatalog.lua")
 GodSystemConfig = { ShopItems = {} }
 GodSystemItemConfig = { getItemOverrides = function() return {} end, getShopVariantOverrides = function() return {} end, getShopVariantMode = function() return "auto" end }
@@ -106,6 +118,15 @@ S.step(50,999)
 assert(S.ready and S.rows.fresh and not S.rows.stale and not S.rows.a)
 S.resetSession()
 assert(not S.ready and S.pendingId==nil and S.rows.fresh==nil)
+S.reset(4, 5000)
+local bulk={}
+for i=1,5000 do bulk[i]={variantKey="bulk"..i} end
+S.request()
+local bulkRequest=sentChunks[#sentChunks]
+assert(S.receive({revision=4,requestId=bulkRequest.requestId,items=bulk,done=true}))
+for i=1,100 do S.step(50,999) end
+assert(S.ready and S.rows.bulk1 and S.rows.bulk5000 and #S.queue==0 and S.queueIndex==1,
+    "large chunk must consume by cursor and atomically publish")
 local originalClock=C.nowMs
 local tick=0
 C.nowMs=function()return tick end

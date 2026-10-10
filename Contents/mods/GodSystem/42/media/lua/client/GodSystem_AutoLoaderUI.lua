@@ -30,6 +30,8 @@ local function textureForType(fullType)
     return AutoLoader.safeCall(item, "getTex", nil) or AutoLoader.safeCall(item, "getTexture", nil)
 end
 
+---@class GodSystemAutoLoaderWindow: ISCollapsableWindow
+---@field new fun(self: GodSystemAutoLoaderWindow, x: number, y: number, loaderId: string, playerNum: number): GodSystemAutoLoaderWindow
 GodSystemAutoLoaderWindow = ISCollapsableWindow:derive("GodSystemAutoLoaderWindow")
 
 function GodSystemAutoLoaderWindow:new(x, y, loaderId, playerNum)
@@ -192,7 +194,7 @@ function UI.open(loader, playerNum)
     return window
 end
 
-function UI.onState(loaderId, state, ok, code)
+function UI.onState(loaderId, state, ok, _code)
     if not UI.window or tostring(loaderId or "") ~= tostring(UI.window.loaderId or "") then return end
     if ok then UI.window:rebuild(state) else UI.window.statusLabel.name = text("AutoLoader_Error_NotCarried", "The auto-loader is no longer carried") end
 end

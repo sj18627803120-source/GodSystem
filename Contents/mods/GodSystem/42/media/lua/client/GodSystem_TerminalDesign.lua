@@ -102,10 +102,6 @@ D.iconCache=D.iconCache or {}
 D.iconUse=D.iconUse or 0
 D.iconResolvedAt=D.iconResolvedAt or 0
 D.iconResolvedThisStep=D.iconResolvedThisStep or 0
-local function iconNow()
-    if getTimestampMs then local ok,v=pcall(getTimestampMs); if ok and v then return tonumber(v) or 0 end end
-    return math.floor(((os and os.clock and os.clock()) or 0)*1000)
-end
 local function pruneIcons()
     local count=0; for _ in pairs(D.iconCache) do count=count+1 end
     while count>512 do

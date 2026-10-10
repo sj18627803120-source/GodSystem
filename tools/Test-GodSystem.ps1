@@ -1,8 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$Root,
+    [string]$AnalysisToolRoot,
     [switch]$SkipLuaCompile,
-    [switch]$RequireLuaCompiler
+    [switch]$RequireLuaCompiler,
+    [switch]$SkipAnalysis
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,15 +54,22 @@ foreach ($modInfoPath in @(
     (Join-Path $modRoot '42\mod.info')
 )) {
     $modInfo = Read-Utf8 $modInfoPath
-    Assert-True ($modInfo -match "(?m)^modversion=$([regex]::Escape($version))$") "modversion mismatch in $modInfoPath"
+    Assert-True ($modInfo -match "(?m)^modversion=$([regex]::Escape($version))\r?$") "modversion mismatch in $modInfoPath"
 }
 
 $workshopText = Read-Utf8 (Join-Path $Root 'workshop.txt')
-Assert-True ($workshopText -match "(?m)^description=v$([regex]::Escape($version))$") 'workshop version does not match GodSystemConfig.Version'
+Assert-True ($workshopText -match "(?m)^description=v$([regex]::Escape($version))\r?$") 'workshop version does not match GodSystemConfig.Version'
 
 $settingKeys = Get-SettingKeys $sandboxPath
 Assert-True ($settingKeys.Count -gt 0) 'no GodSystem sandbox options found'
 Assert-True ($settingKeys.Count -eq @($settingKeys | Select-Object -Unique).Count) 'duplicate GodSystem sandbox option key'
+$sandboxSchema = Read-Utf8 $sandboxPath
+$sandboxPages = @([regex]::Matches($sandboxSchema, '(?m)^\s*page\s*=\s*(GodSystemSettings[A-Za-z0-9_]+),\s*$') |
+    ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+Assert-True ($sandboxPages.Count -eq 7) 'expected seven sandbox category pages'
+foreach ($key in $settingKeys) {
+    Assert-True ($sandboxSchema -match "(?m)^\s*translation\s*=\s*GodSystemSettings_$([regex]::Escape($key)),\s*`$") "sandbox translation namespace mismatch: $key"
+}
 
 $yamlText = Read-Utf8 $yamlPath
 foreach ($key in $settingKeys) {
@@ -98,9 +107,11 @@ foreach ($locale in @('CN', 'CH')) {
     }
     $translationPath = Join-Path $luaRoot "shared\Translate\$locale\Sandbox.json"
     $translation = (Read-Utf8 $translationPath | ConvertFrom-Json)
-    Assert-True ($null -ne $translation.PSObject.Properties['Sandbox_GodSystem']) "$locale sandbox page title is missing"
+    foreach ($page in $sandboxPages) {
+        Assert-True (-not [string]::IsNullOrWhiteSpace($translation.PSObject.Properties["Sandbox_$page"].Value)) "$locale sandbox page title is missing: $page"
+    }
     foreach ($key in $settingKeys) {
-        $labelKey = "Sandbox_GodSystem_$key"
+        $labelKey = "Sandbox_GodSystemSettings_$key"
         $tooltipKey = "${labelKey}_tooltip"
         $label = $translation.PSObject.Properties[$labelKey].Value
         $tooltip = $translation.PSObject.Properties[$tooltipKey].Value
@@ -127,9 +138,13 @@ foreach ($locale in @('CN', 'CH')) {
 }
 
 $enSandbox = Read-Utf8 (Join-Path $luaRoot 'shared\Translate\EN\Sandbox.json') | ConvertFrom-Json
-Assert-True ($enSandbox.Sandbox_GodSystem_EnableRecycleListing -eq 'Allow listing from recycling') 'EN recycle listing label is missing'
-Assert-True (-not [string]::IsNullOrWhiteSpace($enSandbox.Sandbox_GodSystem_EnableRecycleListing_tooltip)) 'EN recycle listing tooltip is missing'
-Assert-True ($enSandbox.Sandbox_Title_GS_Shop -eq '-------- Shop --------') 'EN sandbox group title is missing'
+Assert-True ($enSandbox.Sandbox_GodSystemSettings_EnableRecycleListing -eq 'Allow listing from recycling') 'EN recycle listing label is missing'
+Assert-True (-not [string]::IsNullOrWhiteSpace($enSandbox.Sandbox_GodSystemSettings_EnableRecycleListing_tooltip)) 'EN recycle listing tooltip is missing'
+Assert-True ($enSandbox.Sandbox_GodSystemSettingsShopRecycle -eq 'God System · Shop and Recycling') 'EN sandbox category page is missing'
+foreach ($key in $settingKeys) {
+    $label = [string]$enSandbox.PSObject.Properties["Sandbox_GodSystemSettings_$key"].Value
+    Assert-True ($label -notmatch '^\[Performance\]\s*\[Performance\]') "EN sandbox performance prefix is duplicated: $key"
+}
 
 $generatorText = Read-Utf8 $generatorPath
 Assert-True ($generatorText -notmatch 'GodSystem_AdminConfig') 'localization generator still depends on retired GodSystem_AdminConfig'
@@ -210,5 +225,18 @@ if (-not $SkipLuaCompile) {
         Write-Warning 'Lua compiler not available; skipped Lua 5.1 compilation. Re-run with -RequireLuaCompiler on the game-test machine.'
     }
 }
+
+if (-not $SkipAnalysis) {
+    if ([string]::IsNullOrWhiteSpace($AnalysisToolRoot)) { $AnalysisToolRoot = $PSScriptRoot }
+    $analysisScript = Join-Path $AnalysisToolRoot 'analysis\check.py'
+    Assert-True (Test-Path -LiteralPath $analysisScript) "LuaLS checker is missing: $analysisScript"
+    & python $analysisScript --source-root $Root
+    Assert-True ($LASTEXITCODE -eq 0) 'LuaLS diagnostic check did not pass (run tools/analysis/setup.py on this development machine)'
+}
+
+$sandboxAudit = Join-Path $Root 'tools\analysis\audit_sandbox_config.py'
+Assert-True (Test-Path -LiteralPath $sandboxAudit) 'sandbox consumer audit tool is missing'
+& python $sandboxAudit --source-root $Root --check
+Assert-True ($LASTEXITCODE -eq 0) 'sandbox consumer matrix is incomplete or stale'
 
 Write-Host "GodSystem static verification passed: version=$version, sandboxOptions=$($settingKeys.Count), luaFiles=$($luaFiles.Count)"

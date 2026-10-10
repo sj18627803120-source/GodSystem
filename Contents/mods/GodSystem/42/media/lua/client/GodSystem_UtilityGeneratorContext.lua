@@ -101,7 +101,7 @@ local function currentPlayerSquare(player)
         math.floor(tonumber(value(square, "getZ", 0)) or 0)
 end
 
-local function localEnvironment(player)
+local function localEnvironment()
     local root = Utility.worldData()
     return {
         root = root,
@@ -111,7 +111,7 @@ local function localEnvironment(player)
                 math.floor(tonumber(y) or -1), math.floor(tonumber(z) or 0)) or nil
         end,
         findItem = findPlayerItem,
-        removeItem = function(target, item, container)
+        removeItem = function(_target, item, container)
             local ok = pcall(function() container:Remove(item) end)
             if ok and triggerEvent then pcall(triggerEvent, "OnContainerUpdate") end
             return ok
@@ -236,7 +236,7 @@ function Context.submit(player, args)
         end
         return
     end
-    local ok, code, payload = Utility.execute(player, args, localEnvironment(player))
+    local ok, code, payload = Utility.execute(player, args, localEnvironment())
     Context.lastLocalResult = { ok = ok == true, code = code, payload = payload }
     notifyCode(code)
     return ok, code, payload
@@ -346,6 +346,7 @@ end
 -- The vanilla building cursor lives in the server Lua tree and is not
 -- requireable while client autorun files load. A selection cursor only needs
 -- the drag callbacks, so keep it in the shared base class available here.
+---@class GodSystemWaterTargetCursor: ISBaseObject
 local WaterTargetCursor = ISBaseObject:derive("GodSystemWaterTargetCursor")
 
 function WaterTargetCursor:getFloorCursorSprite()
@@ -542,8 +543,8 @@ local function installVanillaGeneratorGuards()
     if not menu or Context._vanillaGuardsInstalled then return end
     Context._vanillaGuardsInstalled = true
     local callbacks = {
-        onInfoGenerator = { 2, function(worldobjects, generator, player) Context.requestStatus(generator, getSpecificPlayer(player), player) end },
-        onPlugGenerator = { 2, function(_, generator, player) notify(text("UtilityGenerator_AlwaysConnected", "Utility Generator stays connected.")) end },
+        onInfoGenerator = { 2, function(_worldobjects, generator, player) Context.requestStatus(generator, getSpecificPlayer(player), player) end },
+        onPlugGenerator = { 2, function(_, _generator, _player) notify(text("UtilityGenerator_AlwaysConnected", "Utility Generator stays connected.")) end },
         onActivateGenerator = { 3, function(_, enabled, generator, player) sendForGenerator(player, generator, "active", { active = enabled == true }) end },
         onFixGenerator = { 2, function(_, generator, player)
             local target = getSpecificPlayer and getSpecificPlayer(player) or nil
@@ -551,8 +552,8 @@ local function installVanillaGeneratorGuards()
             local scrap = findByType(inventory, "Base.ElectronicsScrap")
             if scrap then sendForGenerator(player, generator, "repair", { itemId = Utility.itemId(scrap) }) else notifyCode("UtilityGeneratorRepairMaterialMissing") end
         end },
-        onAddFuelGenerator = { 3, function(_, _, generator) notify(text("UtilityGenerator_UseCoinCharge", "Use the device menu to charge with system coins.")) end },
-        doAddFuelGenerator = { 2, function(_, generator) notify(text("UtilityGenerator_UseCoinCharge", "Use the device menu to charge with system coins.")) end },
+        onAddFuelGenerator = { 3, function(_, _, _generator) notify(text("UtilityGenerator_UseCoinCharge", "Use the device menu to charge with system coins.")) end },
+        doAddFuelGenerator = { 2, function(_, _generator) notify(text("UtilityGenerator_UseCoinCharge", "Use the device menu to charge with system coins.")) end },
         onTakeGenerator = { 2, function(_, generator, player) sendForGenerator(player, generator, "pickup") end },
     }
     for name, rule in pairs(callbacks) do

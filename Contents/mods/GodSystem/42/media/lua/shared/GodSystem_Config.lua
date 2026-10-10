@@ -2,7 +2,7 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.20_3.18.5"
+GodSystemConfig.Version = "42.21_3.21.4"
 -- Default-off aggregate instrumentation for local profiling.  It records no
 -- per-frame log lines and is intentionally not part of saved player data.
 GodSystemConfig.EnablePerformanceDiagnostics = false
@@ -172,8 +172,7 @@ GodSystemConfig.ModCategoryBuyPrices = {
 }
 GodSystemConfig.UnknownModItemRecycleValue = 1
 GodSystemConfig.EconomyConversionSafetyMargin = 0.10
-GodSystemConfig.EconomyUnknownDynamicOutputCount = 500
-GodSystemConfig.EconomyPolicyVersion = "42.20.3.18.5"
+GodSystemConfig.EconomyPolicyVersion = "42.21.3.21.4"
 GodSystemConfig.DailyRecycleSoftCap = 0
 GodSystemConfig.DiminishedRecyclePayout = 1
 GodSystemConfig.PositiveTraitCostPerPoint = 800

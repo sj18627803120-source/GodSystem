@@ -1,4 +1,5 @@
 _G.GodSystemUIRuntimeInstallers = _G.GodSystemUIRuntimeInstallers or {}
+require "GodSystem_Pinyin"
 GodSystemUIRuntimeInstallers["GodSystem_UI_Runtime_Lists"] = function(runtimeEnvironment)
     if runtimeEnvironment.__GodSystemInstalled_GodSystem_UI_Runtime_Lists then return end
     runtimeEnvironment.__GodSystemInstalled_GodSystem_UI_Runtime_Lists = true
@@ -783,12 +784,13 @@ function GodSystemWindow:shopItemMatchesSearch(item, category)
     if query == "" then
         return true
     end
-    local haystack = tostring(GodSystemApp.services.runtime.getShopLabel(item)) .. " " ..
-        tostring(GodSystemApp.services.runtime.getShopDescription(item)) .. " " ..
-        tostring(GodSystemApp.services.runtime.getShopRewardText(item)) .. " " ..
-        tostring(category and category.label or "") .. " " ..
-        tostring(GodSystemApp.services.runtime.getShopPrimaryFullType(item) or "")
-    return string.find(string.lower(tostring(haystack or "")), string.lower(tostring(query or "")), 1, true) ~= nil
+    return GodSystemPinyin.matchCached("shopLegacy", item.id or item.fullType, {
+        GodSystemApp.services.runtime.getShopLabel(item) or "",
+        GodSystemApp.services.runtime.getShopDescription(item) or "",
+        GodSystemApp.services.runtime.getShopRewardText(item) or "",
+        category and category.label or "",
+        GodSystemApp.services.runtime.getShopPrimaryFullType(item) or "",
+    }, query)
 end
 
 function GodSystemWindow:recycleItemMatchesSearch(group)
@@ -796,11 +798,12 @@ function GodSystemWindow:recycleItemMatchesSearch(group)
     if query == "" then
         return true
     end
-    local haystack = tostring(group and group.label or "") .. " " ..
-        tostring(group and group.fullType or "") .. " " ..
-        tostring(group and group.valueEach or "") .. " " ..
-        tostring(group and group.totalValue or "") .. " " ..
-        tostring(group and group.count or "")
-    return string.find(string.lower(tostring(haystack or "")), string.lower(tostring(query or "")), 1, true) ~= nil
+    return GodSystemPinyin.matchCached("recycle", group and group.fullType, {
+        group and group.label or "",
+        group and group.fullType or "",
+        group and group.valueEach or "",
+        group and group.totalValue or "",
+        group and group.count or "",
+    }, query)
 end
 end

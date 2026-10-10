@@ -4,6 +4,7 @@
 GodSystemShopListingStore = GodSystemShopListingStore or {}
 local Store = GodSystemShopListingStore
 Store.rows, Store.queue = Store.rows or {}, Store.queue or {}
+Store.queueIndex = Store.queueIndex or 1
 Store.revision, Store.count, Store.cursor = Store.revision or 0, Store.count or 0, Store.cursor
 Store.ready, Store.pending = Store.ready == true, Store.pending == true
 Store.prices, Store.pricePending = Store.prices or {}, Store.pricePending == true
@@ -20,6 +21,7 @@ end
 
 function Store.reset(revision, count)
     Store.rows, Store.buildRows, Store.queue, Store.cursor = {}, {}, {}, nil
+    Store.queueIndex = 1
     Store.nextCursor, Store.done, Store.pendingId, Store.pendingAtMs = nil, false, nil, nil
     Store.prices, Store.pricePending, Store.pricePendingId, Store.pricePendingAtMs = {}, false, nil, nil
     Store.revision, Store.count = math.max(0, tonumber(revision) or 0), math.max(0, tonumber(count) or 0)
@@ -44,6 +46,8 @@ end
 
 function Store.request()
     if not multiplayer() or Store.ready or Store.pending or not GodSystemNetwork or not GodSystemNetwork.send then return end
+    -- A received chunk is still being consumed; its cursor is not final yet.
+    if Store.queueIndex <= #Store.queue or Store.done then return end
     Store.requestSerial = Store.requestSerial + 1
     Store.pendingId = tostring(Store.requestSerial)
     Store.pending = true
@@ -96,12 +100,16 @@ function Store.step(limit, budgetMs)
     if not multiplayer() or Store.ready then return end
     local started, done = (GodSystemShopCatalog and GodSystemShopCatalog.nowMs and GodSystemShopCatalog.nowMs()) or 0, 0
     limit, budgetMs = math.max(1, math.min(50, tonumber(limit) or 50)), tonumber(budgetMs) or 2
-    while #Store.queue > 0 and done < limit do
+    while Store.queueIndex <= #Store.queue and done < limit do
         if GodSystemShopCatalog and GodSystemShopCatalog.nowMs and GodSystemShopCatalog.nowMs() - started >= budgetMs then break end
-        local row = table.remove(Store.queue, 1)
+        local row = Store.queue[Store.queueIndex]
+        Store.queueIndex = Store.queueIndex + 1
         local key = tostring(row and row.variantKey or "")
         if key ~= "" then Store.buildRows[key] = row end
         done = done + 1
+    end
+    if Store.queueIndex > #Store.queue then
+        Store.queue, Store.queueIndex = {}, 1
     end
     if #Store.queue == 0 and Store.done then Store.rows, Store.buildRows, Store.ready = Store.buildRows, {}, true
     elseif #Store.queue == 0 then

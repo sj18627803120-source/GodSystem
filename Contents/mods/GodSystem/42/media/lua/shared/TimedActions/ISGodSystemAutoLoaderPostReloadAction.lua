@@ -1,5 +1,6 @@
 require "TimedActions/ISBaseTimedAction"
 
+---@class ISGodSystemAutoLoaderPostReloadAction: ISBaseTimedAction
 ISGodSystemAutoLoaderPostReloadAction = ISBaseTimedAction:derive("ISGodSystemAutoLoaderPostReloadAction")
 
 function ISGodSystemAutoLoaderPostReloadAction:isValid()

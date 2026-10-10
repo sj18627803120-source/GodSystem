@@ -10,7 +10,7 @@ end
 
 function Reader:push(container, depth)
     if not container or depth > 32 then return end
-    assert(not self.seen[container], "cyclic container contents")
+    if self.seen[container] then self.failure = "contentsChanged"; return end
     self.seen[container] = true
     local items = container:getItems()
     local frame = { container = container, items = items, count = items:size(), cursor = 0, depth = depth }
@@ -26,6 +26,7 @@ function GodSystemContextContent.new(item)
 end
 
 function Reader:step()
+    if self.failure then return false, self.failure end
     if self.phase == "done" then return true end
     self.steps = (self.steps or 0) + 1
     if self.phase == "scan" then
@@ -35,9 +36,9 @@ function Reader:step()
         local slot = frame.cursor
         local child = frame.items:get(slot)
         frame.cursor = slot + 1
-        assert(child, "container contents changed")
+        if not child then self.failure = "contentsChanged"; return false, self.failure end
         local rawId, rawType = child:getID(), child:getFullType()
-        assert(rawId ~= nil and rawType ~= nil, "invalid content identity")
+        if rawId == nil or rawType == nil then self.failure = "identity"; return false, self.failure end
         local id, fullType = tostring(rawId), tostring(rawType)
         local childInventory = inventory(child)
         self.tokens[#self.tokens + 1] = id .. ":" .. fullType
@@ -71,11 +72,11 @@ function Reader:step()
         self.hash = ((self.hash * 131) + 10) % 2147483647
         self.cursor = self.cursor + 1
     elseif self.phase == "containers" then
-        assert(inventory(self.item) == self.root, "container replaced")
+        if inventory(self.item) ~= self.root then self.failure = "contentsChanged"; return false, self.failure end
         local frame = self.frames[self.cursor]
         if not frame then self.phase = "records"; self.cursor = 1; return false end
         frame.current = frame.container:getItems()
-        assert(frame.current:size() == frame.count, "container size changed")
+        if frame.current:size() ~= frame.count then self.failure = "contentsChanged"; return false, self.failure end
         self.cursor = self.cursor + 1
     elseif self.phase == "records" then
         local row = self.records[self.cursor]
@@ -84,10 +85,12 @@ function Reader:step()
             self.phase = "done"
             return true
         end
-        assert(row.frame.current:get(row.slot) == row.item and row.item:getContainer() == row.frame.container
+        if not (row.frame.current:get(row.slot) == row.item and row.item:getContainer() == row.frame.container
             and tostring(row.item:getID()) == row.id and tostring(row.item:getFullType()) == row.fullType
             and inventory(row.item) == row.inventory
-            and GodSystemShopVariants.getWorldSprite(row.item) == row.worldSprite, "contents changed")
+            and GodSystemShopVariants.getWorldSprite(row.item) == row.worldSprite) then
+            self.failure = "contentsChanged"; return false, self.failure
+        end
         self.cursor = self.cursor + 1
     end
     return false

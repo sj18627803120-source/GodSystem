@@ -1,5 +1,6 @@
 require "GodSystem_App"
 require "GodSystem_Config"
+require "GodSystem_Diagnostics"
 require "GodSystem_Core"
 require "GodSystem_Protocol"
 require "GodSystem_Scheduler"
@@ -42,7 +43,6 @@ local pendingOperationId = nil
 local pendingOperationStartedMs = 0
 local pendingOperationPayload = nil
 local timedOutTransactionOperation = nil
-local timedOutAttributeOperation = nil
 local operationSeq = math.max(0, tonumber(GodSystemNetwork.operationSeq) or 0)
 local operationSessionId = tostring(GodSystemNetwork.operationSessionId or "")
 local lastAutoTaskClaimHour = nil
@@ -87,6 +87,8 @@ function GodSystemNetwork.resetInvestmentRuntime()
 end
 
 function GodSystemNetwork.resetSessionRuntime()
+    if GodSystemRecycleFallback then GodSystemRecycleFallback.reset() end
+    if GodSystemPinyin then GodSystemPinyin.clearCaches() end
     GodSystemCarryCapacity.resetClient()
     sentHello = false
     pendingHelloTick = true
@@ -100,7 +102,12 @@ function GodSystemNetwork.resetSessionRuntime()
     GodSystemNetwork.pendingTaskTrackerRefresh = true
     if GodSystemShopCatalog and GodSystemShopCatalog.clear then GodSystemShopCatalog.clear() end
     if GodSystemShopListingStore and GodSystemShopListingStore.resetSession then GodSystemShopListingStore.resetSession() end
+    if GodSystemItemCatalog and GodSystemItemCatalog.resetSession then GodSystemItemCatalog.resetSession() end
     GodSystemApp.services.runtime.serverAdmin = false
+    GodSystemApp.services.runtime.itemConfigPresets = nil
+    if GodSystemItemEconomyUI and GodSystemItemEconomyUI.window then
+        GodSystemItemEconomyUI.window:applyPresets(nil)
+    end
     local rangeService = GodSystemApp.getService and GodSystemApp.getService("rangeRecycle") or nil
     if rangeService and rangeService.resetSession then rangeService:resetSession() end
     if Events and Events.OnTick then
@@ -169,7 +176,12 @@ local function resultMessagePayload(args)
     if args.code then
         local template = GodSystemApp.services.runtime and GodSystemApp.services.runtime.text and GodSystemApp.services.runtime.text("NotifyMP_" .. tostring(args.code), "") or ""
         if template and template ~= "" then
-            return formatTemplate(template, localizeStructuredArgs(tostring(args.code), args.args))
+            local message = formatTemplate(template, localizeStructuredArgs(tostring(args.code), args.args))
+            local operationId = args.operationId or (args.data and (args.data.operationId or args.data.opId))
+            if operationId and (args.code == "RecycleSourceReadFailed" or GodSystemDiagnostics.isUnexpected(args.code)) then
+                message = message .. " [op: " .. tostring(operationId):gsub("[^%w._%-]", "_"):sub(1, 64) .. "]"
+            end
+            return message
         end
     end
     return ""
@@ -409,6 +421,7 @@ local function mergeLocalTaskProgress(serverData)
 end
 
 local function clearPendingOperation(reason)
+    if GodSystemRecycleFallback and reason ~= "result" then GodSystemRecycleFallback.cancelPending() end
     if pendingKeyCommand then
         GodSystemNetwork.lastPendingClearReason = reason or "cleared"
     end
@@ -428,6 +441,7 @@ local function checkPendingTimeout()
     local elapsed = nowMs() - started
     if elapsed < KEY_COMMAND_TIMEOUT_MS then return false end
     local command = pendingKeyCommand
+    local expiredOperationId = pendingOperationId
     local fingerprint = transactionFingerprint(command, pendingOperationPayload)
     if fingerprint and pendingOperationId ~= nil then
         timedOutTransactionOperation = {
@@ -437,16 +451,16 @@ local function checkPendingTimeout()
             fingerprint = fingerprint,
             expiredAtMs = nowMs(),
         }
-        if command == ((Protocol.C2S and Protocol.C2S.Attribute) or "attribute") then
-            timedOutAttributeOperation = timedOutTransactionOperation
-        end
     end
     GodSystemNetwork.pendingTimeouts = (GodSystemNetwork.pendingTimeouts or 0) + 1
     GodSystemNetwork.lastPendingTimeoutCommand = command
     GodSystemNetwork.lastPendingTimeoutElapsedMs = elapsed
+    GodSystemDiagnostics.issue("client", command, "timeout", "CommandTimeout", pendingOperationId)
     clearPendingOperation("timeout")
     GodSystemNetwork.pendingState = false
-    notify(GodSystemApp.services.runtime.text("Notify_CommandTimeout", "Operation timed out. Please retry."))
+    local message = GodSystemApp.services.runtime.text("Notify_CommandTimeout", "Result has not arrived; success is not yet known. Wait for synchronization before retrying the same operation.")
+    if expiredOperationId then message = message .. " [op: " .. tostring(expiredOperationId):gsub("[^%w._%-]", "_"):sub(1, 64) .. "]" end
+    notify(message)
     if sentHello and send then
         lastStateRequestMs = 0
         send((Protocol.C2S and Protocol.C2S.Refresh) or "refresh", {})
@@ -488,7 +502,6 @@ send = function(command, args, targetPlayer)
         end
         if fingerprint then
             timedOutTransactionOperation = nil
-            if command == ((Protocol.C2S and Protocol.C2S.Attribute) or "attribute") then timedOutAttributeOperation = nil end
         end
         pendingKeyCommand = command
         pendingOperationId = reusedOpId
@@ -519,6 +532,7 @@ send = function(command, args, targetPlayer)
     end
     GodSystemNetwork.failedCommands = (GodSystemNetwork.failedCommands or 0) + 1
     GodSystemNetwork.lastSendFailedCommand = command
+    GodSystemDiagnostics.issue("client", command, "send", "SendFailed", pendingOperationId)
     if keyCommand then
         clearPendingOperation("sendFailed")
     end
@@ -918,6 +932,7 @@ local function OnServerCommand(module, command, args)
         end
         if command == ((Protocol.S2C and Protocol.S2C.Error) or "error") then
             GodSystemNetwork.lastError = args and args.code or "ServerCommandFailed"
+            GodSystemDiagnostics.issue("client", pendingKeyCommand or "command", "error", GodSystemNetwork.lastError, pendingOperationId)
         end
         notifyPayload(args)
         if command == ((Protocol.S2C and Protocol.S2C.Error) or "error") then
@@ -939,8 +954,14 @@ local function OnServerCommand(module, command, args)
             and rangeService:handleResult(args or {}) == true
         suppressResultNotification = suppressResultNotification or (args and args.data and args.data.lottery == true)
         suppressResultNotification = suppressResultNotification or (args and args.payload and args.payload.kind == "shopQuote")
+        local recycleFallback = GodSystemRecycleFallback and GodSystemRecycleFallback.handleResult(args)
+        suppressResultNotification = suppressResultNotification or recycleFallback == true
         GodSystemNetwork.pendingState = false
         GodSystemNetwork.lastResultOk = args and args.ok == true
+        if args and args.ok ~= true and GodSystemDiagnostics.isUnexpected(args.code) then
+            GodSystemDiagnostics.issue("client", pendingKeyCommand or "command", "result", args.code,
+                args.operationId or (args.data and (args.data.operationId or args.data.opId)) or pendingOperationId)
+        end
         GodSystemNetwork.lastResultMessage = resultMessagePayload(args)
         GodSystemNetwork.lastResultAtMs = nowMs()
         if not suppressResultNotification and GodSystemNetwork.lastResultMessage ~= "" then
@@ -960,13 +981,13 @@ local function OnServerCommand(module, command, args)
         if resultOpId ~= nil and timedOutTransactionOperation
             and tostring(resultOpId) == tostring(timedOutTransactionOperation.opId) then
             timedOutTransactionOperation = nil
-            timedOutAttributeOperation = nil
         end
         if resultOpId == nil or pendingOperationId == nil or tostring(resultOpId) == tostring(pendingOperationId) then
             clearPendingOperation("result")
+            if GodSystemRecycleFallback then GodSystemRecycleFallback.cancelPending() end
         end
         if args and args.data and args.data.equipment and GodSystemEquipmentClient then
-            for n, window in pairs(GodSystemEquipmentClient.windows or {}) do
+            for _n, window in pairs(GodSystemEquipmentClient.windows or {}) do
                 if window:getIsVisible() then window:refreshDetails() end
             end
         end
@@ -978,7 +999,14 @@ function GodSystemNetwork.onPlayerUpdate(p)
     if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
     local currentMs = GodSystemScheduler.nowMs()
     if not GodSystemScheduler.due("client.mp.network.fast", 250, currentMs) then return end
-    if GodSystemShopListingStore then GodSystemShopListingStore.step(50, 2) end
+    if GodSystemShopListingStore then
+        local wasReady = GodSystemShopListingStore.ready
+        GodSystemShopListingStore.step(50, 2)
+        if not wasReady and GodSystemShopListingStore.ready then
+            if GodSystemShopCatalog then GodSystemShopCatalog.invalidate("catalogReady") end
+            requestRefresh()
+        end
+    end
     if GodSystemNetwork.shopViewPending and currentMs >= (GodSystemNetwork.shopViewDue or 0) then
         send((Protocol.C2S and Protocol.C2S.ShopPreferences) or "shopPreferences", {view=GodSystemNetwork.shopViewPending})
         GodSystemNetwork.shopViewPending = nil
@@ -1247,10 +1275,12 @@ wrap("recycleInventoryItems", function(fullType, count)
     return send("recycle", { fullType = fullType, count = count or 1 })
 end)
 
-wrap("recycleSelectedItems", function(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped)
+wrap("recycleSelectedItems", function(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped, sources)
     return send("recycle", {
         mode = mode,
         itemIds = itemIds,
+        selectionVersion = #(sources or {}) > 0 and 2 or nil,
+        sources = #(sources or {}) > 0 and sources or nil,
         allowDestroyContents = allowDestroyContents == true,
         containerContentSignatures = containerContentSignatures,
         clientSkipped = math.min(10000, math.max(0, math.floor(tonumber(clientSkipped) or 0))),

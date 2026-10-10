@@ -7,6 +7,7 @@ require "ISUI/ISCollapsableWindow"
 require "ISUI/ISButton"
 
 GodSystemCompanionUI = GodSystemCompanionUI or {}
+---@class GodSystemCompanionShortcutWindow: ISCollapsableWindow
 GodSystemCompanionShortcutWindow = ISCollapsableWindow:derive("GodSystemCompanionShortcutWindow")
 
 local UI = GodSystemCompanionUI

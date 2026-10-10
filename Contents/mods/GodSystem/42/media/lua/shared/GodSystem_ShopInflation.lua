@@ -122,7 +122,7 @@ end
 function S.sweep(data, budget)
     if not data or not data.shopInflation then return end
     local index = cleanupIndex(data)
-    for i=1,math.min(8, budget or 8) do
+    for _i=1,math.min(8, budget or 8) do
         if #index.keys==0 then return end
         if index.cursor>#index.keys then index.cursor=1 end
         local key=index.keys[index.cursor]

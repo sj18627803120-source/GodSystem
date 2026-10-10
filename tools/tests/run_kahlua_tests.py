@@ -33,7 +33,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--game', required=True)
     args = parser.parse_args()
-    for name in ('text_runtime_spec.lua', 'impact_runtime_spec.lua', 'splash_runtime_spec.lua', 'companion_target_spec.lua', 'utility_generator_spec.lua', 'terminal_spec.lua', 'item_preset_ui_spec.lua', 'range_filter_ui_spec.lua', 'carry_capacity_spec.lua', 'equipment_spec.lua', 'shop_catalog_spec.lua', 'shop_inflation_spec.lua', 'recycle_fingerprint_spec.lua', 'v38_regression_spec.lua', 'death_protection_spec.lua'):
+    for name in ('range_corpse_toggle_spec.lua', 'recycle_fallback_spec.lua', 'item_preset_server_spec.lua', 'shop_hidden_spec.lua', 'network_result_spec.lua', 'config_business_spec.lua', 'context_performance_spec.lua', 'task_config_spec.lua', 'console_diagnostics_spec.lua', 'text_runtime_spec.lua', 'impact_runtime_spec.lua', 'splash_runtime_spec.lua', 'companion_target_spec.lua', 'utility_generator_spec.lua', 'terminal_spec.lua', 'item_preset_ui_spec.lua', 'range_filter_ui_spec.lua', 'item_catalog_session_spec.lua', 'carry_capacity_spec.lua', 'equipment_spec.lua', 'shop_catalog_spec.lua', 'shop_inflation_spec.lua', 'recycle_fingerprint_spec.lua', 'external_recycle_spec.lua', 'v38_regression_spec.lua', 'death_protection_spec.lua'):
         print('Running native ' + name, flush=True)
         overrides = {}
         if name == 'companion_target_spec.lua':
@@ -48,4 +48,8 @@ if __name__ == '__main__':
 }
 ''' + marker + '\n'
             overrides[path] = source
-        print(run(bundle((ROOT/'tools/tests'/name).read_text(encoding='utf-8'), overrides), args.game))
+        spec = (ROOT/'tools/tests'/name).read_text(encoding='utf-8')
+        if name == 'context_performance_spec.lua':
+            # Lua 5.1 covers full 10k deletion stress; native VM checks the same paths at 1k.
+            spec = 'os=os or {}; os.clock=os.clock or function() return 0 end\n' + spec.replace('10001', '1001').replace('10000', '1000')
+        print(run(bundle(spec, overrides), args.game))

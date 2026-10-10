@@ -58,7 +58,6 @@ GodSystemProtocol.C2S = {
     ItemConfigPresetApply = "itemConfigPresetApply",
     ShopCatalogChunk = "shopCatalogChunk",
     ShopPagePrices = "shopPagePrices",
-    UtilityGeneratorStatus = "utilityGeneratorStatus",
 }
 
 GodSystemProtocol.S2C = {

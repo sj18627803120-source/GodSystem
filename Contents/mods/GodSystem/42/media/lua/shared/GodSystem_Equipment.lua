@@ -188,7 +188,7 @@ function E.supports(record, effect)
     return info ~= nil and (not info.melee or E.weaponKind(record)=="melee")
 end
 
-function E.maxLevel(record, effect, cfg)
+function E.maxLevel(_record, effect, cfg)
     if effect=="impact" then return GodSystemEquipmentImpact.Maximum end
     if effect=="splash" then return GodSystemEquipmentSplash.Maximum end
     if effect=="freeze" then return cfg and cfg.EquipmentMaxLevel or E.Settings.EquipmentMaxLevel[1] end

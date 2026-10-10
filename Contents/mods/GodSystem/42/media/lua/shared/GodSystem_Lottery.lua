@@ -99,7 +99,8 @@ function Lottery.randomInteger(minimum, maximum)
     if maximum <= minimum then return minimum end
     if ZombRand then
         local ok, value = pcall(ZombRand, minimum, maximum + 1)
-        if ok and tonumber(value) then return math.max(minimum, math.min(maximum, math.floor(tonumber(value)))) end
+        local number = ok and tonumber(value) or nil
+    if number then return math.max(minimum, math.min(maximum, math.floor(number))) end
     end
     return minimum
 end

@@ -62,7 +62,7 @@ local function findDevice(deviceId, x, y, z)
     return generatorAt(squareAt(row.x, row.y, row.z), deviceId)
 end
 
-local function getEnv(player)
+local function getEnv()
     local root = Utility.worldData()
     return {
         root = root,
@@ -83,7 +83,9 @@ local function getEnv(player)
             if type(itemData) ~= "table" then return false, nil end
             itemData[Utility.ItemMarker] = tostring(id)
             itemData.fuel = 0
-            local created, generator = pcall(function() return IsoGenerator.new(placedItem, cell(), square) end)
+            local currentCell = cell()
+            if not currentCell then return false, nil end
+            local created, generator = pcall(function() return IsoGenerator.new(placedItem, currentCell, square) end)
             if not created or not generator then return false, nil end
             local modData = GodSystemB42JavaCalls.value(generator, "getModData", nil)
             if type(modData) ~= "table" then
@@ -157,7 +159,7 @@ local function getEnv(player)
             markInventoryDirty(target, inventory)
             return true, item
         end,
-        cleanupWater = function(id, generator, row)
+        cleanupWater = function(id, _generator, row)
             local pending, processed = false, 0
             for key, record in pairs(row.waterFixtures or {}) do
                 if processed >= 32 then pending = true; break end
@@ -233,7 +235,7 @@ function Commands.utilityGenerator(_, _, player, args)
     end
     local success, code, payload
     local ok, err = pcall(function()
-        success, code, payload = Utility.execute(player, args, getEnv(player))
+        success, code, payload = Utility.execute(player, args, getEnv())
         payload = type(payload) == "table" and payload or {}
         payload.opId = args.opId
         GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, success, code, {}, payload)

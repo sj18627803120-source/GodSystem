@@ -1,4 +1,6 @@
 _G.GodSystemClientRuntimeInstallers = _G.GodSystemClientRuntimeInstallers or {}
+require "GodSystem_ExternalRecycle"
+require "GodSystem_RecycleResult"
 GodSystemClientRuntimeInstallers["GodSystem_ClientRuntime_Recycle"] = function(runtimeEnvironment)
     if runtimeEnvironment.__GodSystemInstalled_GodSystem_ClientRuntime_Recycle then return end
     runtimeEnvironment.__GodSystemInstalled_GodSystem_ClientRuntime_Recycle = true
@@ -169,10 +171,15 @@ function GodSystemApp.services.runtime.canContextListItem(item, contextCache)
     if mode == "forced" then return false, "configuredListed" end
     local configured = contextCache and contextCache.configuredShopKeySet
         or GodSystemApp.services.runtime.getConfiguredShopKeySet()
-    local known, source = GodSystemShopVariants.isListingKnown(data, configured, variantKey)
+    local listings, ready = data.unlockedShopItems or {}, true
+    if GodSystemApp.services.runtime.getShopListingRows then
+        listings, ready = GodSystemApp.services.runtime.getShopListingRows(data)
+    end
+    local known, source = GodSystemShopVariants.isListingKnown({ unlockedShopItems = listings }, configured, variantKey)
+    if source ~= "configured" and not ready then return false, "catalogLoading" end
     if known then
         if source == "configured" then return false, "configuredListed" end
-        if data.unlockedShopItems[variantKey] and data.unlockedShopItems[variantKey].hidden == true then return false, "hiddenListed" end
+        if listings[variantKey] and listings[variantKey].hidden == true then return false, "hiddenListed" end
         return false, "alreadyListed"
     end
     return true, nil
@@ -328,19 +335,32 @@ function gsContainerContainsItem(container, item)
     return GodSystemApp.services.runtime.containerContainsItem(container, item)
 end
 
+function gsRecycleFailure(reason, context)
+    GodSystemApp.services.runtime.notify(GodSystemRecycleResult.message(GodSystemApp.services.runtime, reason))
+    return false, reason, context
+end
+
 function gsRestoreContextItems(player, removed)
     local inventory = player and player:getInventory() or nil
     if not inventory then return false end
     local restored = true
+    local updates = GodSystemExternalRecycle.newBatch()
     for i = 1, #(removed or {}) do
         local row = removed[i]
-        local ok = pcall(function() inventory:AddItem(row.item) end)
+        local ok
+        if row.external then
+            ok = GodSystemExternalRecycle.restore(row.external, updates)
+        else
+            local destination = row.container or inventory
+            ok = pcall(function() if not destination:contains(row.item) then destination:AddItem(row.item) end end)
+            ok = ok and gsContainerContainsItem(destination, row.item)
+        end
         restored = restored and ok
         if ok and row.equipment then
-            GodSystemManualRecycle.restoreEquipped(player, row.item, row.equipment, GodSystemManualRecycle.defaultBridge())
+            restored = GodSystemManualRecycle.restoreEquipped(player, row.item, row.equipment, GodSystemManualRecycle.defaultBridge()) and restored
         end
     end
-    return restored
+    return GodSystemExternalRecycle.flushUpdates(updates) and restored
 end
 
 function gsRestoreContextUseState(player, row)
@@ -350,7 +370,7 @@ function gsRestoreContextUseState(player, row)
     end
 end
 
-function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped)
+function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allowDestroyContents, containerContentSignatures, clientSkipped, sources)
     mode = tostring(mode or "")
     if mode ~= "recycle" and mode ~= "recycleAndList" and mode ~= "listOnly" then return false end
     if mode ~= "recycle" and GodSystemApp.services.runtime.isFeatureEnabled("EnableRecycleListing") == false then return false end
@@ -368,6 +388,15 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
     local skipped = math.min(10000, math.max(0, math.floor(tonumber(clientSkipped) or 0)))
     local listingSkipped = 0
     local inventoryIndex = GodSystemInventoryIndex.build(player:getInventory())
+    local sourceById = {}
+    local sourceCache = {}
+    if #(sources or {}) > #itemIds or #(sources or {}) > 10000 then return false end
+    for i = 1, #(sources or {}) do
+        local descriptor = sources[i]
+        local id = type(descriptor) == "table" and tostring(descriptor.itemId or "") or ""
+        if id == "" or sourceById[id] then return false end
+        sourceById[id] = descriptor
+    end
     local contextCache = { data = GodSystemApp.services.runtime.getData(),
         configuredShopKeySet = GodSystemApp.services.runtime.getConfiguredShopKeySet() }
     local listingByVariant = {}
@@ -377,7 +406,18 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
         if id ~= "" and not seen[id] then
             seen[id] = true
             local item, container = GodSystemInventoryIndex.find(inventoryIndex, id)
-            if not item or not container then
+            local external
+            if sourceById[id] then
+                if item then return false end
+                local reason
+                external, reason = GodSystemExternalRecycle.resolve(player, sourceById[id], sourceCache)
+                if not external and GodSystemDiagnostics then
+                    GodSystemDiagnostics.issue("sp", "RecycleSelectedItems", "sourceResolve", reason or "changed")
+                end
+                if not external then return gsRecycleFailure(reason) end
+                item = external.item
+            end
+            if not item or (not container and not external) then
                 GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_RecycleSelectionChanged", "Selected items changed; action cancelled"))
                 return false
             end
@@ -412,7 +452,7 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
             end
             if eligible then
                 local groupKey = mode == "recycle" and fullType or variantKey
-                selected[#selected + 1] = { item = item, container = container, fullType = fullType, variantKey = variantKey }
+                selected[#selected + 1] = { item = item, container = container, external = external, fullType = fullType, variantKey = variantKey }
                 if not types[groupKey] then
                     types[groupKey] = { item = item, fullType = fullType, raw = 0, count = 0, listable = listable }
                     typeOrder[#typeOrder + 1] = groupKey
@@ -472,36 +512,46 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
         rawPayout = rawPayout + GodSystemApp.services.runtime.calculateRecyclePayout(row.fullType, row.raw, row.count)
     end
     local removed = {}
+    local batch = GodSystemExternalRecycle.newBatch()
     local equipmentBridge = GodSystemManualRecycle.defaultBridge()
     for i = 1, #selected do
         local row = selected[i]
         local item = row.item
         local equipment = GodSystemManualRecycle.captureEquipped(player, item, equipmentBridge)
         if not GodSystemManualRecycle.detachEquipped(player, item, equipmentBridge) then
-            GodSystemManualRecycle.restoreEquipped(player, item, equipment, equipmentBridge)
-            gsRestoreContextItems(player, removed)
-            return false
+            local useRestored = GodSystemManualRecycle.restoreEquipped(player, item, equipment, equipmentBridge)
+            local othersRestored = gsRestoreContextItems(player, removed)
+            return gsRecycleFailure(useRestored and othersRestored and "deleteFailed" or "unknown")
         end
-        if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
-        local ok = pcall(function() row.container:Remove(item) end)
-        if not ok or gsContainerContainsItem(row.container, item) then
-            local current = {
-                item = item,
-                equipment = equipment,
-            }
-            if gsContainerContainsItem(row.container, item) then
-                gsRestoreContextUseState(player, current)
+        local current = { item = item, equipment = equipment, external = row.external, container = row.container }
+        removed[#removed + 1] = current -- Also retain a partially-mutated failing item for recovery.
+        local ok, reason, detail
+        local step = "equipmentBeforeRemoval"
+        local called, err = pcall(function()
+            if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
+            step = "containerRemove"
+            if row.external then ok, reason, detail = GodSystemExternalRecycle.remove(row.external, batch)
             else
-                removed[#removed + 1] = current
+                row.container:Remove(item)
+                ok = not gsContainerContainsItem(row.container, item)
+                if ok then GodSystemExternalRecycle.queueRemoved(batch, row.container, item) end
             end
-            gsRestoreContextItems(player, removed)
-            GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_RecycleSelectionFailed", "Recycle failed; items restored"))
-            return false
+        end)
+        ok = called and ok
+        if not ok then
+            local restored = gsRestoreContextItems(player, removed)
+            detail = detail or { source = row.external and row.external.kind or "inventory", itemType = row.fullType, step = step }
+            detail.error = detail.error or (not called and err or nil)
+            detail.restored = restored and "yes" or "no"
+            if GodSystemDiagnostics then GodSystemDiagnostics.issue("sp", "RecycleSelectedItems", "remove", restored and (reason or "deleteFailed") or "unknown", nil, detail) end
+            return gsRecycleFailure(restored and "deleteFailed" or "unknown", {
+                fallbackAllowed = restored and GodSystemExternalRecycle.canFallbackSources(sources) })
         end
-        removed[#removed + 1] = {
-            item = item,
-            equipment = equipment,
-        }
+        if detail and GodSystemDiagnostics then GodSystemDiagnostics.issue("sp", "RecycleSelectedItems", "remove", "reconciled", nil, detail) end
+    end
+    if not GodSystemExternalRecycle.flushBatch(batch) then
+        local restored = gsRestoreContextItems(player, removed)
+        return gsRecycleFailure(restored and "syncFailed" or "unknown")
     end
 
     local oldLimitDay = data.recycleLimitDay
@@ -510,8 +560,8 @@ function GodSystemApp.services.runtime.recycleSelectedItems(mode, itemIds, allow
     if payout > 0 and not GodSystemApp.services.runtime.giveCurrency(payout) then
         data.recycleLimitDay = oldLimitDay
         data.recycleLimitUsed = oldLimitUsed
-        gsRestoreContextItems(player, removed)
-        GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_RecycleSelectionFailed", "Recycle failed; items restored"))
+        local restored = gsRestoreContextItems(player, removed)
+        gsRecycleFailure(restored and "payoutFailed" or "unknown")
         return false
     end
     if mode == "recycleAndList" then

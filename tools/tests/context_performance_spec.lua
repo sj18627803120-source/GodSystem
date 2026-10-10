@@ -60,6 +60,7 @@ local function environment()
         return s
     end
     e.GodSystemRuntimeConfig = { Current = {}, isFeatureEnabled = runtime.isFeatureEnabled, get = function(_, fallback) return fallback end }
+    e.GodSystemRuntimeConfig.recyclePreparationToken = function(mode) return tostring(e.features.EnableRecycle) .. ":" .. (mode == "recycle" and "" or tostring(e.features.EnableRecycleListing)) end
     e.GodSystemItemConfig = { Current = { economyRevision = 1 } }
     e.GodSystemNetwork = { isStateReady = function() return e.networkReady ~= false end, send = function() error("unexpected menu network request") end }
     e.ISInventoryPaneContextMenu = { addToolTip = function() return {} end }
@@ -68,6 +69,9 @@ local function environment()
     load(e, "shared/GodSystem_B42JavaCalls.lua")
     load(e, "shared/GodSystem_ShopVariants.lua")
     load(e, "shared/GodSystem_InventoryIndex.lua")
+    load(e, "shared/GodSystem_B42JavaCalls.lua")
+    load(e, "shared/GodSystem_ExternalRecycle.lua")
+    load(e, "shared/GodSystem_RecycleResult.lua")
     load(e, "client/GodSystem_InventoryContext.lua")
     return e
 end
@@ -156,6 +160,35 @@ test("bulk menus: no classification, prices, IDs, file/network or unselected inv
     e.features.EnableRecycle = false; c = menu(); e.GodSystemRecycleContext.fillInventoryMenu(0, c, snapshot); eq(#c.options, 0)
     e.features.EnableRecycle = true; e.mp = true; e.networkReady = false
     c = menu(); e.GodSystemRecycleContext.fillInventoryMenu(0, c, snapshot); eq(c.options[1].notAvailable, true)
+end)
+
+test("bulk ground selection keeps the same world object through both preparation passes", function()
+    for _, floorContainer in ipairs({ false, true }) do
+        local e = environment(); local values = selection(e, 201); local prep = preparation(e)
+        local ground = values[1]
+        e.inventory:Remove(ground)
+        if floorContainer then ground.source = { getType = function() return "floor" end } end
+        local square = {}
+        local worldObject = { getSquare = function() return square end }
+        ground.getWorldItem = function() return worldObject end
+        local position = 1
+        e.GodSystemExternalRecycle.describe = function(target)
+            if target ~= ground then return nil end
+            return { kind = "worldItem", itemId = "1", anchor = "1", x = position, y = 2, z = 0,
+                containerType = "floor", containerIndex = -1, path = "", partId = "" }
+        end
+        local snapshot = e.GodSystemInventoryContext.createSnapshot(0, values)
+        local finished = 0
+        local job = assert(prep.start(snapshot, "recycle", { execute = function() finished = finished + 1 end }))
+        drain(prep, job, "ready")
+        assert(prep.confirm(job)); drain(prep, job, "completed")
+        eq(finished, 1)
+        local changed = assert(prep.start(snapshot, "recycle", {}))
+        drain(prep, changed, "ready")
+        position = 3
+        assert(prep.confirm(changed)); drain(prep, changed, "failed")
+        eq(changed.reason, "changed")
+    end
 end)
 
 test("small menus retain counts and ordinary recycle has no new confirmation", function()
@@ -314,6 +347,10 @@ end)
 
 local function transactionFixture(mp, count)
     local e = environment(); local values = selection(e, count)
+    e.isServer = function() return mp end
+    e.ArrayList = { new = function() return { rows = {}, add = function(self, v) self.rows[#self.rows + 1] = v end } end }
+    e.syncCalls = 0
+    e.sendRemoveItemsFromContainer = function(_, items) assert(items.rows); e.syncCalls = e.syncCalls + 1; if e.failSync then error("sync failed") end end
     load(e, "shared/GodSystem_ManualRecycle.lua")
     e.GodSystemConfig = { AutoUnlockShopFromRecycle = true }
     load(e, "client/GodSystem_ClientRuntime_Foundation.lua")
@@ -322,6 +359,7 @@ local function transactionFixture(mp, count)
     e.runtime.getData, e.gsPlayer = getData, e.getPlayer
     load(e, "client/GodSystem_ClientRuntime_Recycle.lua")
     e.GodSystemClientRuntimeInstallers.GodSystem_ClientRuntime_Recycle(e)
+    e.runtime.notify=function(message) e.lastMessage=message; e.calls.notify=e.calls.notify+1 end
     e.runtime.getContextRecycleValue = function() return 3 end
     e.runtime.isAutoShopUnlockAllowed = function() return true end
     e.GodSystemItemConfig.getShopVariantMode = function() return "default" end
@@ -380,7 +418,7 @@ local function transactionFixture(mp, count)
         e.applyRecycleDailyPayout = function(_, raw) return e.runtime.applyRecycleDailyPayout(raw) end
         e.giveCurrency = function(_, amount) return e.runtime.giveCurrency(amount) end
         e.GodSystemServerContainerContainsItem = e.runtime.containerContainsItem
-        e.removeItemFromContainer = function(c, v) c:Remove(v); return not c:contains(v) end
+        e.removeItemFromContainer = function(c, v, batch) c:Remove(v); if c:contains(v) then return false end; e.GodSystemExternalRecycle.queueRemoved(batch, c, v); return true end
         e.markInventoryDirty, e.appendHistory, e.historyEntry, e.applyRuntimeStores = noop, noop, noop, noop
         e.itemSellPrice, e.autoShopListOnlyCost = e.runtime.getItemSellPrice, e.runtime.getAutoShopListOnlyCost
         e.spendCurrency = function(_, _, amount) return e.runtime.spendCurrency(amount) end
@@ -397,7 +435,7 @@ local function transactionFixture(mp, count)
             return e.result.ok
         end
         local a = extra or {}
-        return e.runtime.recycleSelectedItems(mode, ids, a.allowDestroyContents, a.containerContentSignatures, 0)
+        return e.runtime.recycleSelectedItems(mode, ids, a.allowDestroyContents, a.containerContentSignatures, 0, a.sources)
     end
     return e, values
 end
@@ -420,6 +458,52 @@ test("SP/MP actual batch handlers: one index, one payout, duplicate selection de
     end
 end)
 
+test("direct floor recycle: authority removes once, retries replay, payout failure restores", function()
+    for _, mp in ipairs({false, true}) do
+        local e, values = transactionFixture(mp, 1)
+        local item = values[1]
+        e.inventory:Remove(item)
+        e.player.primary = nil
+        local present = true
+        local row = { item = item, kind = "worldItem" }
+        e.GodSystemExternalRecycle.resolve = function(_, source)
+            if source.itemId == "1" and present then return row end
+            return nil, "changed"
+        end
+        e.GodSystemExternalRecycle.remove = function()
+            if not present then return false end
+            present = false
+            return true
+        end
+        e.GodSystemExternalRecycle.restore = function()
+            present = true
+            return true
+        end
+        e.GodSystemExternalRecycle.describe = function()
+            return present and { kind = "worldItem", itemId = "1", x = 0, y = 0, z = 0 } or nil
+        end
+        local args = { selectionVersion = 2, sources = {{ kind = "worldItem", itemId = "1", x = 0, y = 0, z = 0 }} }
+        assert(e.run("recycle", {"1"}, args))
+        eq(present, false); eq(e.balance, 3); eq(e.payoutCalls, 1)
+        if mp then
+            assert(e.run("recycle", {"1"}, args))
+            eq(e.balance, 3); eq(e.payoutCalls, 1)
+        end
+        local e2, values2 = transactionFixture(mp, 1)
+        e2.inventory:Remove(values2[1]); e2.player.primary = nil
+        local remains = true
+        e2.GodSystemExternalRecycle.resolve = function() return { item = values2[1], kind = "worldItem" } end
+        e2.GodSystemExternalRecycle.remove = function() remains = false; return true end
+        e2.GodSystemExternalRecycle.restore = function() remains = true; return true end
+        e2.GodSystemExternalRecycle.describe = function()
+            return remains and { kind = "worldItem", itemId = "1" } or nil
+        end
+        e2.failPayout = true
+        eq(e2.run("recycle", {"1"}, { selectionVersion = 2, sources = args.sources }), false)
+        eq(remains, true); eq(e2.balance, 0); eq(e2.data.recycleLimitUsed, 7)
+    end
+end)
+
 test("SP/MP deletion or currency failure restores items/equipment/daily limit", function()
     for _, mp in ipairs({false, true}) do
         for _, failure in ipairs({ "delete", "payout", "missing", "contents" }) do
@@ -434,6 +518,30 @@ test("SP/MP deletion or currency failure restores items/equipment/daily limit", 
             for _, v in ipairs(values) do eq(e.inventory:contains(v), true) end
             if mp then
                 local attempts = e.payoutCalls; eq(e.run("recycle", ids), false); eq(e.payoutCalls, attempts); eq(#e.inventory.rows, 3)
+            end
+        end
+    end
+end)
+
+test("SP/MP pickup fallback is authorized only after a complete ground rollback", function()
+    for _, mp in ipairs({false,true}) do
+        for _, restored in ipairs({false,true}) do
+            local e,values=transactionFixture(mp,1)
+            e.inventory:Remove(values[1]); e.player.primary=nil
+            e.GodSystemExternalRecycle.resolve=function() return {item=values[1],kind="worldItem"} end
+            e.GodSystemExternalRecycle.remove=function() return false,"deleteFailed",{step="worldTransmit",error="native delete failed"} end
+            e.GodSystemExternalRecycle.restore=function() return restored end
+            local sources={{kind="worldItem",itemId="1",x=0,y=0,z=0}}
+            local ok,reason,info=e.run("recycle",{"1"},{selectionVersion=2,sources=sources})
+            eq(ok,false); eq(e.balance,0); eq(e.payoutCalls,0)
+            if mp then
+                eq(e.result.code,restored and "RecycleDeleteRestored" or "TransactionOperationUnknown")
+                eq(e.result.payload.fallbackAllowed==true,restored)
+                e.run("recycle",{"1"},{selectionVersion=2,sources=sources})
+                eq(e.payoutCalls,0)
+            else
+                eq(reason,restored and "deleteFailed" or "unknown")
+                eq(info.fallbackAllowed==true,restored)
             end
         end
     end
@@ -589,3 +697,95 @@ test("multiple local players share the per-frame 64-entry budget", function()
 end)
 
 print(string.format("Behavior specs passed: %d", passed))
+
+test("3.21 real runtime config: same-value replacement, unrelated state, relevant invalidation and sessions", function()
+    for _, n in ipairs({201, 2000, 5000}) do
+        local e = environment(); local _, snapshot = selection(e, n)
+        e.GodSystemEquipment = {Settings={}}
+        e.GodSystemConfig = {RecycleSellPriceMultiplier=1, ShopBuyPriceMultiplier=1}
+        e.SandboxVars = {GodSystem={EnableRecycle=true, EnableShop=true, EnableRecycleListing=true}}
+        e.GodSystemRuntimeConfig = nil
+        load(e, "shared/GodSystem_RuntimeConfig.lua")
+        e.runtime.getData = function()
+            e.GodSystemRuntimeConfig.readSandbox() -- Matches real SP getData.
+            local replacement = {stats={},shopCatalogRevision=99,unlockedShopItems={}}
+            e.data = replacement
+            e.GodSystemItemConfig.Current = {economyRevision=1}
+            return replacement
+        end
+        local prep = preparation(e)
+        local executed = 0
+        local job = assert(prep.start(snapshot,"recycle",{execute=function(j) executed=#j.items end}))
+        drain(prep,job,"ready"); assert(prep.confirm(job)); drain(prep,job,"completed"); eq(executed,n)
+        local changed=assert(prep.start(snapshot,"recycle",{}))
+        e.SandboxVars.GodSystem.RecycleSellPriceMultiplier=2
+        prep.step(changed); eq(changed.reason,"configChanged")
+        local session=assert(prep.start(snapshot,"recycle",{})); prep.clear()
+        prep.step(session); assert(session.status=="cancelled")
+        e.mp=true
+        e.GodSystemRuntimeConfig.applySnapshot({EnableRecycle=true,RecycleSellPriceMultiplier=3})
+        e.SandboxVars.GodSystem.RecycleSellPriceMultiplier=77
+        local remote=assert(prep.start(snapshot,"recycle",{}))
+        drain(prep,remote,"ready"); eq(e.GodSystemRuntimeConfig.get("RecycleSellPriceMultiplier"),3)
+    end
+end)
+
+test("3.21 committed zero payout survives result send failure and replay", function()
+    for _, payout in ipairs({0,3}) do
+        local e = transactionFixture(true,1)
+        e.runtime.calculateRecyclePayout=function() return payout end
+        e.calculateRecyclePayout=e.runtime.calculateRecyclePayout
+        local args={mode="recycle",itemIds={"1"},opId="gs-1-3-21"}
+        e.finishCode=function() error("result packet dropped") end
+        e.diagnostics={}
+        e.Commands.recycle(nil,nil,e.player,args)
+        eq(#e.inventory.rows,0); eq(e.balance,payout)
+        local receipt=e.GodSystemTransactionOps.get(e.root,"player","recycleSelectedItems",args)
+        eq(receipt.status,"done"); eq(receipt.ok,true)
+        e.finishCode=function(_,ok,code) e.result={ok=ok,code=code} end
+        e.Commands.recycle(nil,nil,e.player,args)
+        eq(e.result.ok,true); eq(e.balance,payout); eq(#e.inventory.rows,0)
+    end
+end)
+
+test("3.21 batched native void sync, mid-sync failure recovery and unknown result", function()
+    local e=transactionFixture(true,450)
+    local ids={}; for i=1,450 do ids[i]=tostring(i) end
+    assert(e.run("recycle",ids)); eq(e.syncCalls,3)
+    local failed=transactionFixture(true,450)
+    failed.failSync=true
+    assert(not failed.run("recycle",ids)); eq(#failed.inventory.rows,450); eq(failed.balance,0)
+    eq(failed.result.code,"RecycleSyncRestored")
+    local unknown,values=transactionFixture(true,2)
+    unknown.failSync=true; unknown.inventory.AddItem=function() error("restore blocked") end
+    assert(not unknown.run("recycle",{"1","2"})); eq(unknown.result.code,"TransactionOperationUnknown")
+end)
+
+test("3.21 recovered inventory with unrecovered hand state stays unknown", function()
+    for _, mp in ipairs({false,true}) do
+        local e=transactionFixture(mp,2)
+        e.failPayout=true
+        e.player.setPrimaryHandItem=function(self,value)
+            if value then error("native hand restore failed") end
+            self.primary=nil
+        end
+        assert(not e.run("recycle",{"1","2"}))
+        eq(#e.inventory.rows,2); eq(e.balance,0)
+        if mp then eq(e.result.code,"TransactionOperationUnknown")
+        else assert(e.lastMessage:find("not be verified",1,true)) end
+    end
+end)
+
+test("3.21 real Foundation helper batches sync and preserves equipment hook", function()
+    local e,values=transactionFixture(true,225)
+    load(e,"server/GodSystem_ServerRuntime_Foundation.lua")
+    local native=setmetatable({GodSystemServer={}}, {__index=e})
+    e.GodSystemServerRuntimeInstallers.GodSystem_ServerRuntime_Foundation(native)
+    local removedHook,dirty=0,0
+    e.GodSystemEquipment={beforeRemoval=function() removedHook=removedHook+1 end}
+    e.inventory.setDrawDirty=function() dirty=dirty+1 end
+    local batch=e.GodSystemExternalRecycle.newBatch()
+    for _,value in ipairs(values) do assert(native.removeItemFromContainer(e.inventory,value,batch)) end
+    eq(removedHook,225); eq(e.syncCalls,0); eq(dirty,0)
+    assert(e.GodSystemExternalRecycle.flushBatch(batch)); eq(e.syncCalls,2); eq(dirty,1)
+end)

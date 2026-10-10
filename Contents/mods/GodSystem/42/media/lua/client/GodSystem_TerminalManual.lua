@@ -1,12 +1,12 @@
 require "GodSystem_TerminalDesign"
 require "GodSystem_TerminalGuideData"
+require "GodSystem_Pinyin"
 GodSystemTerminalManual=GodSystemTerminalManual or {}
 local M,D,P=GodSystemTerminalManual,GodSystemTerminalDesign,GodSystemTerminalPreferences
 function M.search(query)
     query=string.lower(tostring(query or "")); local found={}
     for _,article in ipairs(GodSystemTerminalGuideData) do
-        local haystack=string.lower(article.title.." "..article.group.." "..article.body.." "..(article.fullType or ""))
-        if query=="" or string.find(haystack,query,1,true) then found[#found+1]=article end
+        if GodSystemPinyin.matchCached("manual", article.id, { article.title, article.group, article.body, article.fullType or "" },query) then found[#found+1]=article end
     end
     return found
 end

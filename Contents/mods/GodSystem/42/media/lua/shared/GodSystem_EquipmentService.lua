@@ -361,7 +361,7 @@ function S:performAction(player, args)
         and action ~= "rename" and action ~= "clearInvalidSlot" then
         return response(false, "EquipmentRequestInvalid", opId)
     end
-    local record, slotReason, slotId = self:slotRecord(root, account, account.ownerKey, slot)
+    local record, _slotReason, slotId = self:slotRecord(root, account, account.ownerKey, slot)
     local invalidSlot = slotId ~= nil and not record
     if action == "clearInvalidSlot" then
         if args.cost ~= 0 then return response(false, "EquipmentQuoteChanged", opId) end

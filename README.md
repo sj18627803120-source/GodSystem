@@ -1,6 +1,6 @@
 # GodSystem（神级系统）
 
-Project Zomboid Build 42 模组。当前源码版本为 `42.20_3.18.5`，目标游戏版本为 B42.20.4。GitHub `main` 保存开发源码；它不等同于 Steam 创意工坊已发布版本，尚待实机验证的项目见[最新交接](docs/GodSystem_DevHandoff_CN/117_v42.20_3.18.5_范围回收筛选滚动修复.md)。
+Project Zomboid Build 42 模组。当前源码版本为 `42.21_3.21.4`，目标游戏版本为 B42.21。用户于 2026-10-10 确认当前测试通过，作为新的开发和滚动备份基线。GitHub `main` 保存集成源码；它不等同于 Steam 创意工坊已发布版本。尚未逐项确认的多人场景及本次归档说明见[最新交接](docs/GodSystem_DevHandoff_CN/130_v42.21_3.21.4_验收备份与源码同步.md)。
 
 - [创意工坊页面](https://steamcommunity.com/sharedfiles/filedetails/?id=3773949382)
 - [参与开发与提交 PR](CONTRIBUTING.md)

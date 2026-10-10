@@ -3,8 +3,10 @@ require "GodSystem_Core"
 require "GodSystem_RangeFilter"
 require "GodSystem_InventoryContext"
 require "GodSystem_InventoryIndex"
+require "GodSystem_ExternalRecycle"
 require "GodSystem_RecyclePreparation"
 require "GodSystem_RecyclePreparationUI"
+require "GodSystem_RecycleFallback"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISModalDialog"
 require "TimedActions/ISInventoryTransferUtil"
@@ -139,13 +141,14 @@ local function createAnalysisCache(items, entries)
     return cache
 end
 
-function Context.classifyItem(item, mode, cached)
+function Context.classifyItem(_item, mode, cached)
     if not cached or not cached.allowed then
         local reason = cached and cached.reason
         return false, reason == "disabled" and "ContextReason_RecycleDisabled"
             or reason == "protected" and "ContextReason_Protected" or "ContextReason_Invalid"
     end
     if mode == "recycle" or cached.listable then return true, nil end
+    if cached.listReason == "catalogLoading" then return false, "ContextReason_ShopCatalogLoading" end
     local reasons = { alreadyListed = "ContextReason_AlreadyListed", hiddenListed = "ContextReason_HiddenListed",
         configuredListed = "ContextReason_ConfiguredListed" }
     return mode == "recycleAndList", reasons[cached.listReason] or "ContextReason_NotListable"
@@ -265,23 +268,38 @@ end
 function Context.execute(payload)
     local player = getSpecificPlayer and getSpecificPlayer(payload.playerNum) or getPlayer()
     if not player then return false end
+    if GodSystemRecycleFallback and GodSystemRecycleFallback.isBusy() then return false end
     local itemIds = {}
+    local sources = {}
     local inventoryIndex = GodSystemInventoryIndex.build(player:getInventory())
     for i = 1, #(payload.items or {}) do
         local id = itemId(payload.items[i])
-        if not id or GodSystemInventoryIndex.find(inventoryIndex, id) ~= payload.items[i] then
+        local carried = id and GodSystemInventoryIndex.find(inventoryIndex, id) == payload.items[i]
+        local external = not carried and GodSystemExternalRecycle.describe(payload.items[i]) or nil
+        if not id or (not carried and not external) then
             GodSystemApp.services.runtime.notify(text("Notify_RecycleSelectionTransferFailed", "Could not move all selected items"))
             return false
         end
         itemIds[#itemIds + 1] = id
+        if external then sources[#sources + 1] = external end
     end
-    return GodSystemApp.services.runtime.recycleSelectedItems(
+    local backup = GodSystemRecycleFallback and GodSystemRecycleFallback.capture(payload, sources)
+    local accepted, reason, result = GodSystemApp.services.runtime.recycleSelectedItems(
         payload.mode,
         itemIds,
         payload.allowDestroyContents == true,
         payload.containerContentSignatures,
-        payload.skippedCount or 0
+        payload.skippedCount or 0,
+        sources
     )
+    if backup then
+        if isClient and isClient() then
+            if accepted and GodSystemNetwork then GodSystemRecycleFallback.track(GodSystemNetwork.pendingOperationId, backup) end
+        elseif accepted == false and reason == "deleteFailed" and result and result.fallbackAllowed == true then
+            return GodSystemRecycleFallback.offer(backup)
+        end
+    end
+    return accepted
 end
 
 function Context.onTransfersComplete(payload)
@@ -291,10 +309,11 @@ end
 function Context.queueTransfers(payload)
     local player = getSpecificPlayer and getSpecificPlayer(payload.playerNum) or getPlayer()
     if not player then return false end
+    if GodSystemRecycleFallback and GodSystemRecycleFallback.isBusy() then return false end
     local actions = {}
     for i = 1, #(payload.items or {}) do
         local item = payload.items[i]
-        if not isInPlayerInventory(player, item) then
+        if not isInPlayerInventory(player, item) and not GodSystemExternalRecycle.describe(item) then
             local source = item:getContainer()
             if not source then return false end
             actions[#actions + 1] = ISInventoryTransferUtil.newInventoryTransferAction(player, item, source, player:getInventory())
@@ -358,16 +377,18 @@ function Context.begin(payload, mode)
     return true
 end
 
+require "GodSystem_RecycleResult"
+
 function Context.startBulk(payload, mode)
     local UI = GodSystemRecyclePreparationUI
-    local job = GodSystemRecyclePreparation.start(payload.snapshot, mode, {
+    local job, startReason = GodSystemRecyclePreparation.start(payload.snapshot, mode, {
         close = UI.dismiss, progress = UI.update, ready = UI.update,
         failed = function(_, reason)
             GodSystemApp.services.runtime.notify(reason == "submission"
                 and text("RecyclePrep_SubmissionFailed", "Submission failed; check inventory and transaction result before retrying")
                 or reason == "empty"
                 and text("RecyclePrep_Empty", "No eligible items or new types")
-                or text("RecyclePrep_Changed", "Items, contents or settings changed; please try again"))
+                or GodSystemRecycleResult.message(GodSystemApp.services.runtime, reason))
         end,
         execute = function(prepared)
             if prepared.mode == "rangeFilter" then
@@ -381,7 +402,7 @@ function Context.startBulk(payload, mode)
         end,
     })
     if not job then
-        GodSystemApp.services.runtime.notify(text("RecyclePrep_Changed", "Items, contents or settings changed; please try again"))
+        GodSystemApp.services.runtime.notify(GodSystemRecycleResult.message(GodSystemApp.services.runtime, startReason))
         return false
     end
     UI.open(job)

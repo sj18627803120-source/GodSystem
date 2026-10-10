@@ -123,7 +123,7 @@ local function hasForbiddenBaseName(fullType)
     return false
 end
 
-function GodSystemItemEligibility.isEconomicItemAllowed(fullType, context)
+function GodSystemItemEligibility.isEconomicItemAllowed(fullType, _context)
     fullType = tostring(fullType or "")
     if fullType == "" then
         return false

@@ -59,6 +59,8 @@ local function addLabel(owner, x, y, label)
     return value
 end
 
+---@class GodSystemPresetSlotDialog: ISCollapsableWindow
+---@field new fun(self: GodSystemPresetSlotDialog, owner: GodSystemItemEconomyWindow, slot: number): GodSystemPresetSlotDialog
 GodSystemPresetSlotDialog = ISCollapsableWindow:derive("GodSystemPresetSlotDialog")
 
 function GodSystemPresetSlotDialog:new(owner, slot)
@@ -120,6 +122,7 @@ function GodSystemPresetSlotDialog:close()
     if self.owner and self.owner.presetDialog == self then self.owner.presetDialog = nil end
 end
 
+---@class GodSystemItemEconomyWindow: ISCollapsableWindow
 GodSystemItemEconomyWindow = ISCollapsableWindow:derive("GodSystemItemEconomyWindow")
 
 function GodSystemItemEconomyWindow:new(x, y, width, height, owner)
@@ -147,6 +150,7 @@ function GodSystemItemEconomyWindow:new(x, y, width, height, owner)
 end
 
 function GodSystemItemEconomyWindow:createChildren()
+    self.catalogUnsubscribe = GodSystemItemCatalog.subscribe(function() end)
     ISCollapsableWindow.createChildren(self)
 
     self.presetButtons = {}
@@ -248,6 +252,12 @@ function GodSystemItemEconomyWindow:createChildren()
 end
 
 function GodSystemItemEconomyWindow:applyPresets(presets)
+    self.presetsReady = type(presets) == "table"
+    if not self.presetsReady then
+        if self.presetDialog then self.presetDialog:close() end
+        if self.presetConfirmation then self.presetConfirmation:destroy(); self.presetConfirmation = nil end
+        if self.presetRemarkBox then self.presetRemarkBox:destroy(); self.presetRemarkBox = nil; self.presetRemarkSlot = nil end
+    end
     presets = (type(presets) == "table") and presets or {}
     self.presetOrder = (type(presets.order) == "table") and presets.order or {}
     self.presetRemarks = (type(presets.remarks) == "table") and presets.remarks or {}
@@ -255,11 +265,11 @@ function GodSystemItemEconomyWindow:applyPresets(presets)
     for _, slot in ipairs(self.presetOrder) do
         if GodSystemItemConfig.isPresetSlot(slot) then self.presetSaved[slot] = true end
     end
-    self.presetActive = (type(presets.active) == "string" and presets.active ~= "")
-        and presets.active or GodSystemItemConfig.PRESET_DEFAULT
+    self.presetActive = self.presetsReady and ((type(presets.active) == "string" and presets.active ~= "")
+        and presets.active or GodSystemItemConfig.PRESET_DEFAULT) or nil
     if GodSystemApp.services.runtime then
-        GodSystemApp.services.runtime.itemConfigPresets = {
-            order = self.presetOrder, remarks = self.presetRemarks, active = self.presetActive }
+        GodSystemApp.services.runtime.itemConfigPresets = self.presetsReady and {
+            order = self.presetOrder, remarks = self.presetRemarks, active = self.presetActive } or nil
     end
     for index = 0, 3 do
         local slot = index == 0 and GodSystemItemConfig.PRESET_DEFAULT or tostring(index)
@@ -268,6 +278,9 @@ function GodSystemItemEconomyWindow:applyPresets(presets)
             local label = index == 0 and text("EconomyAdmin_PresetDefault", "默认")
                 or (text("EconomyAdmin_PresetSlot", "预设") .. " " .. slot)
             button:setTitle((slot == self.presetActive and "[x] " or "") .. label)
+            button:setEnable(self.presetsReady)
+            button.tooltip = not self.presetsReady and text("EconomyAdmin_PresetLoading",
+                "Waiting for server preset status; no changes have been made.") or nil
         end
     end
     if self.presetDialog then self.presetDialog:refresh() end
@@ -323,6 +336,7 @@ function GodSystemItemEconomyWindow:localPreset(op, name)
 end
 
 function GodSystemItemEconomyWindow:requestPresetApply(name)
+    if self.presetsReady == false then return false end
     if multiplayer() then
         if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetApply", { name = name }) end
         return
@@ -345,6 +359,7 @@ function GodSystemItemEconomyWindow:confirmPresetApply(name)
 end
 
 function GodSystemItemEconomyWindow:requestPresetSave(name)
+    if self.presetsReady == false then return false end
     if multiplayer() then
         if GodSystemNetwork and GodSystemNetwork.send then GodSystemNetwork.send("itemConfigPresetSave", { name = name }) end
         return
@@ -353,6 +368,7 @@ function GodSystemItemEconomyWindow:requestPresetSave(name)
 end
 
 function GodSystemItemEconomyWindow:requestPresetRemark(name, remark)
+    if self.presetsReady == false then return false end
     if multiplayer() then
         if GodSystemNetwork and GodSystemNetwork.send then
             GodSystemNetwork.send("itemConfigPresetRemark", { name = name, remark = remark })
@@ -366,6 +382,7 @@ function GodSystemItemEconomyWindow:requestPresetRemark(name, remark)
 end
 
 function GodSystemItemEconomyWindow:onPresetButton(button)
+    if not self.presetsReady then return end
     local slot = button and button.presetSlot
     if slot == GodSystemItemConfig.PRESET_DEFAULT then
         if self.presetDialog then self.presetDialog:close() end
@@ -651,6 +668,7 @@ function GodSystemItemEconomyWindow:refreshSelected(requestDetails)
 end
 
 function GodSystemItemEconomyWindow:close()
+    if self.catalogUnsubscribe then self.catalogUnsubscribe(); self.catalogUnsubscribe=nil end
     if self.presetConfirmation then
         self.presetConfirmation:destroy()
         self.presetConfirmation = nil
@@ -668,6 +686,9 @@ end
 
 function GodSystemItemEconomyUI.open(owner)
     if GodSystemItemEconomyUI.window then
+        if GodSystemItemEconomyUI.window.presetsReady == false then
+            GodSystemItemEconomyUI.window:loadPresets()
+        end
         return GodSystemUI.presentOverlay(GodSystemItemEconomyUI.window)
     end
     local width, height = 1040, 680

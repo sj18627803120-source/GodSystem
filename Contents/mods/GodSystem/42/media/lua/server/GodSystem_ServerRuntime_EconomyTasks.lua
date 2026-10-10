@@ -98,7 +98,8 @@ end
 function traitBoostCount(value)
     if value and value.intValue then
         local ok, result = pcall(function() return value:intValue() end)
-        if ok and tonumber(result) then return math.floor(tonumber(result)) end
+        local number = ok and tonumber(result) or nil
+    if number then return math.floor(number) end
     end
     return math.floor(tonumber(tostring(value)) or 0)
 end
@@ -196,11 +197,11 @@ function itemSellPrice(fullType, item)
     return itemPriceInfo(fullType, item).sellPrice or 0
 end
 
-function autoShopBuyPriceForItem(fullType, sellValue)
+function autoShopBuyPriceForItem(fullType, _sellValue)
     return GodSystemEconomyPolicy.quote(fullType, nil, { kind = "shop" }).finalBuy
 end
 
-function autoShopListOnlyCost(fullType, sellValue)
+function autoShopListOnlyCost(fullType, _sellValue)
     return GodSystemEconomyPolicy.listingCost(fullType, nil)
 end
 
@@ -296,7 +297,7 @@ function itemHasInventory(item)
     return ok and child ~= nil
 end
 
-function calculateRecyclePayout(fullType, rawValue, count)
+function calculateRecyclePayout(_fullType, rawValue, _count)
     rawValue = floor(rawValue, 0)
     if rawValue <= 0 then return 0 end
     return math.max(1, rawValue)

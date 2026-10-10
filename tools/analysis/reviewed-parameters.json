@@ -1,0 +1,34 @@
+{
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_AutoLoaderUI.lua|param-type-mismatch|Cannot assign `GodSystemAutoLoaderWindow|ISCollapsableWindow` to parameter `GodSystemAutoLoaderWindow`.\n- `ISCollapsableWindow` cannot match `GodSystemAutoLoaderWindow`\n- Type `ISCollapsableWindow` cannot match `GodSystemAutoLoaderWindow`\n- Type `ISPanel` cannot match `GodSystemAutoLoaderWindow`\n- Type `ISUIElement` cannot match `GodSystemAutoLoaderWindow`\n- Type `ISBaseObject` cannot match `GodSystemAutoLoaderWindow`": {
+    "classification": "接口声明不足",
+    "reason": "LuaLS infers the base window union from derive(); runtime factory constructs GodSystemAutoLoaderWindow; checked by the UI behavior spec."
+  },
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_ClientRuntime_MedicalTraits.lua|param-type-mismatch|Cannot assign `unknown|nil` to parameter `CharacterTrait`.\n- `nil` cannot match `CharacterTrait`\n- Type `nil` cannot match `CharacterTrait`": {
+    "classification": "接口声明不足",
+    "reason": "Trait token is resolved dynamically and guarded by the existing native trait resolution path; Umbrella cannot infer the returned CharacterTrait."
+  },
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_TerminalShell.lua|param-type-mismatch|Cannot assign `ISButton|ISLabel|ISTextEntryBox` to parameter `ISButton`.\n- `ISLabel` cannot match `ISButton`\n- Type `ISLabel` cannot match `ISButton`\n- Type `ISUIElement` cannot match `ISButton`\n- Type `ISBaseObject` cannot match `ISButton`": {
+    "classification": "接口声明不足",
+    "reason": "Shared controls table holds button, label, and text-entry objects; Type/method checks narrow at runtime, LuaLS does not narrow this union."
+  },
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_TerminalShell.lua|param-type-mismatch|Cannot assign `ISButton|ISLabel|ISTextEntryBox` to parameter `ISButton|ISTextEntryBox`.\n- `ISLabel` cannot match `ISButton|ISTextEntryBox`\n- `ISLabel` cannot match any subtypes in `ISButton|ISTextEntryBox`\n- Type `ISLabel` cannot match `ISTextEntryBox`\n- Type `ISUIElement` cannot match `ISTextEntryBox`\n- Type `ISBaseObject` cannot match `ISTextEntryBox`\n- Type `ISLabel` cannot match `ISButton`\n- Type `ISUIElement` cannot match `ISButton`\n- Type `ISBaseObject` cannot match `ISButton`": {
+    "classification": "接口声明不足",
+    "reason": "Shared controls table holds button, label, and text-entry objects; Type/method checks narrow at runtime, LuaLS does not narrow this union."
+  },
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_TerminalShell.lua|param-type-mismatch|Cannot assign `ISButton|ISLabel|ISTextEntryBox` to parameter `ISTextEntryBox`.\n- `ISButton` cannot match `ISTextEntryBox`\n- Type `ISButton` cannot match `ISTextEntryBox`\n- Type `ISPanel` cannot match `ISTextEntryBox`\n- Type `ISUIElement` cannot match `ISTextEntryBox`\n- Type `ISBaseObject` cannot match `ISTextEntryBox`": {
+    "classification": "接口声明不足",
+    "reason": "Shared controls table holds button, label, and text-entry objects; Type/method checks narrow at runtime, LuaLS does not narrow this union."
+  },
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_UtilityGeneratorContext.lua|param-type-mismatch|Cannot assign `nil` to parameter `table`.\n- `nil` cannot match `table`\n- Type `nil` cannot match `table`": {
+    "classification": "接口声明不足",
+    "reason": "Native cursor clearing intentionally passes nil to IsoCell.setDrag; pinned 42.20.0 type declaration does not include the clear overload."
+  },
+  "Contents/mods/GodSystem/42/media/lua/shared/GodSystem_UtilityGenerator.lua|param-type-mismatch|Cannot assign `number?` to parameter `number`.\n- Optional type cannot match `number`\n- Type `nil` cannot match `number`": {
+    "classification": "接口声明不足",
+    "reason": "Optional numeric values are checked by finite() and range tests before use; LuaLS does not infer the local predicate narrowing."
+  },
+  "Contents/mods/GodSystem/42/media/lua/client/GodSystem_ItemEconomyUI.lua|param-type-mismatch|Cannot assign `GodSystemPresetSlotDialog|ISCollapsableWindow` to parameter `GodSystemPresetSlotDialog`.\n- `ISCollapsableWindow` cannot match `GodSystemPresetSlotDialog`\n- Type `ISCollapsableWindow` cannot match `GodSystemPresetSlotDialog`\n- Type `ISPanel` cannot match `GodSystemPresetSlotDialog`\n- Type `ISUIElement` cannot match `GodSystemPresetSlotDialog`\n- Type `ISBaseObject` cannot match `GodSystemPresetSlotDialog`": {
+    "classification": "接口声明不足",
+    "reason": "The preset dialog is created by GodSystemPresetSlotDialog.new; LuaLS occasionally retains an ISCollapsableWindow base union from derive()."
+  }
+}

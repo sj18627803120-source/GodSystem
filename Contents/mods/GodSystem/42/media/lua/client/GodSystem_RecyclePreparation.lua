@@ -1,12 +1,14 @@
 require "GodSystem_Scheduler"
 require "GodSystem_ContextContent"
 require "GodSystem_InventoryContext"
+require "GodSystem_ExternalRecycle"
 
 GodSystemRecyclePreparation = GodSystemRecyclePreparation or {}
 local Prep = GodSystemRecyclePreparation
 Prep.active = Prep.active or {}
 Prep.MAX_STEP_ITEMS = 64
 Prep.BUDGET_MS = 2
+Prep.sessionGeneration = Prep.sessionGeneration or 0
 local tickInstalled = false
 
 local function playerFor(num)
@@ -43,28 +45,45 @@ end
 local function isCurrent(job)
     local runtime = GodSystemApp.services.runtime
     local player = playerFor(job.playerNum)
-    if player ~= job.player or not player or (player.isDead and player:isDead()) then return false end
-    if isClient and isClient() and (not GodSystemNetwork or not GodSystemNetwork.isStateReady()) then return false end
-    if GodSystemRuntimeConfig.Current ~= job.runtimeConfig or GodSystemItemConfig.Current ~= job.itemConfig
-        or tonumber(job.itemConfig and job.itemConfig.economyRevision) ~= job.economyRevision
-        or runtime.getData() ~= job.data or job.data.unlockedShopItems ~= job.unlocked then return false end
-    if not runtime.isFeatureEnabled("EnableRecycle") then return false end
-    if job.mode ~= "recycle" and job.mode ~= "rangeFilter" and not runtime.isFeatureEnabled("EnableShop") then return false end
+    if job.sessionGeneration ~= Prep.sessionGeneration or player ~= job.player or not player
+        or (player.isDead and player:isDead()) then return false, "sessionChanged" end
+    if isClient and isClient() and (not GodSystemNetwork or not GodSystemNetwork.isStateReady()) then return false, "sessionChanged" end
+    local data = runtime.getData() -- may replace same-valued runtime configuration
+    if not data then return false, "sessionChanged" end
+    if not runtime.isFeatureEnabled("EnableRecycle") then return false, "disabled" end
+    if job.mode ~= "recycle" and job.mode ~= "rangeFilter"
+        and (not runtime.isFeatureEnabled("EnableShop") or not runtime.isFeatureEnabled("EnableRecycleListing")) then return false, "disabled" end
+    if GodSystemRuntimeConfig.recyclePreparationToken(job.mode) ~= job.configToken
+        or tonumber(GodSystemItemConfig.Current and GodSystemItemConfig.Current.economyRevision) ~= job.economyRevision
+        or (job.catalogRevision ~= nil and tonumber(data.shopCatalogRevision or 0) ~= job.catalogRevision) then
+        return false, "configChanged"
+    end
     if job.range then
         local current = GodSystemApp.services.rangeRecycle:getContextMenuState(job.playerNum)
-        if not current.enabled or not current.ready or current.token ~= job.range.token then return false end
+        if not current.enabled or not current.ready or current.token ~= job.range.token then return false, "configChanged" end
     end
     return true
 end
 
-local function verifyEntry(job, entry)
+local function verifyEntry(entry)
     local item = entry.item
-    assert(item:getContainer() == entry.source and entry.source
-        and tostring(item:getID()) == entry.id and item:getFullType() == entry.fullType
-        and GodSystemShopVariants.getWorldSprite(item) == entry.worldSprite, "selection changed")
+    local sameLocation
+    if entry.worldObject then
+        local descriptor = GodSystemExternalRecycle.describe(item)
+        sameLocation = item:getWorldItem() == entry.worldObject
+            and entry.worldObject:getSquare() == entry.worldSquare
+            and descriptor and descriptor.kind == "worldItem"
+            and (not entry.externalSource or GodSystemExternalRecycle.sameSource(descriptor, entry.externalSource))
+        if sameLocation and not entry.externalSource then entry.externalSource = descriptor end
+    else
+        sameLocation = entry.source and item:getContainer() == entry.source
+    end
+    if not (sameLocation and tostring(item:getID()) == entry.id and item:getFullType() == entry.fullType
+        and GodSystemShopVariants.getWorldSprite(item) == entry.worldSprite) then return false, "changed" end
     local container = item.getInventory and item:getInventory() or nil
-    if entry.inventoryChecked then assert(container == entry.inventory, "container changed") end
+    if entry.inventoryChecked and container ~= entry.inventory then return false, "contentsChanged" end
     entry.inventory, entry.inventoryChecked = container, true
+    return true
 end
 
 local function addRangeType(job, fullType)
@@ -82,15 +101,16 @@ end
 local function processEntry(job)
     local Context = GodSystemRecycleContext
     local entry = GodSystemInventoryContext.getEntry(job.snapshot, job.cursor)
-    assert(entry and not job.snapshot.invalid, "invalid identity")
-    verifyEntry(job, entry)
+    if not entry or job.snapshot.invalid then return false, "identity" end
+    local verified, failure = verifyEntry(entry)
+    if not verified then return false, failure end
     local verifying = job.status == "verifying"
     local cache = verifying and job.verifyCache or job.cache
     local analysis = Context.analyzeItem(cache, entry.item, entry)
     local eligible, reason = Context.classifyItem(entry.item, job.mode == "rangeFilter" and "recycle" or job.mode, analysis)
     if verifying then
         local original = job.classifications[job.cursor]
-        assert(original.eligible == eligible and original.reason == reason, "eligibility changed")
+        if original.eligible ~= eligible or original.reason ~= reason then return false, "configChanged" end
     else
         job.classifications[job.cursor] = { eligible = eligible, reason = reason }
         if not eligible or reason then job.skipped = job.skipped + 1 end
@@ -111,7 +131,7 @@ local function processEntry(job)
     elseif eligible and entry.inventory then
         if verifying then
             local reader = job.contents[entry.id]
-            assert(reader, "container changed")
+            if not reader then return false, "contentsChanged" end
             reader:restartValidation()
             job.reader = reader
         else
@@ -121,11 +141,12 @@ local function processEntry(job)
         job.readerEntry = entry
     end
     if not job.reader then job.cursor = job.cursor + 1 end
+    return true
 end
 
 local function finishPass(job)
     if job.status == "analyzing" then beginVerify(job); return end
-    assert(job.mode ~= "listOnly" or job.verifyCost == job.cost, "price changed")
+    if job.mode == "listOnly" and job.verifyCost ~= job.cost then Prep.cancel(job, "configChanged"); return end
     if #job.items == 0 or (job.mode == "rangeFilter" and #job.rangeTypes == 0) then
         Prep.cancel(job, "empty")
     elseif job.confirmed then
@@ -148,12 +169,15 @@ function Prep.step(job, sliceLimit, frameStart)
     sliceLimit = math.min(Prep.MAX_STEP_ITEMS, sliceLimit or Prep.MAX_STEP_ITEMS)
     local steps = 0
     local ok = pcall(function()
-        assert(isCurrent(job), "state changed")
+        local current, failure = isCurrent(job)
+        if not current then Prep.cancel(job, failure); return end
         while job.status == "analyzing" or job.status == "verifying" do
             if steps >= sliceLimit or (steps > 0 and GodSystemScheduler.nowMs() - start >= Prep.BUDGET_MS) then break end
             steps = steps + 1
             if job.reader then
-                if job.reader:step() then
+                local complete, readerFailure = job.reader:step()
+                if readerFailure then Prep.cancel(job, readerFailure); break end
+                if complete then
                     if job.status == "analyzing" and #job.reader.tokens > 0 then
                         job.containerContentSignatures[job.readerEntry.id] = job.reader.signature
                         job.hasContents = true
@@ -162,12 +186,17 @@ function Prep.step(job, sliceLimit, frameStart)
                     job.cursor = job.cursor + 1
                 end
             elseif job.cursor > #job.snapshot.items then finishPass(job)
-            else processEntry(job) end
+            else
+                local processed, reason = processEntry(job)
+                if not processed then Prep.cancel(job, reason); break end
+            end
         end
     end)
     job.maxSliceMs = math.max(job.maxSliceMs or 0, GodSystemScheduler.nowMs() - start)
     job.steps = (job.steps or 0) + steps
-    if not ok then Prep.cancel(job, "changed")
+    if not ok then
+        if GodSystemDiagnostics then GodSystemDiagnostics.issue(isClient and isClient() and "client" or "sp", "RecyclePreparation", "prepareRead", "nativeReadFailed") end
+        Prep.cancel(job, "nativeReadFailed")
     elseif Prep.active[keyFor(job.playerNum)] == job and job.callbacks.progress then job.callbacks.progress(job) end
     return steps
 end
@@ -202,13 +231,15 @@ function Prep.start(snapshot, mode, callbacks)
     Prep.cancel(Prep.active[key])
     local cache = GodSystemRecycleContext.newAnalysis()
     local job = { snapshot = snapshot, playerNum = snapshot.playerNum, player = player, mode = mode,
-        callbacks = callbacks or {}, cache = cache, data = cache.data, unlocked = cache.data and cache.data.unlockedShopItems,
-        runtimeConfig = GodSystemRuntimeConfig.Current, itemConfig = GodSystemItemConfig.Current,
+        callbacks = callbacks or {}, cache = cache, data = cache.data,
+        configToken = GodSystemRuntimeConfig.recyclePreparationToken(mode), sessionGeneration = Prep.sessionGeneration,
+        catalogRevision = (mode == "listOnly" or mode == "recycleAndList") and tonumber(cache.data and cache.data.shopCatalogRevision or 0) or nil,
         economyRevision = tonumber(GodSystemItemConfig.Current and GodSystemItemConfig.Current.economyRevision),
         status = "analyzing", cursor = 1, classifications = {}, contents = {}, containerContentSignatures = {},
         items = {}, skipped = 0, cost = 0, typeCount = 0, listTypes = {}, rangeTypes = {}, rangeSeen = {}, rangeSkipped = 0 }
     if mode == "rangeFilter" then job.range = GodSystemApp.services.rangeRecycle:getContextMenuState(snapshot.playerNum) end
-    if not cache.data or not isCurrent(job) then return nil end
+    local current, reason = isCurrent(job)
+    if not cache.data or not current then return nil, reason or "sessionChanged" end
     Prep.active[key] = job
     if Events and Events.OnTick and not tickInstalled then
         Events.OnTick.Remove(Prep.onTick)
@@ -219,6 +250,7 @@ function Prep.start(snapshot, mode, callbacks)
 end
 
 function Prep.clear()
+    Prep.sessionGeneration = Prep.sessionGeneration + 1
     for _, job in pairs(Prep.active) do Prep.cancel(job) end
     if Events and Events.OnTick then Events.OnTick.Remove(Prep.onTick) end
     tickInstalled = false

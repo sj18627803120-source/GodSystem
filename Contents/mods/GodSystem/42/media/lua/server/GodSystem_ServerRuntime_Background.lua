@@ -156,12 +156,14 @@ Events.OnClientCommand.Add(function(module, command, player, args)
     if module ~= MODULE or not player then return end
     diagnostics.handledCommands = (diagnostics.handledCommands or 0) + 1
     diagnostics.lastCommand = tostring(command or "")
+    diagnostics.lastOperationId = type(args) == "table" and (args.opId or args.operationId) or nil
     local fn = Commands[command]
     if fn then
         local ok, err = pcall(fn, module, command, player, args or {})
         if not ok then
             diagnostics.failedCommands = (diagnostics.failedCommands or 0) + 1
             diagnostics.lastError = tostring(err)
+            GodSystemDiagnostics.issue("server", command, "uncaught", "ServerCommandFailed", diagnostics.lastOperationId)
             print("[GodSystem] command '" .. tostring(command) .. "' failed: " .. tostring(err))
             errorMessage(player, tostring(err))
             sendState(player)
@@ -171,6 +173,7 @@ Events.OnClientCommand.Add(function(module, command, player, args)
         errorCode(player, "UnknownCommand", { tostring(command or "") })
         sendState(player)
     end
+    diagnostics.lastOperationId = nil
 end)
 
 return Commands

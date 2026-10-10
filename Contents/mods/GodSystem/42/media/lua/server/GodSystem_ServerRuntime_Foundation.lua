@@ -307,6 +307,7 @@ end
 
 function errorMessage(player, text)
     diagnostics.lastError = tostring(text or "")
+    GodSystemDiagnostics.issue("server", diagnostics.lastCommand or "command", "exception", "ServerCommandFailed", diagnostics.lastOperationId)
     errorCode(player, "ServerCommandFailed", {})
 end
 
@@ -500,13 +501,17 @@ function GodSystemServerContainerContentSignature(item)
     return tostring(#tokens) .. ":" .. tostring(hash)
 end
 
-function removeItemFromContainer(container, item)
+function removeItemFromContainer(container, item, recycleBatch)
     if not container or not item then return false end
     if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
     local ok = pcall(function() container:Remove(item) end)
     if not ok or GodSystemServerContainerContainsItem(container, item) then return false end
-    if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, container, item) end
-    if container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
+    if recycleBatch then
+        GodSystemExternalRecycle.queueRemoved(recycleBatch, container, item)
+    else
+        if sendRemoveItemFromContainer then pcall(sendRemoveItemFromContainer, container, item) end
+        if container.setDrawDirty then pcall(function() container:setDrawDirty(true) end) end
+    end
     return true
 end
 

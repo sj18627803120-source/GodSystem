@@ -73,6 +73,7 @@ function GodSystemWindow:populateList()
         self:setActionBar({
             { id = "primary", width = 140 },
             { id = "secondary", width = 160 },
+            { id = "fourth", width = 160 },
         })
     else
         self:setStandardActionBar()

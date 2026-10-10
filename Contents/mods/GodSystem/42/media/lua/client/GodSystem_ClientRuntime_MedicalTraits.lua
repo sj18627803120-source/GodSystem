@@ -1,4 +1,5 @@
 _G.GodSystemClientRuntimeInstallers = _G.GodSystemClientRuntimeInstallers or {}
+require "GodSystem_Pinyin"
 GodSystemClientRuntimeInstallers["GodSystem_ClientRuntime_MedicalTraits"] = function(runtimeEnvironment)
     if runtimeEnvironment.__GodSystemInstalled_GodSystem_ClientRuntime_MedicalTraits then return end
     runtimeEnvironment.__GodSystemInstalled_GodSystem_ClientRuntime_MedicalTraits = true
@@ -679,8 +680,7 @@ function GodSystemApp.services.runtime.getAttributePerks(query)
     local filtered = {}
     for i = 1, #rows do
         local row = rows[i]
-        local haystack = (tostring(row.label or "") .. " " .. tostring(row.parentLabel or "")):lower()
-        if string.find(haystack, query, 1, true) then filtered[#filtered + 1] = row end
+        if GodSystemPinyin.matchCached("attributes", row.perkIndex or row.label, { row.label or "", row.parentLabel or "" }, query) then filtered[#filtered + 1] = row end
     end
     return filtered
 end

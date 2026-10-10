@@ -406,7 +406,7 @@ local function updateRobotPosition(player, data, delta, now)
     end
 end
 
-local function ensureLight(player, data)
+local function ensureLight(data)
     local runtime = Companion.runtime
     if not data.visible or runtime.vehicleSuspended or not runtime.robotX then removeLight(); return end
     local ix, iy, iz = math.floor(runtime.robotX), math.floor(runtime.robotY), math.floor(runtime.robotZ + 0.1)
@@ -1176,7 +1176,7 @@ local function updateCompanion(player)
     updateRobotPosition(player, data, delta, now)
     updateAnimation(delta)
     if Visual and Visual.update then Visual.update(delta) end
-    ensureLight(player, data)
+    ensureLight(data)
     if now - (runtime.lastGuardianScanMs or 0) >= Config.GuardianScanSeconds * 1000 then
         runtime.lastGuardianScanMs = now
         triggerGuardian(player, data)
@@ -1186,7 +1186,7 @@ end
 
 local function screenPoint(x, y, z)
     if not ISCoordConversion or not ISCoordConversion.ToScreen then return nil, nil, nil end
-    local sx, sy = ISCoordConversion.ToScreen(x, y, z)
+    local sx, sy = ISCoordConversion.ToScreen(x, y, z, 0)
     local zoom = getCore():getZoom(0)
     return sx / zoom, sy / zoom, zoom
 end

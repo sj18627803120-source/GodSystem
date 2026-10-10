@@ -961,7 +961,7 @@ function GodSystemWindow:drawListItem(list, y, item, alt)
         local task = payload.data
         local target = math.max(1, math.floor(tonumber(task.target) or 1))
         local progress = math.min(GodSystemApp.services.runtime.getTaskDisplayProgress(task), target)
-        local status = GodSystemApp.services.runtime.getTaskStatusText(task)
+        GodSystemApp.services.runtime.getTaskStatusText(task)
         local titleWidth = math.max(self:S(80), list.width - self:S(22))
         local title = gsTruncateText(GodSystemApp.services.runtime.getTaskListTitle(task), UIFont.Small, titleWidth)
         local line = gsTruncateText(GodSystemApp.services.runtime.getTaskListStatusLine(task), UIFont.Small, titleWidth)

@@ -51,7 +51,7 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Lottery"] = function(r
 
     local function prepareRewards(drawCount)
         local rewards, types = {}, {}
-        for draw = 1, drawCount do
+        for _draw = 1, drawCount do
             local prepared, fullType = nil, nil
             for _ = 1, 8 do
                 fullType = Lottery and Lottery.drawCandidate and Lottery.drawCandidate() or nil

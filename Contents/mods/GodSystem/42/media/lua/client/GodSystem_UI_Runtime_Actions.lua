@@ -576,6 +576,7 @@ function GodSystemWindow:onSeventhAction()
 end
 
 function GodSystemWindow:close()
+    if GodSystemPinyin then GodSystemPinyin.clearCaches() end
     if GodSystemPanelKey.isCapturing() then
         GodSystemPanelKey.cancelCapture("windowClosed")
     end

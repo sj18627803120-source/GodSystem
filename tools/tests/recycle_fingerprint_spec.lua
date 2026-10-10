@@ -47,6 +47,23 @@ test("legacy large receipts compact to the same digest",function()
     assert(#compact<=64)
 end)
 
+test("version two source identity participates without changing legacy requests",function()
+    local old=request(2)
+    local legacy=F.fingerprint(old)
+    old.selectionVersion=2
+    old.sources={{kind="worldItem",itemId="1",x=10,y=20,z=0}}
+    local value=F.fingerprint(old)
+    assert(value~=legacy)
+    old.sources[1].x=11
+    assert(F.fingerprint(old)~=value)
+    old.sources[1].x=10
+    eq(F.fingerprint(old),value)
+    old=request(2001)
+    old.selectionVersion=2
+    old.sources={{kind="worldItem",itemId="1",x=10,y=20,z=0}}
+    assert(#F.fingerprint(old)<=64)
+end)
+
 test("client and server use the shared helper",function()
     local client=readSource("client/GodSystem_Network.lua")
     local server=readSource("server/GodSystem_TransactionOps.lua")

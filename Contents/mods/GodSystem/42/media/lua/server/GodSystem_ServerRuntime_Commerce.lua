@@ -4,6 +4,9 @@ GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Commerce"] = function(
     runtimeEnvironment.__GodSystemInstalled_GodSystem_ServerRuntime_Commerce = true
     setfenv(1, runtimeEnvironment)
 
+require "GodSystem_RecycleResult"
+require "GodSystem_ExternalRecycle"
+
 local catalogIndices = setmetatable({}, { __mode = "k" })
 
 function Commands.debugGrant(_, _, player, args)
@@ -415,22 +418,39 @@ function restoreRecycleSelection(player, removed)
     local inventory = player and player:getInventory() or nil
     if not inventory then return false end
     local restored = true
+    local updates = GodSystemExternalRecycle.newBatch()
     for i = 1, #(removed or {}) do
         local row = removed[i]
-        local ok = pcall(function()
-            inventory:AddItem(row.item)
-            if sendAddItemToContainer then sendAddItemToContainer(inventory, row.item) end
-        end)
+        local ok
+        if row.external then
+            ok = GodSystemExternalRecycle.restore(row.external, updates)
+        else
+            local destination = row.container or inventory
+            if GodSystemServerContainerContainsItem(destination, row.item) then
+                ok = true
+            else
+                ok = pcall(function()
+                    destination:AddItem(row.item)
+                    if sendAddItemToContainer then sendAddItemToContainer(destination, row.item) end
+                end)
+                ok = ok and GodSystemServerContainerContainsItem(destination, row.item)
+            end
+        end
         restored = restored and ok
         if ok and row.equipment then
-            GodSystemManualRecycle.restoreEquipped(player, row.item, row.equipment, GodSystemManualRecycle.defaultBridge())
+            restored = GodSystemManualRecycle.restoreEquipped(player, row.item, row.equipment, GodSystemManualRecycle.defaultBridge()) and restored
         end
     end
+    restored = GodSystemExternalRecycle.flushUpdates(updates) and restored
     markInventoryDirty(player, inventory)
     return restored
 end
 
 function recycleSelectedInternal(player, args)
+    if type(args) ~= "table" or type(args.itemIds) ~= "table" or #args.itemIds > 20000
+        or (args.sources ~= nil and (type(args.sources) ~= "table" or #args.sources > #args.itemIds)) then
+        return finishCode(player, false, "RecycleSelectionInvalid")
+    end
     local data = playerData(player)
     local txKind = "recycleSelectedItems"
     local txRoot = store()
@@ -458,11 +478,14 @@ function recycleSelectedInternal(player, args)
         unguard(player)
         return errorMessage(player, tostring(persistError))
     end
+    local rollbackRows, payoutAttempted, receiptCommitted = {}, false, false
+    local batch = GodSystemExternalRecycle.newBatch()
     local ok, err = pcall(function()
         local function complete(okValue, code, codeArgs, payload)
             payload = type(payload) == "table" and payload or {}
             payload.opId = args and args.opId
             GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            receiptCommitted = true
             return finishCode(player, okValue, code, codeArgs, payload)
         end
         local mode = tostring(args and args.mode or "")
@@ -474,6 +497,21 @@ function recycleSelectedInternal(player, args)
         end
         local selected = {}
         local seen = {}
+        local sourceById = {}
+        local sourceCache = {}
+        if tonumber(args and args.selectionVersion) == 2 then
+            if type(args.sources) ~= "table" or #args.sources > #(args.itemIds or {}) or #args.sources > 10000 then
+                return complete(false, "RecycleSelectionInvalid")
+            end
+            for index = 1, #args.sources do
+                local descriptor = args.sources[index]
+                local id = type(descriptor) == "table" and tostring(descriptor.itemId or "") or ""
+                if id == "" or sourceById[id] then return complete(false, "RecycleSelectionInvalid") end
+                sourceById[id] = descriptor
+            end
+        elseif args and args.sources ~= nil then
+            return complete(false, "RecycleSelectionInvalid")
+        end
         local types = {}
         local typeOrder = {}
         local skipped = math.min(10000, math.max(0, floor(args and args.clientSkipped, 0)))
@@ -484,10 +522,25 @@ function recycleSelectedInternal(player, args)
         local recyclableByType = {}
         for i = 1, #(args and args.itemIds or {}) do
             local id = tostring(args.itemIds[i] or "")
+            if id ~= "" and seen[id] and tonumber(args.selectionVersion) == 2 then
+                return complete(false, "RecycleSelectionInvalid")
+            end
             if id ~= "" and not seen[id] then
                 seen[id] = true
                 local item, container = GodSystemInventoryIndex.find(inventoryIndex, id)
-                if not item or not container then return complete(false, "RecycleSelectionChanged") end
+                local external
+                if sourceById[id] then
+                    if item then return complete(false, "RecycleSelectionChanged") end
+                    local reason
+                    external, reason = GodSystemExternalRecycle.resolve(player, sourceById[id], sourceCache)
+                    if not external and GodSystemDiagnostics then
+                        GodSystemDiagnostics.issue("server", "RecycleSelectedItems", "sourceResolve",
+                            reason or "changed", args and args.opId)
+                    end
+                    if not external then return complete(false, GodSystemRecycleResult.code(reason)) end
+                    item = external.item
+                end
+                if not item or (not container and not external) then return complete(false, "RecycleSelectionChanged") end
                 local fullType = item:getFullType()
                 local allowed = recyclableByType[fullType]
                 if allowed == nil then
@@ -519,7 +572,7 @@ function recycleSelectedInternal(player, args)
                 end
                 if eligible then
                     local groupKey = mode == "recycle" and fullType or variantKey
-                    selected[#selected + 1] = { item = item, container = container, fullType = fullType, variantKey = variantKey }
+                    selected[#selected + 1] = { item = item, container = container, external = external, fullType = fullType, variantKey = variantKey }
                     if not types[groupKey] then
                         types[groupKey] = { item = item, fullType = fullType, raw = 0, count = 0, listable = listable }
                         typeOrder[#typeOrder + 1] = groupKey
@@ -528,6 +581,9 @@ function recycleSelectedInternal(player, args)
                     types[groupKey].count = types[groupKey].count + 1
                 end
             end
+        end
+        for id in pairs(sourceById) do
+            if not seen[id] then return complete(false, "RecycleSelectionInvalid") end
         end
         skipped = math.max(skipped, listingSkipped)
         if #selected <= 0 then return complete(false, "RecycleSelectionEmptySkipped", { skipped }, { processedCount = 0, skippedCount = skipped }) end
@@ -568,45 +624,73 @@ function recycleSelectedInternal(player, args)
             local row = types[typeOrder[i]]
             rawPayout = rawPayout + calculateRecyclePayout(row.fullType, row.raw, row.count)
         end
-        local removed = {}
+        local removed = rollbackRows
         local equipmentBridge = GodSystemManualRecycle.defaultBridge()
         for i = 1, #selected do
             local row = selected[i]
             local item = row.item
             local equipment = GodSystemManualRecycle.captureEquipped(player, item, equipmentBridge)
             if not GodSystemManualRecycle.detachEquipped(player, item, equipmentBridge) then
-                GodSystemManualRecycle.restoreEquipped(player, item, equipment, equipmentBridge)
-                restoreRecycleSelection(player, removed)
-                return complete(false, "RecycleSelectionFailed")
-            end
-            local removedOk = removeItemFromContainer(row.container, item)
-            if not removedOk then
-                local current = {
-                    item = item,
-                    equipment = equipment,
-                }
-                if GodSystemServerContainerContainsItem(row.container, item) then
-                    GodSystemManualRecycle.restoreEquipped(player, item, equipment, equipmentBridge)
-                else
-                    removed[#removed + 1] = current
+                local useRestored = GodSystemManualRecycle.restoreEquipped(player, item, equipment, equipmentBridge)
+                local othersRestored = restoreRecycleSelection(player, removed)
+                if not useRestored or not othersRestored then
+                    GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+                    return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args.opId })
                 end
-                restoreRecycleSelection(player, removed)
                 return complete(false, "RecycleSelectionFailed")
             end
-            removed[#removed + 1] = {
-                item = item,
-                equipment = equipment,
-            }
+            local current = { item = item, equipment = equipment, container = row.container, external = row.external }
+            removed[#removed + 1] = current
+            local removedOk, removeReason, removeDetail
+            local removeStep = "equipmentBeforeRemoval"
+            local removalCalled, removalError = pcall(function()
+                if row.external then
+                    if GodSystemEquipment then GodSystemEquipment.beforeRemoval(item) end
+                    removeStep = "externalRemove"
+                    removedOk, removeReason, removeDetail = GodSystemExternalRecycle.remove(row.external, batch)
+                else
+                    removeStep = "containerRemove"
+                    removedOk = removeItemFromContainer(row.container, item, batch)
+                end
+            end)
+            removedOk = removalCalled and removedOk
+            if not removedOk then
+                local restored = restoreRecycleSelection(player, removed)
+                removeDetail = removeDetail or { source = row.external and row.external.kind or "inventory", itemType = row.fullType, step = removeStep }
+                removeDetail.error = removeDetail.error or (not removalCalled and removalError or nil)
+                removeDetail.restored = restored and "yes" or "no"
+                if GodSystemDiagnostics then GodSystemDiagnostics.issue("server", "RecycleSelectedItems", "remove", restored and (removeReason or "deleteFailed") or "unknown", args.opId, removeDetail) end
+                if not restored then
+                    GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+                    return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args.opId })
+                end
+                return complete(false, GodSystemRecycleResult.code("deleteFailed"), {}, {
+                    reason = removeReason or "deleteFailed", fallbackAllowed = GodSystemExternalRecycle.canFallbackSources(args.sources) })
+            end
+            if removeDetail and GodSystemDiagnostics then GodSystemDiagnostics.issue("server", "RecycleSelectedItems", "remove", "reconciled", args.opId, removeDetail) end
+        end
+        local synced = GodSystemExternalRecycle.flushBatch(batch)
+        if not synced then
+            if GodSystemDiagnostics then GodSystemDiagnostics.issue("server", "RecycleSelectedItems", "removeSync", "syncFailed", args.opId) end
+            if not restoreRecycleSelection(player, removed) then
+                GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+                return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args.opId })
+            end
+            return complete(false, GodSystemRecycleResult.code("syncFailed"))
         end
 
         local oldLimitDay = data.recycleLimitDay
         local oldLimitUsed = data.recycleLimitUsed
         local payout = applyRecycleDailyPayout(data, rawPayout)
+        if payout > 0 then payoutAttempted = true end
         if payout > 0 and not giveCurrency(player, payout) then
             data.recycleLimitDay = oldLimitDay
             data.recycleLimitUsed = oldLimitUsed
-            restoreRecycleSelection(player, removed)
-            return complete(false, "RecycleSelectionFailed")
+            if not restoreRecycleSelection(player, removed) then
+                GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+                return finishCode(player, false, "TransactionOperationUnknown", {}, { opId = args.opId })
+            end
+            return complete(false, GodSystemRecycleResult.code("payoutFailed"))
         end
         if mode == "recycleAndList" then
             for i = 1, #typeOrder do
@@ -625,13 +709,25 @@ function recycleSelectedInternal(player, args)
     end)
     unguard(player)
     if not ok then
-        GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        if receiptCommitted then
+            if GodSystemDiagnostics then GodSystemDiagnostics.issue("server", "RecycleSelectedItems", "notifyAfterCommit", "ResultSendFailed", args.opId) end
+            diagnostics.lastError = tostring(err)
+            return -- Committed receipt survives a lost result packet, even for zero payout.
+        end
+        local restored = not payoutAttempted and restoreRecycleSelection(player, rollbackRows)
+        if restored then
+            GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, false, "RecycleSelectionFailed", {}, { opId = args and args.opId })
+        else
+            GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
+        end
         local persisted, persistError = storeCheckpoint()
         if not persisted then
             GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
             return errorMessage(player, tostring(persistError))
         end
-        errorMessage(player, tostring(err))
+        diagnostics.lastError = tostring(err)
+        print("[GodSystem] recycle exception: " .. tostring(err))
+        return finishCode(player, false, restored and "RecycleSelectionFailed" or "TransactionOperationUnknown", {}, { opId = args and args.opId })
     end
 end
 
@@ -654,7 +750,7 @@ function Commands.recycle(_, _, player, args)
         local details = {}
         for i = 1, count do
             local item = found[i].item
-            if canRecycleItem(item, false) then
+            if canRecycleItem(item) then
                 local value = recycleValue(item)
                 raw = raw + value
                 removed[#removed + 1] = found[i]

@@ -1,0 +1,21 @@
+---@meta
+-- Editor-only declarations. Never loaded by the mod. Native classes/events come
+-- from pinned Umbrella; patch-specific return contracts are tested in behavior specs.
+---@class GodSystemInjectedRuntime
+---@field canRecycleItem fun(item: InventoryItem): boolean
+---@field playerData fun(player: IsoPlayer): table
+---@field trim fun(value: string): string
+---@field Commands table<string, function>
+---@field MODULE string
+
+---@class GodSystemItemDescriptor
+---@field kind string
+---@field itemId string
+---@field anchor string
+---@field x number
+---@field y number
+---@field z number
+---@field containerType string
+---@field containerIndex number
+---@field path string
+---@field partId string

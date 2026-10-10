@@ -16,7 +16,8 @@ local taskDisplayProgressCache = { refreshedAtMs = -1, itemCounts = {} }
 local function taskDisplayNowMs()
     if getTimestampMs then
         local ok, value = pcall(getTimestampMs)
-        if ok and tonumber(value) then return math.floor(tonumber(value)) end
+        local number = ok and tonumber(value) or nil
+    if number then return math.floor(number) end
     end
     return math.floor((os.time and os.time() or 0) * 1000)
 end
@@ -694,7 +695,7 @@ function GodSystemApp.services.runtime.failActiveTasksOnDeath()
 end
 
 function GodSystemApp.services.runtime.handlePlayerDeath()
-    local data = GodSystemApp.services.runtime.getData()
+    GodSystemApp.services.runtime.getData()
     local changed = false
     if GodSystemApp.services.runtime.applyBankDeathPenalty() then
         changed = true

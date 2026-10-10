@@ -156,7 +156,7 @@ function GodSystemWindow:showTaskTurnInDialog(task)
     GodSystemUI.taskTurnInDialog = dialog
 end
 
-function GodSystemWindow:onInfoDialogClose(button, payload)
+function GodSystemWindow:onInfoDialogClose(_button, _payload)
 end
 
 function GodSystemWindow:showInfoDialog(message)

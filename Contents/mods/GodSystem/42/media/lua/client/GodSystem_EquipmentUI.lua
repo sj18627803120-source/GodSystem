@@ -16,12 +16,19 @@ local function format(key,fallback,...)
     local result=text(key,fallback); local args={...}
     return (result:gsub("{(%d+)}",function(n) return tostring(args[tonumber(n)] or "") end))
 end
+---@class GodSystemEquipmentWindow: ISCollapsableWindow
+---@field new fun(self: GodSystemEquipmentWindow, x: number, y: number, playerNum: number?): GodSystemEquipmentWindow
 GodSystemEquipmentWindow=ISCollapsableWindow:derive("GodSystemEquipmentWindow")
 local W=GodSystemEquipmentWindow
+---@class GodSystemEquipmentRenameWindow: ISCollapsableWindow
+---@field new fun(self: GodSystemEquipmentRenameWindow, parent: GodSystemEquipmentWindow, record: table): GodSystemEquipmentRenameWindow
 GodSystemEquipmentRenameWindow=ISCollapsableWindow:derive("GodSystemEquipmentRenameWindow")
 local N=GodSystemEquipmentRenameWindow
+---@param parent GodSystemEquipmentWindow
+---@param record table
 function N:new(parent, record)
     local core=getCore(); local o=ISCollapsableWindow.new(self,math.max(0,(core:getScreenWidth()-470)/2),math.max(0,(core:getScreenHeight()-215)/2),470,215)
+    ---@cast o GodSystemEquipmentRenameWindow
     o.parent, o.record, o.playerNum=parent, E.copy(record), parent.playerNum
     o.title=text("Equipment_RenameTitle","Modify name")
     o.resizable=false; o.backgroundColor=E.copy(GodSystemUITheme.colors.shell)
@@ -57,7 +64,7 @@ function N:onAction(button)
     local args=self.parent:makeArgs("rename"); if not args then return end
     args.mode=button.internal; args.cost=0
     if args.mode=="custom" then
-        local name,err=E.validateName(self.input:getText() or "")
+        local name=E.validateName(self.input:getText() or "")
         if not name then self:refreshInput(); return end
         args.name=name
     end
@@ -69,6 +76,9 @@ function N:close()
     if self.parent and self.parent.renameDialog==self then self.parent.renameDialog=nil end
     ISCollapsableWindow.close(self)
 end
+---@param x number
+---@param y number
+---@param playerNum number?
 function W:new(x,y,playerNum)
     local o=ISCollapsableWindow.new(self,x,y,860,650)
     o.resizable=false; o.playerNum=playerNum or 0; o.selectedSlot=1; o.attribute="freeze"

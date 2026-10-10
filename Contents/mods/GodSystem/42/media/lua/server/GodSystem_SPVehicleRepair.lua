@@ -8,7 +8,6 @@ GodSystemSPVehicleRepair = GodSystemSPVehicleRepair or {}
 local Bridge = GodSystemSPVehicleRepair
 local Protocol = GodSystemProtocol or {}
 local MODULE = Protocol.Module or "GodSystem"
-local COMMAND = (Protocol.C2S and Protocol.C2S.UseMaintenanceItem) or "useMaintenanceItem"
 local RESULT = (Protocol.S2C and Protocol.S2C.Result) or "result"
 
 local function trace(message)

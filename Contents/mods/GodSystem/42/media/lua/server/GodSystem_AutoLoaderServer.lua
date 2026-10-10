@@ -97,7 +97,7 @@ function Server.Commands.withdraw(player, args)
 end
 
 function Server.completeDepositBatch(player, sessionId, batchIndex)
-    local _, reason, session, replayed, aggregate = AutoLoader.completeDepositBatch(player, sessionId, batchIndex)
+    local _, reason, _session, replayed, aggregate = AutoLoader.completeDepositBatch(player, sessionId, batchIndex)
     if reason then
         Server.sendResult(player, "depositBatch", false, reason, { sessionId = tostring(sessionId or "") }, false)
         return false
