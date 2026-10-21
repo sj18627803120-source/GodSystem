@@ -186,7 +186,9 @@ function T.install()
         for _,tab in ipairs(self.navigationTabs or {}) do
             if self:isNavigationTabVisible(tab) then
                 if group~=tab.group then group=tab.group; local row=l:addItem(self.navigationGroupLabels[group] or "",{kind="navGroup"}); row.height=D.height("caption")+10 end
-                local row=l:addItem(tab.label,{kind="navTab",id=tab.id}); row.height=self.navItemH
+                local label=tab.label
+                if tab.id=="stocks" and GodSystemStockClient and GodSystemStockClient.unread then label=label.." *" end
+                local row=l:addItem(label,{kind="navTab",id=tab.id}); row.height=self.navItemH
             end
         end
         for _,tab in ipairs(self.moreNavigationTabs or {}) do

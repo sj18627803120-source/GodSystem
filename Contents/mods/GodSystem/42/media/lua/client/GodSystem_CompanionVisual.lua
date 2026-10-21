@@ -3,6 +3,7 @@ if (isClient and isClient()) or (isServer and isServer()) then return end
 GodSystemCompanionVisual = GodSystemCompanionVisual or {}
 
 local Visual = GodSystemCompanionVisual
+local Config = GodSystemCompanionConfig
 
 Visual.CanvasWidth = 32
 Visual.CanvasHeight = 24
@@ -244,7 +245,7 @@ local function acquireParticle()
     return particle
 end
 
-local function configureParticle(particle, x, y, z, offsetX, offsetY, velocityX, velocityY, duration, color, size)
+local function configureParticle(particle, x, y, z, offsetX, offsetY, velocityX, velocityY, duration, color, size, visualHeight)
     particle.active = true
     particle.x, particle.y, particle.z = x, y, z
     particle.offsetX, particle.offsetY = offsetX or 0, offsetY or 0
@@ -253,9 +254,10 @@ local function configureParticle(particle, x, y, z, offsetX, offsetY, velocityX,
     particle.duration = math.max(0.05, duration or 0.25)
     particle.color = color or "cyan"
     particle.size = size or 1
+    particle.visualHeight = visualHeight or Config.RobotVisualHeight
 end
 
-local function emitRadial(x, y, z, count, duration, color, speedMinimum, speedMaximum, inward)
+local function emitRadial(x, y, z, count, duration, color, speedMinimum, speedMaximum, inward, visualHeight)
     for _ = 1, count do
         local angle = randomBetween(0, math.pi * 2)
         local radius = inward and randomBetween(5, 9) or randomBetween(0, 2)
@@ -264,7 +266,7 @@ local function emitRadial(x, y, z, count, duration, color, speedMinimum, speedMa
         local direction = inward and -1 or 1
         configureParticle(acquireParticle(), x, y, z, offsetX, offsetY,
             math.cos(angle) * speed * direction, math.sin(angle) * speed * direction,
-            duration, color, 1)
+            duration, color, 1, visualHeight)
     end
 end
 
@@ -282,26 +284,26 @@ function Visual.getLineTexture(now)
     return cachedTexture
 end
 
-function Visual.emit(kind, x, y, z)
+function Visual.emit(kind, x, y, z, visualHeight)
     if x == nil or y == nil or z == nil then return end
     if kind == "trail" or kind == "catchup" then
         local count = kind == "catchup" and 2 or 1
         for _ = 1, count do
             configureParticle(acquireParticle(), x, y, z, randomBetween(-4, 4), randomBetween(7, 11),
                 randomBetween(-5, 5), randomBetween(12, 24), kind == "catchup" and 0.36 or 0.28,
-                kind == "catchup" and "white" or "cyan", 1)
+                kind == "catchup" and "white" or "cyan", 1, visualHeight)
         end
         return
     end
-    if kind == "charge" then emitRadial(x, y, z, 1, 0.20, "red", 24, 38, true); return end
+    if kind == "charge" then emitRadial(x, y, z, 1, 0.20, "red", 24, 38, true, visualHeight); return end
     if kind == "fire" then
-        emitRadial(x, y, z, 3, 0.26, "red", 24, 46, false)
-        emitRadial(x, y, z, 2, 0.22, "orange", 28, 52, false)
+        emitRadial(x, y, z, 3, 0.26, "red", 24, 46, false, visualHeight)
+        emitRadial(x, y, z, 2, 0.22, "orange", 28, 52, false, visualHeight)
         return
     end
-    if kind == "recall" then emitRadial(x, y, z, 8, 0.42, "cyan", 18, 34, false); return end
-    if kind == "sight" then emitRadial(x, y, z, 8, 0.46, "cyan", 22, 40, false); return end
-    if kind == "guardian" then emitRadial(x, y, z, 10, 0.50, "blue", 26, 48, false); return end
+    if kind == "recall" then emitRadial(x, y, z, 8, 0.42, "cyan", 18, 34, false, visualHeight); return end
+    if kind == "sight" then emitRadial(x, y, z, 8, 0.46, "cyan", 22, 40, false, visualHeight); return end
+    if kind == "guardian" then emitRadial(x, y, z, 10, 0.50, "blue", 26, 48, false, visualHeight); return end
 end
 
 function Visual.update(delta)
@@ -325,14 +327,15 @@ function Visual.renderRobot(renderer, texture, runtime, data)
     local sx, sy, zoom = screenPoint(runtime.robotX, runtime.robotY, runtime.robotZ)
     if not sx or not sy or not zoom then return end
     local now = nowMs()
-    local bob = math.sin(runtime.bobPhase or 0) * 3 / zoom
+    local hover = data.followMode == "guard"
+    local bob = hover and 0 or math.sin(runtime.bobPhase or 0) * Config.RobotBobPixels / zoom
     local pulse = 0.88 + (math.sin((runtime.bobPhase or 0) * 0.75) + 1) * 0.06
     local direction = now < (runtime.attackFacingUntilMs or 0)
         and runtime.attackDirection or runtime.direction or "SE"
     local scale = zoom <= 0.60 and 2 or 1
     local cx = math.floor(sx + 0.5)
-    local cy = math.floor(sy - 48 / zoom + bob + 0.5)
-    if now < (runtime.recoilUntilMs or 0) then
+    local cy = math.floor(sy - Config.getRobotVisualHeight(data.followMode) / zoom + bob + 0.5)
+    if not hover and now < (runtime.recoilUntilMs or 0) then
         local vector = DIRECTION_VECTOR[direction] or DIRECTION_VECTOR.SE
         cx = cx - vector[1] * 2
         cy = cy - vector[2] * 2
@@ -355,8 +358,8 @@ function Visual.renderParticles(renderer, texture)
                 local alpha = 1 - progress
                 local color = PARTICLE_COLORS[particle.color] or PARTICLE_COLORS.cyan
                 local size = particle.size or 1
-                drawLine(renderer, texture, sx + particle.offsetX, sy - 48 / zoom + particle.offsetY,
-                    sx + particle.offsetX + size, sy - 48 / zoom + particle.offsetY,
+                drawLine(renderer, texture, sx + particle.offsetX, sy - particle.visualHeight / zoom + particle.offsetY,
+                    sx + particle.offsetX + size, sy - particle.visualHeight / zoom + particle.offsetY,
                     color[1], color[2], color[3], alpha)
             end
         end

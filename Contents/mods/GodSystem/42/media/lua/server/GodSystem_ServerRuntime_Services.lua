@@ -228,6 +228,7 @@ function Commands.medicalService(_, _, player, args)
             return finish(player, false, "医疗服务失败")
         end
         data.stats.spentPoints = (data.stats.spentPoints or 0) + info.cost
+        if action ~= "checkInfection" and GodSystemStockService then GodSystemStockService.record(data, "medical", info.cost) end
         appendHistory(data, historyEntry("medical", "MedicalService", { action, info.cost }))
         return finish(player, true, medicalNotifyMessage(action, result), {
             kind = "medicalService",
@@ -458,11 +459,22 @@ function Commands.upgradeSystem(_, _, player, args)
         unguard(player)
         return errorMessage(player, tostring(persistError))
     end
+    local carryCommitted = false
     local ok, err = pcall(function()
         local function complete(okValue, code, codeArgs, payload)
             payload = type(payload) == "table" and payload or {}
             payload.opId = args and args.opId
             GodSystemTransactionOps.remember(txRoot, txOwner, txKind, args, okValue, code, codeArgs, payload)
+            if t == "carryCapacity" and okValue then
+                local saved, saveError = storeCheckpoint()
+                if not saved then
+                    -- remember() is still only in memory. Keep the existing unknown recovery path.
+                    local receipt = GodSystemTransactionOps.get(txRoot, txOwner, txKind, args)
+                    if receipt and receipt.status == "done" then receipt.status = "processing" end
+                    error(tostring(saveError))
+                end
+                carryCommitted = true
+            end
             return finishCode(player, okValue, code, codeArgs, payload)
         end
         if t == "carryCapacity" then
@@ -470,11 +482,14 @@ function Commands.upgradeSystem(_, _, player, args)
             local nextLevel = currentLevel + 1
             local cost = GodSystemCarryCapacity.getNextCost(currentLevel)
             if not cost then return complete(false, "CarryCapacityCostOverflow") end
+            if not canAfford(player, cost, data) then return complete(false, "CurrencyNotEnough") end
             local carrySnapshot = GodSystemCarryCapacity.capture(player)
             local applied, reason = GodSystemCarryCapacity.restore(player, nextLevel, true)
             if not applied then return complete(false, "CarryCapacityApplyFailed", { tostring(reason or "unknown") }) end
             if not addPoints(player, -cost, data) then
-                GodSystemCarryCapacity.rollback(player, carrySnapshot)
+                if not GodSystemCarryCapacity.rollback(player, carrySnapshot) then
+                    return complete(false, "CarryCapacityApplyFailed", { "rollbackFailed" })
+                end
                 return complete(false, "CurrencyNotEnough")
             end
             data.upgrades.carryCapacityLevel = nextLevel
@@ -523,6 +538,12 @@ function Commands.upgradeSystem(_, _, player, args)
         })
     end)
     unguard(player)
+    if not ok and carryCommitted then
+        -- The receipt and charge are durable. Notification failure is not a new unknown transaction.
+        if GodSystemDiagnostics then GodSystemDiagnostics.issue("server", "carryCapacity", "notify", "CarrySyncFailed", args and args.opId) end
+        if sendState then pcall(sendState, player) end
+        return
+    end
     if not ok then
         GodSystemTransactionOps.markUnknown(txRoot, txOwner, txKind, args)
         local errorPersisted, errorPersistError = storeCheckpoint()
@@ -536,6 +557,7 @@ function Commands.refreshCarryCapacity(_, _, player)
     local ok, err = pcall(function()
         local data = playerData(player)
         local level = GodSystemCarryCapacity.getLevel(data, player)
+        GodSystemCarryCapacity.scheduleRecheck(player)
         local applied, reason = GodSystemCarryCapacity.restore(player, level)
         if not applied then
             return finishCode(player, false, "CarryCapacityRestoreFailed", { tostring(reason or "unknown") })

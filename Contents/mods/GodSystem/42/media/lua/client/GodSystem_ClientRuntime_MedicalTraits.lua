@@ -659,6 +659,7 @@ function GodSystemApp.services.runtime.performMedicalService(action)
     local data = GodSystemApp.services.runtime.getData()
     data.stats = data.stats or {}
     data.stats.spentPoints = (data.stats.spentPoints or 0) + (info.cost or 0)
+    if action ~= "checkInfection" and GodSystemStockService then GodSystemStockService.record(data, "medical", info.cost or 0) end
     local messageKey = "Notify_Medical_Healed"
     if action == "checkInfection" then
         messageKey = result == "infected" and "Notify_Medical_CheckResultInfected" or "Notify_Medical_CheckResultClean"
@@ -1405,6 +1406,7 @@ function GodSystemApp.services.runtime.performTraitModification(action, traitTyp
     local data = GodSystemApp.services.runtime.getData()
     data.stats.spentPoints = (data.stats.spentPoints or 0) + (entry.price or 0)
     data.stats.modifiedTraits = (data.stats.modifiedTraits or 0) + 1
+    if enable and GodSystemStockService then GodSystemStockService.record(data, "biotech", entry.price or 0) end
     local historyKey = enable and "History_TraitBought" or "History_TraitRemoved"
     local notifyKey = enable and "Notify_TraitBought" or "Notify_TraitRemoved"
     local riskText = entry.risk and (" | " .. GodSystemApp.services.runtime.text("Trait_RiskExperimental", "Risk")) or ""

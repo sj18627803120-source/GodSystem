@@ -263,15 +263,10 @@ end
 local function chooseRobotOrbitTargetPass(player, data, now, requireVisible)
     local baseX, baseY, baseZ = player:getX(), player:getY(), player:getZ()
     local minimum, maximum
-    if data.followMode == "guard" and data.guardPoint then
-        baseX, baseY, baseZ = data.guardPoint.x, data.guardPoint.y, data.guardPoint.z
-        minimum, maximum = 0.15, Config.RobotGuardDriftRadius
-    else
-        local band = followBand(data)
-        minimum, maximum = band.minimum, band.maximum
-        if randomBetween(0, 1) < Config.RobotNearPatrolChance then
-            maximum = minimum + (maximum - minimum) * 0.5
-        end
+    local band = followBand(data)
+    minimum, maximum = band.minimum, band.maximum
+    if randomBetween(0, 1) < Config.RobotNearPatrolChance then
+        maximum = minimum + (maximum - minimum) * 0.5
     end
     for _ = 1, 12 do
         local angle = randomBetween(0, math.pi * 2)
@@ -298,11 +293,6 @@ local function chooseRobotOrbitTarget(player, data, now)
     if chooseRobotOrbitTargetPass(player, data, now, true) then return true end
     if chooseRobotOrbitTargetPass(player, data, now, false) then return true end
     local baseX, baseY, baseZ = player:getX(), player:getY(), player:getZ()
-    if data.followMode == "guard" and data.guardPoint then
-        baseX = tonumber(data.guardPoint.x) or baseX
-        baseY = tonumber(data.guardPoint.y) or baseY
-        baseZ = tonumber(data.guardPoint.z) or baseZ
-    end
     if validRobotPoint(player, baseX, baseY, baseZ, false) then
         setRobotTarget(baseX, baseY, baseZ, now)
         return true
@@ -312,19 +302,21 @@ local function chooseRobotOrbitTarget(player, data, now)
     return false
 end
 
-local function guardPointStillValid(player, data)
-    local point = data.guardPoint
-    if not point then return false end
-    if math.floor((tonumber(point.z) or -99) + 0.1) ~= math.floor(player:getZ() + 0.1) then return false end
-    return distanceSquared(point.x, point.y, player:getX(), player:getY()) <= Config.RobotRecallDistance ^ 2
+local function syncHoverAnchor(player, data)
+    if data.followMode ~= "guard" then return end
+    local runtime = Companion.runtime
+    runtime.robotX, runtime.robotY, runtime.robotZ = player:getX(), player:getY(), player:getZ()
+    runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
 end
 
 local function updateRobotPosition(player, data, delta, now)
     local runtime = Companion.runtime
-    if data.followMode == "guard" and not guardPointStillValid(player, data) then
-        data.followMode = "follow5"
-        data.guardPoint = nil
-        saveSoon(true)
+    if data.followMode == "guard" then
+        syncHoverAnchor(player, data)
+        if runtime.pendingAttack then runtime.behaviorState = "charging"
+        elseif now < (runtime.recoveryUntilMs or 0) then runtime.behaviorState = "recovery"
+        else runtime.behaviorState = "guard" end
+        return
     end
     if not runtime.robotX then resetRobotNear(player) end
     if math.floor((runtime.robotZ or -99) + 0.1) ~= math.floor(player:getZ() + 0.1)
@@ -401,7 +393,7 @@ local function updateRobotPosition(player, data, delta, now)
     updateFacing(nx - runtime.robotX, ny - runtime.robotY)
     runtime.robotX, runtime.robotY, runtime.robotZ = nx, ny, tz
     if data.visible and Visual and Visual.emit and now >= (runtime.nextTrailMs or 0) then
-        Visual.emit(catchup and "catchup" or "trail", runtime.robotX, runtime.robotY, runtime.robotZ)
+        Visual.emit(catchup and "catchup" or "trail", runtime.robotX, runtime.robotY, runtime.robotZ, Config.getRobotVisualHeight(data.followMode))
         runtime.nextTrailMs = now + Config.RobotTrailSeconds * 1000
     end
 end
@@ -797,6 +789,7 @@ local function launchPendingAttack(player, data, now)
         startX = runtime.robotX,
         startY = runtime.robotY,
         startZ = runtime.robotZ,
+        startVisualHeight = Config.getRobotVisualHeight(data.followMode),
         elapsed = 0,
         duration = Config.ProjectileTravelSeconds,
     }
@@ -809,7 +802,7 @@ local function launchPendingAttack(player, data, now)
     runtime.lastCombatTarget = target
     runtime.lastCombatTargetExpiresMs = runtime.combatUntilMs
     if data.visible and Visual and Visual.emit then
-        Visual.emit("fire", runtime.robotX, runtime.robotY, runtime.robotZ)
+        Visual.emit("fire", runtime.robotX, runtime.robotY, runtime.robotZ, Config.getRobotVisualHeight(data.followMode))
     end
     saveSoon(false)
 end
@@ -823,7 +816,7 @@ local function updateAttackState(player, data, now)
         end
         runtime.behaviorState = "charging"
         if data.visible and Visual and Visual.emit and now >= (runtime.nextChargeParticleMs or 0) then
-            Visual.emit("charge", runtime.robotX, runtime.robotY, runtime.robotZ)
+            Visual.emit("charge", runtime.robotX, runtime.robotY, runtime.robotZ, Config.getRobotVisualHeight(data.followMode))
             runtime.nextChargeParticleMs = now + 60
         end
         if now >= (runtime.chargeEndsMs or 0) then launchPendingAttack(player, data, now) end
@@ -862,7 +855,7 @@ local function triggerGuardian(player, data)
         runtime.guardianFlashUntilMs = now + 450
         runtime.idleUntilMs = 0
         if data.visible and runtime.robotX and Visual and Visual.emit then
-            Visual.emit("guardian", runtime.robotX, runtime.robotY, runtime.robotZ)
+            Visual.emit("guardian", runtime.robotX, runtime.robotY, runtime.robotZ, Config.getRobotVisualHeight(data.followMode))
         end
         queueEffectVisual("guardian", player, nil, 450)
         notify("Notify_CompanionGuardianTriggered", "Guardian triggered")
@@ -908,7 +901,7 @@ function Companion.activateSight()
     local runtime = Companion.runtime
     runtime.sightFlashUntilMs = nowMs() + 460
     if data.visible and runtime.robotX and Visual and Visual.emit then
-        Visual.emit("sight", runtime.robotX, runtime.robotY, runtime.robotZ)
+        Visual.emit("sight", runtime.robotX, runtime.robotY, runtime.robotZ, Config.getRobotVisualHeight(data.followMode))
     end
     saveSoon(true)
     notify("Notify_CompanionSightActivated", "Spirit sight activated")
@@ -938,12 +931,12 @@ function Companion.setFollowMode(mode)
     if not player or not data or not data.unlocked then return false end
     data.followMode = mode
     if mode == "guard" then
-        local runtime = Companion.runtime
-        if not runtime.robotX then resetRobotNear(player) end
-        data.guardPoint = { x = runtime.robotX, y = runtime.robotY, z = runtime.robotZ }
-    else
-        data.guardPoint = nil
+        syncHoverAnchor(player, data)
     end
+    data.guardPoint = nil
+    local runtime = Companion.runtime
+    runtime.targetX, runtime.targetY, runtime.targetZ = nil, nil, nil
+    runtime.idleUntilMs, runtime.nextStrafeMs, runtime.nextTrailMs = 0, 0, 0
     Companion.runtime.nextOrbitRetargetMs = 0
     saveSoon(true)
     return true
@@ -984,7 +977,7 @@ function Companion.recall()
     resetRobotNear(player)
     removeLight()
     if data.visible and Visual and Visual.emit then
-        Visual.emit("recall", Companion.runtime.robotX, Companion.runtime.robotY, Companion.runtime.robotZ)
+        Visual.emit("recall", Companion.runtime.robotX, Companion.runtime.robotY, Companion.runtime.robotZ, Config.getRobotVisualHeight(data.followMode))
     end
     saveSoon(true)
     return true
@@ -1168,6 +1161,7 @@ local function updateCompanion(player)
         resetRobotNear(player)
     end
 
+    syncHoverAnchor(player, data)
     decrementCooldowns(data, delta)
     cleanSightTargets(player, data)
     updateEffectStates(player)
@@ -1278,7 +1272,7 @@ local function renderProjectile(renderer, texture, entry, player)
     local sourceX, sourceY, sourceZoom = screenPoint(entry.startX, entry.startY, entry.startZ)
     local targetX, targetY, targetZoom = screenPoint(snapshot.x, snapshot.y, snapshot.z)
     if not sourceX or not sourceY or not sourceZoom or not targetX or not targetY or not targetZoom then return end
-    sourceY = sourceY - 48 / sourceZoom
+    sourceY = sourceY - (entry.startVisualHeight or Config.RobotVisualHeight) / sourceZoom
     targetY = targetY - 38 / targetZoom
     local currentX = sourceX + (targetX - sourceX) * progress
     local currentY = sourceY + (targetY - sourceY) * progress

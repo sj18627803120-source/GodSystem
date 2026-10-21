@@ -87,6 +87,7 @@ function GodSystemNetwork.resetInvestmentRuntime()
 end
 
 function GodSystemNetwork.resetSessionRuntime()
+    if GodSystemStockClient then GodSystemStockClient.reset() end
     if GodSystemRecycleFallback then GodSystemRecycleFallback.reset() end
     if GodSystemPinyin then GodSystemPinyin.clearCaches() end
     GodSystemCarryCapacity.resetClient()
@@ -908,7 +909,7 @@ local function OnServerCommand(module, command, args)
             GodSystemNetwork.uiRevisions = args.data.uiRevisions
         end
         GodSystemNetwork.hasServerState = true
-        if args and args.carry then GodSystemCarryCapacity.acceptSnapshot(player(), args.carry) end
+        if args and args.carry then GodSystemCarryCapacity.acceptSnapshot(player(), args.carry, true) end
         GodSystemNetwork.pendingState = false
         GodSystemNetwork.stateSerial = (GodSystemNetwork.stateSerial or 0) + 1
         GodSystemNetwork.receivedStates = (GodSystemNetwork.receivedStates or 0) + 1
@@ -1129,6 +1130,7 @@ end
 
 function GodSystemNetwork.onPlayerDeath(p)
     if p and p.isLocalPlayer and not p:isLocalPlayer() then return end
+    GodSystemCarryCapacity.forget(p or player())
     if GodSystemApp.services.runtime and GodSystemApp.services.runtime.updateMoveDistance then
         GodSystemApp.services.runtime.updateMoveDistance(p or player())
     end

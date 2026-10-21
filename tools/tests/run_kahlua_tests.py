@@ -33,9 +33,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--game', required=True)
     args = parser.parse_args()
-    for name in ('range_corpse_toggle_spec.lua', 'recycle_fallback_spec.lua', 'item_preset_server_spec.lua', 'shop_hidden_spec.lua', 'network_result_spec.lua', 'config_business_spec.lua', 'context_performance_spec.lua', 'task_config_spec.lua', 'console_diagnostics_spec.lua', 'text_runtime_spec.lua', 'impact_runtime_spec.lua', 'splash_runtime_spec.lua', 'companion_target_spec.lua', 'utility_generator_spec.lua', 'terminal_spec.lua', 'item_preset_ui_spec.lua', 'range_filter_ui_spec.lua', 'item_catalog_session_spec.lua', 'carry_capacity_spec.lua', 'equipment_spec.lua', 'shop_catalog_spec.lua', 'shop_inflation_spec.lua', 'recycle_fingerprint_spec.lua', 'external_recycle_spec.lua', 'v38_regression_spec.lua', 'death_protection_spec.lua'):
+    for name in ('stocks_spec.lua', 'stocks_ui_spec.lua', 'stocks_server_spec.lua', 'companion_hover_spec.lua', 'range_corpse_toggle_spec.lua', 'recycle_fallback_spec.lua', 'item_preset_server_spec.lua', 'shop_hidden_spec.lua', 'network_result_spec.lua', 'config_business_spec.lua', 'context_performance_spec.lua', 'task_config_spec.lua', 'console_diagnostics_spec.lua', 'text_runtime_spec.lua', 'impact_runtime_spec.lua', 'splash_runtime_spec.lua', 'companion_target_spec.lua', 'utility_generator_spec.lua', 'terminal_spec.lua', 'item_preset_ui_spec.lua', 'range_filter_ui_spec.lua', 'item_catalog_session_spec.lua', 'carry_capacity_spec.lua', 'equipment_spec.lua', 'shop_catalog_spec.lua', 'shop_inflation_spec.lua', 'recycle_fingerprint_spec.lua', 'external_recycle_spec.lua', 'v38_regression_spec.lua', 'death_protection_spec.lua'):
         print('Running native ' + name, flush=True)
         overrides = {}
+        if name == 'companion_hover_spec.lua':
+            path = 'client/GodSystem_Companion.lua'
+            source = (LUA/path).read_text(encoding='utf-8-sig')
+            marker = 'return GodSystemCompanion'
+            assert source.rstrip().endswith(marker)
+            overrides[path] = source.rstrip()[:-len(marker)] + '''Companion.testHover={position=updateRobotPosition,sync=syncHoverAnchor,update=updateCompanion,
+    launch=launchPendingAttack,renderProjectile=renderProjectile}
+''' + marker + '\n'
         if name == 'companion_target_spec.lua':
             path = 'client/GodSystem_Companion.lua'
             source = (LUA/path).read_text(encoding='utf-8-sig')

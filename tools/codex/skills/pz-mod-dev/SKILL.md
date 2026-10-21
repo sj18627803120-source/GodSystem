@@ -20,9 +20,11 @@ description: Project Zomboid Build 42 mod engineering workflow. Use when Codex n
 
 ## Current GodSystem Repository Discovery
 
-For GodSystem, read `docs/开发技术支援/README.md`, its engineering document, and the top `当前基线` section of `docs/GodSystem_DevHandoff_CN/00_继续开发入口.md` before using an older handoff. As of 2026-09-24 the worktree and user-accepted rolling backup are `42.20_3.18.2` on B42.20.4. The user's overall test pass does not individually establish SP/host/dedicated-server behavior for splash combat, multiplayer fixes, or the utility generator; retain the specific game checks in handoffs 110–113. Never infer acceptance from an automated suite or from pushing a development branch.
+For GodSystem, read `docs/开发技术支援/README.md`, its engineering document, and the top `当前基线` section of `docs/GodSystem_DevHandoff_CN/00_继续开发入口.md` before older handoffs. Derive the current game patch, accepted build, rolling ZIP and GitHub state from those live files; do not treat a dated skill snapshot as the current release. Overall user acceptance does not individually establish unreported hosted/dedicated behavior. Keep historical API findings explicitly versioned, and do not add extra acceptance rounds beyond the user's agreed scope. GitHub synchronization is separate from Steam publication.
 
 The working source is `GodSystem-main`. A sibling `历史资料` directory contains old UI test code, a discarded candidate ZIP, and notes; it is not a deployment or recovery source. The installable skill source is `tools/codex/skills/pz-mod-dev`; `docs/开发技术支援/skill-backup/pz-mod-dev` is a synchronized documentation backup. Update the repository source first, validate it, then synchronize both copies when the user asks to update the skill.
+
+Read `references/pz-b42-current-lessons.md` for carry authority, lifecycle initialization, banking/stock transactions, online clocks, charts or recent B42.21 regressions.
 
 Read `references/pz-b42-patterns.md` completely when the task touches multiplayer authority, inventory/economy transactions, equipment, context-menu performance, UI layers/lists, sandbox tasks, localization, or packaging.
 
@@ -94,4 +96,4 @@ WorkshopRoot/
 
 When present, start from `docs/reference-mod-research/README.md`, `docs/PZ_B42_游戏本体API技术参考.md`, and the latest handoffs. Treat version-labelled research as navigation evidence until rechecked against the target patch. Record symbols, paths, behavior, limits, and adoption guidance; do not copy third-party code or assets without permission and licensing.
 
-The B42.19 API guide and reference reports that call B42.19 “same version” predate the current B42.20.4 target. Use `docs/开发技术支援/参考资料索引.md` to distinguish original evidence from historical navigation notes.
+The B42.19 API guide and older B42.20.4 reports are historical evidence when the installed target has moved to B42.21 or later. Use `docs/开发技术支援/参考资料索引.md` to distinguish original evidence from historical navigation notes.

@@ -302,6 +302,7 @@ function checkPendingTeleport(player, data, cancel)
     local cost = math.max(0, floor(pendingTeleport.cost, 0))
     data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
     local finalArgs = pendingTeleport.historyArgs or {}
+    if GodSystemStockService then GodSystemStockService.record(data, "logistics", cost, "teleport:" .. tostring(pendingTeleport.id)) end
     finalArgs[#finalArgs + 1] = cost
     appendHistory(data, historyEntry("home", pendingTeleport.history or "Teleport", finalArgs))
     if pendingTeleport.action ~= "return" and pendingTeleport.returnPoint then
@@ -541,6 +542,7 @@ function Commands.trait(_, _, player, args)
     end
     data.stats.spentPoints = (data.stats.spentPoints or 0) + cost
     data.stats.modifiedTraits = (data.stats.modifiedTraits or 0) + 1
+    if action ~= "remove" and GodSystemStockService then GodSystemStockService.record(data, "biotech", cost) end
     if action ~= "remove" then
         local benefitsOk, benefitsApplied = applyTraitBenefits(player, traitType)
         diagnostics.lastTraitBenefitsOk = benefitsOk == true

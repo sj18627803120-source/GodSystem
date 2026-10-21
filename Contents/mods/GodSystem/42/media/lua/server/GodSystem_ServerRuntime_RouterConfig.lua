@@ -654,6 +654,7 @@ function Commands.syncKills(_, _, player, _args)
     local delta = kills - data.lastKnownKills
     if delta <= 0 then return end
     data.lastKnownKills = kills
+    if GodSystemStockService then GodSystemStockService.record(data, "security", delta) end
     if GodSystemRuntimeConfig.isFeatureEnabled("EnableTasks") ~= false then
         applyKillTaskDelta(data, delta, kills - delta)
     end

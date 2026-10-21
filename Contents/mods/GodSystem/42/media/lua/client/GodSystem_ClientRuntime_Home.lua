@@ -396,7 +396,8 @@ function gsTeleportToPosition(target, returnLabel, historyText)
         home.returnPoint = current
         home.returnPoint.source = returnLabel
     end
-    GodSystemApp.services.runtime.applyApprovedTeleport(safe)
+    local arrived = GodSystemApp.services.runtime.applyApprovedTeleport(safe)
+    if arrived and GodSystemStockService then GodSystemStockService.record(GodSystemApp.services.runtime.getData(), "logistics", cost) end
     GodSystemApp.services.runtime.save()
     GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_HomeTeleported", "Teleported: ") .. GodSystemApp.services.runtime.formatPosition(safe))
     return true

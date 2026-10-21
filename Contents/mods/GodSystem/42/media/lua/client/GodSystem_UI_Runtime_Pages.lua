@@ -441,8 +441,6 @@ function GodSystemWindow:populateUpgrades()
                 if status.lastChangeSeconds then
                     diagnostic = diagnostic .. " | " .. gsFormatTemplate(GodSystemApp.services.runtime.text("CarryDiagnostic_LastChange", "Last status change: {1}s ago"), { tostring(status.lastChangeSeconds) })
                 end
-                diagnostic = diagnostic .. " | " .. GodSystemApp.services.runtime.text(status.source and "CarryDiagnostic_Source_UCWF" or "CarryDiagnostic_SourceUnknown",
-                    status.source and "Verified compatibility source: Unified Carry Weight Framework" or "Change source: unknown")
                 detail = detail .. "\n" .. diagnostic
             else
                 detail = tostring(info.current) .. "/" .. tostring(info.maxValue) .. " | " .. costText

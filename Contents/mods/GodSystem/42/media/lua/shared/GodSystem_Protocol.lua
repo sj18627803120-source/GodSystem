@@ -3,6 +3,10 @@ GodSystemProtocol = GodSystemProtocol or {}
 GodSystemProtocol.Module = "GodSystem"
 
 GodSystemProtocol.C2S = {
+    StockOpen = "stockOpen",
+    StockClose = "stockClose",
+    StockDetail = "stockDetail",
+    StockTrade = "stockTrade",
     EquipmentSync = "equipmentSync",
     EquipmentInspect = "equipmentInspect",
     EquipmentAction = "equipmentAction",
@@ -61,6 +65,10 @@ GodSystemProtocol.C2S = {
 }
 
 GodSystemProtocol.S2C = {
+    StockInit = "stockInit",
+    StockView = "stockView",
+    StockResult = "stockResult",
+    StockNewsNotice = "stockNewsNotice",
     CarryState = "carryState",
     EquipmentState = "equipmentState",
     EquipmentItem = "equipmentItem",

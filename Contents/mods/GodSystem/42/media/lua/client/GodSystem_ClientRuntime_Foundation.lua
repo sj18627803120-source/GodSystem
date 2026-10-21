@@ -8,6 +8,17 @@ function gsPlayer()
     return getPlayer and getPlayer() or nil
 end
 
+local function gsResolveCarryLevel(data, player)
+    data.upgrades = data.upgrades or {}
+    local level = GodSystemCarryCapacity.getLevel(data, player)
+    -- Preserve "not migrated" while OnInitGlobalModData has no player.
+    -- Otherwise its temporary zero masks the character's legacy level.
+    if data.upgrades.carryCapacityLevel ~= nil or player ~= nil then
+        data.upgrades.carryCapacityLevel = level
+    end
+    return level
+end
+
 function GodSystemApp.services.runtime.getPlayerLoadText()
     local player = gsPlayer()
     if not player then return "-" end
@@ -407,7 +418,7 @@ function GodSystemApp.services.runtime.getData()
     data.ui.shopRecent = type(data.ui.shopRecent) == "table" and data.ui.shopRecent or {}
     data.upgrades = data.upgrades or {}
     GodSystemRuntimeConfig.normalizeTaskUpgrades(data.upgrades)
-    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.getLevel(data, gsPlayer())
+    gsResolveCarryLevel(data, gsPlayer())
     data.homeSystem = data.homeSystem or {}
     data.homeSystem.tempSlots = data.homeSystem.tempSlots or {}
     data.homeSystem.returnPoint = data.homeSystem.returnPoint or nil
@@ -1046,36 +1057,30 @@ end
 
 function GodSystemApp.services.runtime.getCarryCapacityLevel()
     local data = GodSystemApp.services.runtime.getData()
-    data.upgrades = data.upgrades or {}
-    data.upgrades.carryCapacityLevel = GodSystemCarryCapacity.getLevel(data, gsPlayer())
-    return data.upgrades.carryCapacityLevel
+    return gsResolveCarryLevel(data, gsPlayer())
 end
 
 function GodSystemApp.services.runtime.restoreCarryCapacity(player, data)
     player = player or gsPlayer()
     data = data or GodSystemApp.services.runtime.getData()
     if not player or not data then return false, "noPlayer" end
-    return GodSystemCarryCapacity.restore(player, GodSystemCarryCapacity.getLevel(data, player))
+    return GodSystemCarryCapacity.restore(player, gsResolveCarryLevel(data, player))
 end
 
 function GodSystemApp.services.runtime.getCarryCapacityStateText(status)
     status = status or {}
     local reason = status.reason or "pending"
     local names = {
-        ok = status.mode == "ucwf" and "CarryState_UCWF" or "CarryState_Native",
-        pending = "CarryState_Pending", waitingServer = "CarryState_WaitingServer",
-        resetCooldown = "CarryState_ResetCooldown",
-        externalConflict = "CarryState_Conflict", frameworkUnsupported = "CarryState_FrameworkUnsupported",
-        capacityLimit = "CarryState_Limit", overflow = "CarryState_Limit",
+        ok = "CarryState_Priority", inactive = "CarryState_Inactive", correcting = "CarryState_Correcting",
+        waitingServer = "CarryState_WaitingServer", updateRequired = "CarryState_UpdateRequired",
+        overflow = "CarryState_Limit",
     }
     local key = names[reason] or "CarryState_Failed"
     local fallback = {
-        CarryState_UCWF = "UCWF compatibility active", CarryState_Native = "Independent carry active",
-        CarryState_Pending = "Waiting for recalculation", CarryState_WaitingServer = "Waiting for server",
-        CarryState_Conflict = "External carry change detected; automatic additions paused",
-        CarryState_ResetCooldown = "Repeated carry reset; waiting for automatic retry",
-        CarryState_FrameworkUnsupported = "Carry framework interface unavailable",
-        CarryState_Limit = "Effective carry limit reached", CarryState_Failed = "Carry could not be applied",
+        CarryState_Priority = "Priority carry active", CarryState_Inactive = "Not controlling carry (level zero)",
+        CarryState_Correcting = "Restoring priority carry", CarryState_UpdateRequired = "Server carry policy differs; update both sides",
+        CarryState_WaitingServer = "Waiting for server", CarryState_Limit = "Safe numeric limit reached",
+        CarryState_Failed = "Carry interface could not be verified",
     }
     local result = GodSystemApp.services.runtime.text(key, fallback[key])
     if status.retrySeconds and status.retrySeconds > 0 then
@@ -1090,15 +1095,16 @@ function GodSystemApp.services.runtime.getCarryCapacityStateText(status)
         result = result .. " | " .. gsFormatText(GodSystemApp.services.runtime.text("CarryDiagnostic_Multiplier", "Strength x{1} | State x{2}"),
             {status.weightMod or "-",status.weightDelta or "-"})
     end
-    if status.source == "UnifiedCarryWeightFramework" then
-        result = result .. " | " .. GodSystemApp.services.runtime.text("CarryDiagnostic_Source_UCWF", "Unified Carry Weight Framework")
-    elseif status.reason == "externalConflict" then
-        result = result .. " | " .. GodSystemApp.services.runtime.text("CarryDiagnostic_SourceUnknown", "Source unconfirmed")
+    if status.protection == "settersAndFields" then
+        result = result .. " | " .. GodSystemApp.services.runtime.text("CarryProtection_Setters", "Setter and field protection")
+    elseif status.protection == "fields" then
+        result = result .. " | " .. GodSystemApp.services.runtime.text("CarryProtection_Fields", "Field correction only")
     end
     return result
 end
 
 function GodSystemApp.services.runtime.refreshCarryCapacity()
+    GodSystemCarryCapacity.scheduleRecheck(gsPlayer())
     local ok, reason = GodSystemApp.services.runtime.restoreCarryCapacity(gsPlayer(), GodSystemApp.services.runtime.getData())
     if ok then
         GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.text("Notify_CarryCapacityRestored", "Carry base restored"))

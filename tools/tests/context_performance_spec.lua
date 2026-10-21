@@ -162,6 +162,39 @@ test("bulk menus: no classification, prices, IDs, file/network or unselected inv
     c = menu(); e.GodSystemRecycleContext.fillInventoryMenu(0, c, snapshot); eq(c.options[1].notAvailable, true)
 end)
 
+test("3.22 menu visibility: eight display combinations, parent dependencies and range entry", function()
+    for _,count in ipairs({1,201}) do
+        for display=0,7 do
+            for parent=0,7 do
+                local e=environment(); local values,snapshot=selection(e,count); preparation(e)
+                e.features.ShowRecycleContextRecycle=display%2==1
+                e.features.ShowRecycleContextRecycleAndList=math.floor(display/2)%2==1
+                e.features.ShowRecycleContextListOnly=math.floor(display/4)%2==1
+                e.features.EnableRecycle=parent%2==1
+                e.features.EnableShop=math.floor(parent/2)%2==1
+                e.features.EnableRecycleListing=math.floor(parent/4)%2==1
+                local expected=0
+                if e.features.EnableRecycle then
+                    if e.features.ShowRecycleContextRecycle then expected=expected+1 end
+                    if e.features.EnableShop and e.features.EnableRecycleListing then
+                        if e.features.ShowRecycleContextRecycleAndList then expected=expected+1 end
+                        if e.features.ShowRecycleContextListOnly then expected=expected+1 end
+                    end
+                end
+                local c=menu(); e.GodSystemRecycleContext.fillInventoryMenu(0,c,snapshot)
+                eq(#c.options,expected); eq(e.GodSystemRecycleContext.isModeVisible("invalid"),false)
+                eq(e.calls.scans,0)
+            end
+        end
+    end
+    local e=environment(); local values,snapshot=selection(e,201); preparation(e)
+    for _,key in ipairs({"ShowRecycleContextRecycle","ShowRecycleContextRecycleAndList","ShowRecycleContextListOnly"}) do e.features[key]=false end
+    e.GodSystemApp.services.rangeRecycle={getContextMenuState=function() return {enabled=true,ready=false} end}
+    local c=menu(); e.GodSystemRecycleContext.fillInventoryMenu(0,c,snapshot)
+    eq(#c.options,1); eq(c.options[1].arg,"rangeFilter")
+    eq(e.calls.classification,0); eq(e.calls.prices,0); eq(e.calls.scans,0)
+end)
+
 test("bulk ground selection keeps the same world object through both preparation passes", function()
     for _, floorContainer in ipairs({ false, true }) do
         local e = environment(); local values = selection(e, 201); local prep = preparation(e)

@@ -1,6 +1,6 @@
 # Project Zomboid B42 Engineering Patterns
 
-These rules include the user-tested `42.20_3.16` baseline and code/automated-test findings through `42.20_3.18.1`. The 3.17–3.18.1 gameplay paths still await SP/host/dedicated-server acceptance. Unless a bullet explicitly says B42.20.4 live-tested or code-confirmed, revalidate it on the target patch.
+This file records historical B42.19/B42.20.4 findings; they are not blanket claims about the installed patch. Read `pz-b42-current-lessons.md` for B42.21 additions and the repository's current handoff for acceptance. Keep native isolation, mock behavior and actual SP/MP game tests distinct.
 
 ## Recent GodSystem Boundaries (3.13–3.18.1)
 

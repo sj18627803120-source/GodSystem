@@ -248,7 +248,9 @@ function GodSystemWindow:layoutNavigation(preserveScroll)
                     end
                 end
             else
-                add(tab.label, { kind = "navTab", id = tab.id, label = tab.label }, self.navItemH)
+                local tabLabel = tab.label
+                if tab.id == "stocks" and GodSystemStockClient and GodSystemStockClient.unread then tabLabel = tabLabel .. " *" end
+                add(tabLabel, { kind = "navTab", id = tab.id, label = tab.label }, self.navItemH)
                 contentH = contentH + self.navItemGap
             end
         end
@@ -311,6 +313,11 @@ function GodSystemWindow:onNavigationListMouseDown(row)
         return
     end
     if data.kind == "navTab" then
+        if data.id == "stocks" then
+            require "GodSystem_StockMarketUI"
+            GodSystemStockMarketUI.open()
+            return
+        end
         self:onModeButton({ internal = data.id, modeLabel = data.label })
     end
 end
@@ -529,6 +536,7 @@ function GodSystemWindow:createChildren()
         { id = "shop", label = GodSystemApp.services.runtime.text("Tab_Shop", "Shop"), group = "core", featureKeys = { "EnableShop" } },
         { id = "rangeRecycle", label = GodSystemApp.services.runtime.text("Tab_RangeRecycle", "Range recycle"), group = "core", featureKeys = { "EnableRecycle", "EnableRangeRecycle" } },
         { id = "bank", label = GodSystemApp.services.runtime.text("Tab_Bank", "Bank"), group = "core", featureKeys = { "EnableBank" } },
+        { id = "stocks", label = GodSystemApp.services.runtime.text("Stock_Title", "Stock market"), group = "core", featureKeys = { "EnableBank", "EnableStockMarket" } },
         { id = "home", label = GodSystemApp.services.runtime.text("Tab_Home", "Home/Teleport"), group = "systems", featureKeys = { "EnableTeleport" } },
         { id = "traits", label = GodSystemApp.services.runtime.text("Tab_Traits", "Traits"), group = "systems", featureKeys = { "EnableTraits" } },
         { id = "upgrades", label = GodSystemApp.services.runtime.text("Tab_Upgrades", "Upgrades"), group = "systems" },

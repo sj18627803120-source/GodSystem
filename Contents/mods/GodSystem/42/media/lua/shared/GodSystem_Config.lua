@@ -2,10 +2,19 @@ GodSystemConfig = GodSystemConfig or {}
 
 GodSystemConfig.ModName = "神级系统"
 GodSystemConfig.DataKey = "GodSystem_CN_Data"
-GodSystemConfig.Version = "42.21_3.21.4"
+GodSystemConfig.Version = "42.21_3.23"
 -- Default-off aggregate instrumentation for local profiling.  It records no
 -- per-frame log lines and is intentionally not part of saved player data.
 GodSystemConfig.EnablePerformanceDiagnostics = false
+GodSystemConfig.EnableStockMarket = true
+GodSystemConfig.StockTrendMinDays = 3
+GodSystemConfig.StockTrendMaxDays = 7
+GodSystemConfig.StockNewsMaxPerDay = 3
+GodSystemConfig.StockTradeFeePercent = 0.5
+GodSystemConfig.StockVolatilityMultiplier = 1
+GodSystemConfig.StockActivityThresholdMultiplier = 1
+GodSystemConfig.StockActivityImpactMultiplier = 1
+GodSystemConfig.StockOrderImpactMultiplier = 1
 
 GodSystemConfig.EnableEquipment = true
 GodSystemConfig.EquipmentMaxSlots = 3
@@ -15,6 +24,9 @@ GodSystemConfig.EnableEquipmentFreeze = true
 GodSystemConfig.EnableEquipmentSplash = true
 GodSystemConfig.EnableUtilityGenerator = true
 GodSystemConfig.EnableRecycleListing = true
+GodSystemConfig.ShowRecycleContextRecycle = true
+GodSystemConfig.ShowRecycleContextRecycleAndList = true
+GodSystemConfig.ShowRecycleContextListOnly = true
 GodSystemConfig.EnableUtilityGeneratorWater = true
 GodSystemConfig.EnableUtilityGeneratorElectricity = true
 GodSystemConfig.UtilityGeneratorWaterPricePer100L = 20
@@ -172,7 +184,7 @@ GodSystemConfig.ModCategoryBuyPrices = {
 }
 GodSystemConfig.UnknownModItemRecycleValue = 1
 GodSystemConfig.EconomyConversionSafetyMargin = 0.10
-GodSystemConfig.EconomyPolicyVersion = "42.21.3.21.4"
+GodSystemConfig.EconomyPolicyVersion = "42.21.3.23"
 GodSystemConfig.DailyRecycleSoftCap = 0
 GodSystemConfig.DiminishedRecyclePayout = 1
 GodSystemConfig.PositiveTraitCostPerPoint = 800

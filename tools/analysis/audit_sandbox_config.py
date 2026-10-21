@@ -24,6 +24,8 @@ def consumers(key):
     return result
 
 def timing(key):
+    if key.startswith("ShowRecycleContext"):
+        return "下一次构建物品右键菜单；仅展示，不改变价格/准备令牌、不取消交易；MP采用服务器快照"
     if key == "StartingPoints": return "账号/存档初始化；不追回已发币；无展示缓存"
     if key in ("DailyTaskCount", "DefaultTaskLimitHours", "TaskRewardMultiplier", "TaskPenaltyMultiplier"):
         return "下次任务生成/刷新；taskGenerationToken；已接任务保留"
@@ -69,9 +71,10 @@ def main():
             for key in set(words.findall(line)).intersection(keys):
                 SCANNED.setdefault(key, []).append(f"{path.relative_to(LUA).as_posix()}:{number} `{function}`")
     texts = localization.parse_flat_yaml(localization.SOURCE)
-    content = ["# 沙盒配置生效矩阵：42.21_3.21", "", "由 `python tools/analysis/audit_sandbox_config.py` 从唯一运行 schema 生成；仅开发资料，不写入存档。",
-               "", "链路：schema → RuntimeConfig.fromSandbox/readSandbox 或服务器 applySnapshot → Config/直接消费者。下表的消费者是源码证据，不表示每项已实机验证。现存98项均有直接、派生或注册消费者，未发现新的无效项。",
-               "", "98项合法范围/默认值未改变；有限数值边界、银行概率联动、准备令牌、费用/奖罚/装备/设备业务A/B见 `config_business_spec.lua`、`task_config_spec.lua`、`context_performance_spec.lua` 及各既有功能 spec。世界原生效果、反作弊和MP收包仍待集中实测。",
+    version = re.search(r'GodSystemConfig.Version\s*=\s*"([^"]+)"', (LUA / "shared/GodSystem_Config.lua").read_text(encoding="utf8")).group(1)
+    content = [f"# 沙盒配置生效矩阵：{version}", "", "由 `python tools/analysis/audit_sandbox_config.py` 从唯一运行 schema 生成；仅开发资料，不写入存档。",
+               "", f"链路：schema → RuntimeConfig.fromSandbox/readSandbox 或服务器 applySnapshot → Config/直接消费者。下表的消费者是源码证据，不表示每项已实机验证。现存{len(rows)}项均有直接、派生或注册消费者，未发现新的无效项。",
+               "", f"{len(rows)}项合法范围/默认值以运行schema为准；有限数值边界、银行概率联动、准备令牌、费用/奖罚/装备/设备业务A/B见 `config_business_spec.lua`、`task_config_spec.lua`、`context_performance_spec.lua` 及各既有功能 spec。世界原生效果、反作弊和MP收包仍待集中实测。",
                "", "银行涨跌概率合计超过100时保留上涨概率、裁剪下跌概率。装备下限超过基础成功率则拒绝交易，不能靠静默裁剪制造另一套玩法。", ""]
     for row in rows:
         key = row["key"]
@@ -84,7 +87,7 @@ def main():
                     "- 单位/边界/依赖：" + description,
                     "- 生效与缓存：" + timing(key),
                     "- 消费者：" + "；".join(paths[:8]) + (f"；另{len(paths)-8}处" if len(paths)>8 else ""),
-                    "- 验证状态：消费链已核查；相关功能自动回归已执行。未逐项实机修改98项；原生行为见交接测试目录。", ""]
+                    f"- 验证状态：消费链已核查；相关功能自动回归已执行。未逐项实机修改{len(rows)}项；原生行为见交接测试目录。", ""]
     generated = "\n".join(content)
     if args.check:
         if not OUTPUT.is_file() or OUTPUT.read_text(encoding="utf8") != generated:

@@ -30,6 +30,7 @@ require "GodSystem_UtilityGenerator"
 require "GodSystem_MimicKey"
 require "GodSystem_InventoryContext"
 require "GodSystem_UtilityGeneratorContext"
+require "GodSystem_StockClient"
 
 GodSystemApp.services.runtime = GodSystemApp.services.runtime or {}
 GodSystemApp.services.runtime.data = nil

@@ -1,11 +1,11 @@
 # GodSystem 工程文档
 
-更新时间：2026-10-10。目标游戏：Project Zomboid B42.21，Lua 5.1/Kahlua。源码及唯一滚动备份：`42.21_3.21.4`；用户确认当前测试通过，授权同步GitHub main，验收/归档见交接130。尸体本体开关、地面回收核对/备用拾取及配置优化分别见交接129、128、125。此前未逐项确认的多人及原生接口场景保留原状态。开发期诊断工具由 `python tools/analysis/setup.py` 安装，随后运行 `pwsh tools/Test-GodSystem.ps1`；工具不进入运行包。此文描述当前代码组织，不替代逐项实机验收。
+当前稳定版本为 `42.21_3.23`（B42.21），用户于2026-10-21确认当前测试通过。本轮授权覆盖唯一滚动备份、整理技术文档及技能，并将3.21.5至3.23全部既有修改提交推送至GitHub main。下一版需求未定，不提前升版；未逐项实测的多人场景保持原记录，不发布创意工坊。见[验收交接136](../GodSystem_DevHandoff_CN/136_v42.21_3.23_验收归档与下一版准备.md)。
 
 ## 项目身份与目录
 
 - 源码仓库：`C:\APPS\Pzmodproject\GodSystem-main`；游戏测试副本：`C:\Users\wan20\Zomboid\Workshop\GodSystem-main`。后者是部署产物，不作为编辑源。
-- 滚动备份：`C:\APPS\Pzmodproject\GodSystem-main.zip`，对应当前已验收的 3.21.4；`C:\APPS\Pzmodproject\历史资料` 存放旧 UI 测试树、候选归档和笔记。
+- 滚动备份：`C:\APPS\Pzmodproject\GodSystem-main.zip`，对应当前已验收的 3.23；`C:\APPS\Pzmodproject\历史资料` 存放旧 UI 测试树、候选归档和笔记。
 - Workshop ID `3773949382`，Mod ID `GodSystem_CN`，存档键 `GodSystem_CN_Data`。文档整理不改变这些身份。
 - 上传结构：`workshop.txt`、`preview.png` 和 `Contents/mods/GodSystem/{mod.info,42/mod.info,42/media}`。`docs`、`tools`、`.git`、`.test-runtime` 与历史资料不属于游戏运行包。
 
@@ -18,7 +18,7 @@
 | `server` | `GodSystem_Server.lua`、`GodSystem_ServerRuntime_*.lua`、`GodSystem_TransactionOps.lua` | MP 命令分发、真实物品/玩家/世界对象复核、结算、回执和同步 |
 | 资源 | `media/scripts/GodSystem_Items.txt`、`media/sandbox-options.txt`、`media/lua/shared/Translate` | 物品、沙盒选项及生成的 CN/CH/EN 文本 |
 
-当前包有 142 个 Lua 文件；精确数量以后以测试输出为准。ServerRuntime 以 installer 注册并由 `GodSystem_Server.lua` 装配；新增命令应先核对 `GodSystem_Protocol.lua`，再核对服务端路由与客户端回执。SP 与 MP 尽量复用 shared 业务规则，由适配器决定真实玩家、存档和同步路径。
+当前包有 152 个 Lua 文件；精确数量以后以测试输出为准。ServerRuntime 以 installer 注册并由 `GodSystem_Server.lua` 装配；新增命令应先核对 `GodSystem_Protocol.lua`，再核对服务端路由与客户端回执。SP 与 MP 尽量复用 shared 业务规则，由适配器决定真实玩家、存档和同步路径。
 
 ## 核心状态与交易
 
@@ -27,7 +27,7 @@
 - 商品购买参考价顺序为管理员覆盖、`GodSystem_Prices.lua` 精确价、分类默认价；回收价再按管理员覆盖、未知模组保守价、比例/倍率及物品状态计算。转换关系静态基础表与管理员覆盖层共同形成安全最低价。详见 3.13–3.16 交接。
 - 付费/发货操作使用 `opId`、指纹和有界回执；服务端重新定位物品、价格、余额及配置。重试同一操作返回原结果，不能重复扣费、发货或叠加效果。超过 2000 件回收使用有界摘要，仍须避免大批量删除造成单帧压力。
 - 装备绑定以稳定身份及服务所需的原生信息为边界，等级档案由权威存储管理。近战冻结、冲击和溅射共用挥击事件；溅射致死统计与多人同步仍待实机验证。
-- 水电一体机 `GodSystem.UtilityGenerator` 使用原生 `IsoGenerator` 供电；供水对带原版管道标志的固定设施使用原生流体接口，或经原生水量回读验证的 `waterAmount` / `waterMaxAmount` 储水字段。水、电账户按设备 ID 分开保存并扣费，旧共享余额惰性迁入水账户；所有玩家可操作。当前固定水龙头供水、多人同步和服务器重启恢复仍待实机验收。完整边界见交接 112 与水电修复交接。
+- 水电一体机 `GodSystem.UtilityGenerator` 使用原生 `IsoGenerator` 供电；水、电账户及手动目标绑定按设备ID保存，余额分开扣费。3.18.3起不再自动扫描供电范围；已接管水龙头/水槽在无有效外部供水时使用隐藏原生水源预留与结算，固定储水容器按实际成功注水扣费。事件定向唤醒、运行设备低频核对，停机仅处理必要清理；所有玩家可操作。用户已确认3.18.3测试通过，未逐项确认的多人/重启专项不外推，详见[交接114](../GodSystem_DevHandoff_CN/114_v42.20_3.18.3_一体机手动供水目标.md)。
 
 ## 修改入口与约束
 
@@ -60,7 +60,7 @@ git diff --check
 
 多人隐藏管理和上架预检通过Runtime.getShopListingRows读取现有ShopListingStore，保留ready和家具变体；最后一块消费完补一次展示刷新。服务端仍独立核验，不改变商品存档或收费规则。详见[交接126](../GodSystem_DevHandoff_CN/126_v42.21_3.21.1_多人隐藏商品管理修复.md)。
 
-## 最新验收状态（2026-10-10）
+## 历史验收记录（2026-10-10）
 
 用户确认42.21_3.21.4当前测试通过，唯一滚动ZIP更新为此版；源码和技术资料集成至GitHub main。验收/归档见[交接130](../GodSystem_DevHandoff_CN/130_v42.21_3.21.4_验收备份与源码同步.md)。多人尚不方便实测，未逐项确认的专项仍保留原状态。可复用的原生返回语义、删除生命周期与真实动作栏验证经验见[开发经验03](../GodSystem_DevHandoff_CN/03_开发经验与踩坑.md)。
 
@@ -75,3 +75,12 @@ git diff --check
 ## 3.21.4 范围回收动作栏与规则
 
 populateList动作栏显式列出fourth按钮，复用既有toggleCorpses意图及个人偏好。共享RangeRecycleDomain在includeCorpses=false时仅跳过corpses，corpseItems继续按原筛选处理。没有新增扫描或网络消息；真实UI及Domain回归覆盖显示与规则独立性，详见交接129。
+
+## 股市（3.23）
+
+StockDefinitions/Market/News/Trading/Activity/Service为共享纯业务与适配层；客户端StockClient/StockMarketUI和服务端ServerRuntime_Stocks负责权威会话与窗口。市场使用独立世界ModData，个人持仓在bank.stocks，普通状态投影排除此字段。复用已有每秒玩家循环，只有待结算时安装临时工作器。财务、随机状态、贡献水位及恢复边界见[交接135](../GodSystem_DevHandoff_CN/135_v42.21_3.23_银行模拟股市开发技术方案.md)；模拟性能见[3.23评估](3.23_股市模拟与性能评估.md)。
+
+
+## 股市展示与验证边界
+
+行情每在线游戏小时结算，资讯首次为市场第8小时，日内其余槽16/24小时；窗口显示权威时钟与下一发布时段。K线复用169条小时历史，按1/3/6小时聚合，不能解读为逐笔成交高低价。渲染、费用说明、选中状态和拼音索引只读缓存。性能模拟、原生隔离与用户验收分开，当前验收及下一版准备见136。

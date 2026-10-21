@@ -344,12 +344,36 @@ option GodSystem.EnableRecycle
     translation = GodSystemSettings_EnableRecycle,
 }
 
+option GodSystem.ShowRecycleContextRecycle
+{
+    type = boolean,
+    default = true,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_ShowRecycleContextRecycle,
+}
+
 option GodSystem.EnableRecycleListing
 {
     type = boolean,
     default = true,
     page = GodSystemSettingsShopRecycle,
     translation = GodSystemSettings_EnableRecycleListing,
+}
+
+option GodSystem.ShowRecycleContextRecycleAndList
+{
+    type = boolean,
+    default = true,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_ShowRecycleContextRecycleAndList,
+}
+
+option GodSystem.ShowRecycleContextListOnly
+{
+    type = boolean,
+    default = true,
+    page = GodSystemSettingsShopRecycle,
+    translation = GodSystemSettings_ShowRecycleContextListOnly,
 }
 
 option GodSystem.AutoShopListOnlyCostRatio
@@ -673,6 +697,96 @@ option GodSystem.BankInvestmentAggressiveLossPercent
     default = 5,
     page = GodSystemSettingsBank,
     translation = GodSystemSettings_BankInvestmentAggressiveLossPercent,
+}
+
+
+option GodSystem.EnableStockMarket
+{
+    type = boolean,
+    default = true,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_EnableStockMarket,
+    title = GS_Stocks,
+}
+
+option GodSystem.StockTrendMinDays
+{
+    type = integer,
+    min = 1,
+    max = 30,
+    default = 3,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockTrendMinDays,
+}
+
+option GodSystem.StockTrendMaxDays
+{
+    type = integer,
+    min = 1,
+    max = 60,
+    default = 7,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockTrendMaxDays,
+}
+
+option GodSystem.StockNewsMaxPerDay
+{
+    type = integer,
+    min = 0,
+    max = 3,
+    default = 3,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockNewsMaxPerDay,
+}
+
+option GodSystem.StockTradeFeePercent
+{
+    type = double,
+    min = 0,
+    max = 10,
+    default = 0.5,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockTradeFeePercent,
+}
+
+option GodSystem.StockVolatilityMultiplier
+{
+    type = double,
+    min = 0,
+    max = 3,
+    default = 1,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockVolatilityMultiplier,
+}
+
+option GodSystem.StockActivityThresholdMultiplier
+{
+    type = double,
+    min = 0.1,
+    max = 100,
+    default = 1,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockActivityThresholdMultiplier,
+}
+
+option GodSystem.StockActivityImpactMultiplier
+{
+    type = double,
+    min = 0,
+    max = 3,
+    default = 1,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockActivityImpactMultiplier,
+}
+
+option GodSystem.StockOrderImpactMultiplier
+{
+    type = double,
+    min = 0,
+    max = 3,
+    default = 1,
+    page = GodSystemSettingsBank,
+    translation = GodSystemSettings_StockOrderImpactMultiplier,
 }
 
 option GodSystem.EnableUtilityGenerator

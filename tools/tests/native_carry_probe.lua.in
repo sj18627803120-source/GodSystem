@@ -1,4 +1,7 @@
--- The Python runner embeds local source only into the ignored test directory.
+local probeStage = 0
+local nativeAssert = assert
+function assert(value, message) return nativeAssert(value, message or ("native probe line " .. tostring(probeStage))) end
+probeStage = 1
 function require(name) assert(name == 'GodSystem_Config'); return {} end
 function isClient() return false end
 function isServer() return false end
@@ -7,68 +10,104 @@ function getTimestampMs() return probeClock end
 function getPlayer() return player end
 local function event()
     local callbacks = {}
-    return {
-        Add = function(fn) callbacks[fn] = true end,
-        Remove = function(fn) callbacks[fn] = nil end,
-        fire = function()
-            local pending = {}; for fn in pairs(callbacks) do pending[#pending + 1] = fn end
-            for i = 1, #pending do if callbacks[pending[i]] then pending[i]() end end
-        end,
-    }
+    return { Add = function(fn) callbacks[fn] = true end, Remove = function(fn) callbacks[fn] = nil end,
+        fire = function() for fn in pairs(callbacks) do fn() end end }
 end
 Events = { OnTick = event(), EveryHours = event(), OnCreatePlayer = event() }
+local rawBase, rawDelta, rawFinal = player.setMaxWeightBase, player.setMaxWeightDelta, player.setMaxWeight
+SandboxVars = { UnifiedCarryWeightFramework = { GatherDetailedDebug = false, CapWeight = true } }
+local function loadFramework()
+-- @UCWF_SOURCE@
+end
+local frameworkFirst = -- @FRAMEWORK_FIRST@
+local f = frameworkFirst and loadFramework() or nil
 local function loadCarry()
 -- @CARRY_SOURCE@
 end
 local C = loadCarry()
-assert(C.restore(player, 1)); assert(player:getMaxWeightBase() == 10); assert(player:getMaxWeight() == 15)
+local originalPcall, initializationCalls = pcall, 0
+pcall = function(...) initializationCalls = initializationCalls + 1; return originalPcall(...) end
+local missingPlayerLevel = C.getPersistedLevel(nil)
+pcall = originalPcall
+assert(missingPlayerLevel == 0 and initializationCalls == 0, 'nil player must not enter native protected lookup')
+local function tick() probeClock = probeClock + 100; Events.OnTick.fire() end
+probeStage = 19
 assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14); assert(player:getMaxWeight() == 22)
-player:setMaxWeightDelta(1.5); body:UpdateStrength(); assert(player:getMaxWeight() == 33)
-assert(C.restore(player, 3)); assert(player:getMaxWeightDelta() == 1.5)
-player:setMaxWeightDelta(1); body:UpdateStrength()
-for i = 1, 100 do
-    assert(C.restore(player, 3)); body:UpdateStrength()
-    assert(player:getMaxWeightBase() == 14); assert(player:getMaxWeight() == 22)
-end
-player:setMaxWeightBase(15)
-local ok, reason = C.restore(player, 3)
-assert(not ok and reason == 'externalConflict'); assert(player:getMaxWeightBase() == 15)
-player:setMaxWeightBase(14); assert(C.restore(player, 3))
+probeStage = 20
+assert(C.getStatus(player, 3).protection == 'settersAndFields', 'actual inherited setter lookup must be protected')
+player:setMaxWeightBase(99); player:setMaxWeightDelta(5); player:setMaxWeight(1)
+probeStage = 22
+assert(player:getMaxWeightBase() == 14); assert(player:getMaxWeightDelta() == 1); assert(player:getMaxWeight() == 22)
+rawBase(player, 15); rawFinal(player, 1); tick()
+probeStage = 24
+assert(player:getMaxWeightBase() == 14, 'base='..tostring(player:getMaxWeightBase())..'; state='..tostring(C.sessions[player])..'; dead='..tostring(player:isDead())); assert(player:getMaxWeight() == 22)
+probeStage = 25
+for i = 1, 100 do rawBase(player, 8); tick(); assert(player:getMaxWeightBase() == 14) end
+probeStage = 26
+rawFinal(player, 12); tick(); assert(player:getMaxWeight() == 22)
 local saved = C.capture(player)
-assert(C.restore(player, 4, true)); assert(player:getMaxWeightBase() == 16)
-assert(C.rollback(player, saved)); assert(player:getMaxWeightBase() == 14)
-C.forget(player); player:setMaxWeightBase(8)
-assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14)
-C.scheduleRecheck(player); player:setMaxWeight(12); probeClock = probeClock + 3000
-assert(C.restore(player, 3)); assert(player:getMaxWeight() == 22)
-for i = 1, 2 do player:setMaxWeightBase(8); assert(C.restore(player, 3)) end
-player:setMaxWeightBase(8)
-ok, reason = C.restore(player, 3); assert(not ok and reason == 'resetCooldown')
-probeClock = probeClock + 29999; assert(not C.restore(player, 3)); assert(player:getMaxWeightBase() == 8)
-probeClock = probeClock + 1; assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14)
-SandboxVars = { UnifiedCarryWeightFramework = { GatherDetailedDebug = false, CapWeight = false } }
-local function loadFramework()
--- @UCWF_SOURCE@
+probeStage = 28
+assert(C.restore(player, 4, true)); assert(C.rollback(player, saved)); assert(player:getMaxWeightBase() == 14)
+local nativeTraits = player:getCharacterTraits()
+for _, row in ipairs({ { CharacterTrait.STRONG, 1.5 }, { CharacterTrait.WEAK, 0.75 },
+    { CharacterTrait.FEEBLE, 0.8999999761581421 }, { CharacterTrait.STOUT, 1.25 } }) do
+    nativeTraits:set(row[1], true)
+probeStage = 33
+    assert(C.restore(player, 3)); assert(player:getMaxWeightDelta() == row[2])
+    local corrections = C.sessions[player].corrections
+    for i = 1, 100 do tick() end
+probeStage = 36
+    assert(C.sessions[player].corrections == corrections, 'float delta must be stable')
+    nativeTraits:set(row[1], false)
 end
-local f = loadFramework()
-local coexistence = 'UCWF not requested'
-local function settle()
-    for i = 1, 3 do body:UpdateStrength(); Events.OnTick.fire() end
-    body:UpdateStrength()
-end
+probeStage = 39
+assert(C.restore(player, 3)); assert(player:getMaxWeightDelta() == 1)
+probeStage = 40
+player:setFixtureWeightFactor(2.5); body:UpdateStrength(); tick(); assert(player:getMaxWeight() == 35)
+probeStage = 41
+player:setFixtureHunger(4); body:UpdateStrength(); tick(); assert(player:getMaxWeight() < 35)
+probeStage = 42
+player:setFixtureWeightFactor(0.1); body:UpdateStrength(); tick(); assert(player:getMaxWeight() == 0)
+player:setFixtureHunger(0); player:setFixtureWeightFactor(1.58); body:UpdateStrength(); tick()
+local corrections = C.sessions[player].corrections
+for i = 1, 10000 do tick() end
+probeStage = 46
+assert(C.sessions[player].corrections == corrections)
+if not f then f = loadFramework() end
+local result = 'UCWF not requested'
 if f then
     f.registerBaseModifier({ id = 'probe.other', resolve = function() return { add = 1 } end })
-    assert(C.restore(player, 3)); settle()
-    assert(player:getMaxWeightBase() == 15); assert(player:getMaxWeight() == 23)
-    -- Failed payment while an earlier framework calculation is pending.
-    assert(C.restore(player, 4)); saved = C.capture(player)
-    assert(C.restore(player, 5, true)); assert(C.rollback(player, saved)); settle()
-    assert(C.getStatus(player, 4).reason == 'ok'); assert(player:getMaxWeightBase() == 17)
-    assert(C.restore(player, 3)); settle()
+    local other = f.baseModifiers['probe.other']
     for i = 1, 20 do
-        f.recomputeAll(player); settle(); assert(C.restore(player, 3))
-        assert(player:getMaxWeightBase() == 15); assert(player:getMaxWeight() == 23)
+        f.recomputeAll(player)
+        for j = 1, 3 do body:UpdateStrength(); tick() end
+probeStage = 59
+        assert(C.restore(player, 3)); assert(player:getMaxWeightBase() == 14); assert(player:getMaxWeight() == 22)
+probeStage = 60
+        assert(f.baseModifiers['probe.other'] == other)
     end
-    coexistence = '20 UCWF coexistence recomputations and pending rollback'
+probeStage = 62
+    assert(f.baseModifiers['GodSystem.CarryCapacity'] == nil)
+probeStage = 63
+    assert(C.restore(player, 30)); assert(player:getMaxWeightBase() == 68); assert(player:getMaxWeight() > 50)
+    result = '20 delayed UCWF cycles; foreign modifier intact; no cap 50'
 end
-return 'PASS installed Kahlua/UpdateStrength: 100 idle recomputations, delta preserved, conflict preserved, purchase rollback, load restore, delayed recheck and cooldown recovery; ' .. coexistence
+probeStage = 66
+assert(C.restore(player, 0)); assert(C.workerInstalled == false)
+probeStage = 67
+rawBase(player, 19); assert(C.restore(player, 0)); assert(player:getMaxWeightBase() == 19)
+local performance = {}
+for _, count in ipairs({1, 20, 100}) do
+    C.resetClient()
+    for i = 1, count do assert(C.restore(nativePlayers[i], 3)) end
+    local started, maximum = player:probeTimeNanos(), 0
+    for i = 1, 1000 do
+        local at = player:probeTimeNanos(); tick()
+        maximum = math.max(maximum, (player:probeTimeNanos() - at) / 1000000)
+    end
+    local total = (player:probeTimeNanos() - started) / 1000000
+    for i = 1, count do assert(not C.sessions[nativePlayers[i]].corrections) end
+    performance[#performance + 1] = 'native isolated players=' .. count .. '; 1000 stable steps total_ms=' .. total .. '; max_step_ms=' .. maximum
+end
+C.resetClient()
+return 'PASS B42.21 native priority: real trait tokens/CharacterTraits.get, inherited setters, captured-native bypass correction, 100 resets, final-only correction, exact rollback, four traits including float Feeble, native strength/hunger/zero, 10000 stable checks, zero-level release; ' .. result .. "\n" .. table.concat(performance, "\n")

@@ -54,7 +54,7 @@ function GodSystemApp.services.runtime.getSystemUpgradeInfo(upgradeType)
             maxValue = nil,
             cost = cost,
             label = GodSystemApp.services.runtime.text("Upgrade_CarryCapacity", "Carry capacity"),
-            desc = GodSystemApp.services.runtime.text("Upgrade_CarryCapacityDesc", "Each level costs 2000 coins and adds 2 base carry. Final carry depends on strength, conditions and multipliers. Restores automatically; no required mod."),
+            desc = GodSystemApp.services.runtime.text("Upgrade_CarryCapacityDesc", "Each level costs 2000 coins and adds 2 base carry. Above level zero, base is 8 + level x 2; native strength, condition and vanilla traits still apply. Other carry overrides are corrected."),
             carryStatus = status,
         }
     end
@@ -117,7 +117,9 @@ function GodSystemApp.services.runtime.upgradeSystem(upgradeType)
             return false
         end
         if not GodSystemApp.services.runtime.addPoints(-info.cost) then
-            GodSystemCarryCapacity.rollback(player, carrySnapshot)
+            if not GodSystemCarryCapacity.rollback(player, carrySnapshot) then
+                GodSystemApp.services.runtime.notify(GodSystemApp.services.runtime.getCarryCapacityStateText({ reason = "rollbackFailed" }))
+            end
             return false
         end
         data.upgrades = data.upgrades or {}

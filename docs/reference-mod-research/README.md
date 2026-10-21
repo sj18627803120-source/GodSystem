@@ -37,6 +37,10 @@
 
 ## 主题索引
 
+### AI 接入与组件加载（B42.21）
+
+- [AI 接入与订阅后自动安装核查](AIBootstrap_B42.21.md)：本机加载/文件/网络/进程入口证据、19 项原生隔离检查及可复现开发工具；未找到原版环境下完全自动首次安装路径。
+
 ### 多人协议与同步
 
 - [OrangeCommunityEconomy](OrangeCommunityEconomy.md)：AuthoritativeBuckets 内存缓存、域订阅同步、批量持久化、请求去重守卫。

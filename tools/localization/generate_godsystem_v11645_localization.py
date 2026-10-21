@@ -12,6 +12,7 @@ EN_CARRY_SOURCE = Path(__file__).with_name("godsystem_carry_en.yml")
 EN_MIMIC_SOURCE = Path(__file__).with_name("godsystem_mimic_en.yml")
 EN_SPLASH_SOURCE = Path(__file__).with_name("godsystem_splash_en.yml")
 EN_UTILITY_GENERATOR_SOURCE = Path(__file__).with_name("godsystem_utilitygenerator_en.yml")
+EN_STOCK_SOURCE = Path(__file__).with_name("godsystem_stocks_en.yml")
 EN_RECYCLE_SOURCE = Path(__file__).with_name("godsystem_recycle_en.yml")
 EN_PATH = LUA_ROOT / "shared" / "Translate" / "EN" / "IG_UI_EN.txt"
 CN_PATH = LUA_ROOT / "shared" / "Translate" / "CN" / "IG_UI_CN.txt"
@@ -390,6 +391,7 @@ def main() -> None:
     # Preserve unrelated legacy English entries until their own migration.
     update_translate(EN_PATH, parse_flat_yaml(EN_CARRY_SOURCE), remove_obsolete=False)
     update_translate(EN_PATH, parse_flat_yaml(EN_RECYCLE_SOURCE), remove_obsolete=False)
+    update_translate(EN_PATH, parse_flat_yaml(EN_STOCK_SOURCE), remove_obsolete=False)
     en_mimic_entries = parse_flat_yaml(EN_MIMIC_SOURCE)
     update_translate(EN_PATH, {key: value for key, value in en_mimic_entries.items() if not key.startswith(("ItemName_", "Tooltip_GodSystem_"))}, remove_obsolete=False)
     update_translate(EN_PATH, parse_flat_yaml(EN_SPLASH_SOURCE), remove_obsolete=False)
@@ -428,7 +430,7 @@ def main() -> None:
     update_item_fallback(ITEM_FALLBACK_PATH, item_entries)
     update_override(OVERRIDE_PATH, ui_entries)
     english_sandbox_entries = {}
-    for source in (EN_CARRY_SOURCE, EN_MIMIC_SOURCE, EN_SPLASH_SOURCE, EN_UTILITY_GENERATOR_SOURCE, EN_RECYCLE_SOURCE):
+    for source in (EN_CARRY_SOURCE, EN_MIMIC_SOURCE, EN_SPLASH_SOURCE, EN_UTILITY_GENERATOR_SOURCE, EN_RECYCLE_SOURCE, EN_STOCK_SOURCE):
         english_sandbox_entries.update(parse_flat_yaml(source))
     sandbox_count = write_sandbox_files(entries, english_sandbox_entries)
     print(f"updated {len(ui_entries)} UI keys, {len(item_entries)} item keys, and {sandbox_count} sandbox options")

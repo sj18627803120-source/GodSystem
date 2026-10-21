@@ -10,7 +10,10 @@ local MAX_RESULTS = 64
 
 local function validOpId(args)
     local opId = args and tostring(args.opId or "") or ""
-    if #opId > 96 or not string.match(opId, "^gs%-%d+%-%d+%-%d+$") then return nil end
+    local ledger = GodSystemOperationLedger
+    if ledger then
+        if not ledger.validId(opId) then return nil end
+    elseif #opId > 96 or not string.match(opId, "^gs%-%d+%-%d+%-%d+$") then return nil end
     return opId
 end
 

@@ -46,6 +46,7 @@ local data = { unlocked = true, unlocks = { attack = true }, cooldowns = { attac
 GodSystemApp = { services = { runtime = { getCompanionData = function() return data end } } }
 GodSystemCompanionVisual = {}
 GodSystemCompanionConfig = {
+    RobotVisualHeight = 48, getRobotVisualHeight = function(mode) return mode == "guard" and 96 or 48 end,
     RobotChargeSeconds = 0.2, RobotRecoverySeconds = 0.15, RobotCombatGraceSeconds = 3,
     ProjectileTravelSeconds = 0.35, AttackSearchSeconds = 0.5,
     SightDurationSeconds = 10, SightTargetCap = 50,

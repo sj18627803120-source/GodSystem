@@ -384,6 +384,7 @@ function Commands.buyShop(_, _, player, args)
             {opId=args.opId, quantity=quantity,price=price})
         committed = true
         data.stats.spentPoints = (data.stats.spentPoints or 0) + price
+        if GodSystemStockService then GodSystemStockService.shop(data, row, price, "shop:" .. tostring(args.opId)) end
         data.stats.boughtItems = (data.stats.boughtItems or 0) + quantity
         data.ui = data.ui or {}
         data.ui.shopRecent = type(data.ui.shopRecent) == "table" and data.ui.shopRecent or {}

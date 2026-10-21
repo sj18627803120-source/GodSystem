@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--game", type=Path, required=True)
     parser.add_argument("--compiler", type=Path, required=True, help="Local ECJ compiler JAR")
     parser.add_argument("--ucwf", type=Path, help="Optional UCWF shared Lua source")
+    parser.add_argument("--framework-first", action="store_true", help="Load optional UCWF before the carry controller")
     args = parser.parse_args()
     game = args.game.resolve()
     jar = game / "projectzomboid.jar"
@@ -38,6 +39,7 @@ def main():
     framework = args.ucwf.read_text(encoding="utf-8-sig") if args.ucwf else "return nil"
     probe = (TESTS / "native_carry_probe.lua.in").read_text(encoding="utf-8")
     probe = probe.replace("-- @CARRY_SOURCE@", source).replace("-- @UCWF_SOURCE@", framework)
+    probe = probe.replace("-- @FRAMEWORK_FIRST@", "true" if args.framework_first else "false")
     script = work / "probe.lua"
     script.write_text(probe, encoding="utf-8")
     for name, content in (("game JAR", jar.read_bytes()), ("carry source", source.encode("utf-8"))):

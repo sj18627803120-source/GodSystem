@@ -67,3 +67,20 @@ assert(C.get("BankInvestmentStableGainChance")==nil)
 eq(C.get("UtilityGeneratorWaterPricePer100L"),20)
 eq(C.get("EnableRecycle"),false); eq(C.get("RefreshTaskCost"),0)
 print("PASS config business: investment settlement, loan credit, equipment quotes and nonfinite input")
+
+-- Display changes cannot invalidate in-flight business preparation or prices.
+apply({EnableRecycle=true,EnableShop=true,EnableRecycleListing=true})
+local tokens={}
+for _,mode in ipairs({"recycle","recycleAndList","listOnly","rangeFilter"}) do tokens[mode]=C.recyclePreparationToken(mode) end
+local priceRevision=C.PricingRevision
+apply({EnableRecycle=true,EnableShop=true,EnableRecycleListing=true,
+    ShowRecycleContextRecycle=false,ShowRecycleContextRecycleAndList=false,ShowRecycleContextListOnly=false})
+eq(C.get("ShowRecycleContextRecycle"),false); eq(C.PricingRevision,priceRevision)
+for mode,token in pairs(tokens) do eq(C.recyclePreparationToken(mode),token) end
+local defaults=C.fromSandbox({})
+eq(defaults.ShowRecycleContextRecycle,true); eq(defaults.ShowRecycleContextRecycleAndList,true); eq(defaults.ShowRecycleContextListOnly,true)
+e.isClient=function() return true end
+C.applySnapshot({ShowRecycleContextRecycle=false,ShowRecycleContextRecycleAndList=true,ShowRecycleContextListOnly=false})
+e.SandboxVars.GodSystem={ShowRecycleContextRecycle=true,ShowRecycleContextListOnly=true}
+C.readSandbox(); eq(C.get("ShowRecycleContextRecycle"),false); eq(C.get("ShowRecycleContextRecycleAndList"),true); eq(C.get("ShowRecycleContextListOnly"),false)
+print("PASS 3.22 display settings: defaults, false preservation, unchanged business tokens/pricing, server precedence")

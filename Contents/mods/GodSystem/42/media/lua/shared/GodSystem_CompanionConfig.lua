@@ -49,6 +49,8 @@ Config.RobotCatchupMargin = 2
 Config.RobotNormalSpeed = 1.2
 Config.RobotCatchupSpeed = 4.5
 Config.RobotBobPixels = 3
+Config.RobotVisualHeight = 48
+Config.RobotHoverVisualHeight = 96
 Config.RobotDrawHalfWidth = 16
 Config.RobotDrawHalfHeight = 13
 Config.RobotSensorOffset = 3
@@ -66,6 +68,10 @@ Config.RobotFollowBands = {
     follow5 = { minimum = 2, maximum = 5 },
     follow10 = { minimum = 4, maximum = 10 },
 }
+
+function Config.getRobotVisualHeight(mode)
+    return mode == "guard" and Config.RobotHoverVisualHeight or Config.RobotVisualHeight
+end
 
 Config.Unlocks = {
     projection = { cost = Config.UnlockCost, labelKey = "Companion_Unlock" },
@@ -166,7 +172,8 @@ function Config.ensureData(value)
     data.visualMode = nil
     if data.visible == nil then data.visible = true else data.visible = data.visible == true end
     if data.guardianEnabled == nil then data.guardianEnabled = true else data.guardianEnabled = data.guardianEnabled == true end
-    data.guardPoint = type(data.guardPoint) == "table" and data.guardPoint or nil
+    -- The stable guard ID now means player-anchored hover, not a world anchor.
+    data.guardPoint = nil
     data.appearance = nil
     data.cooldowns = type(data.cooldowns) == "table" and data.cooldowns or {}
     data.cooldowns.attack = math.max(0, tonumber(data.cooldowns.attack) or 0)

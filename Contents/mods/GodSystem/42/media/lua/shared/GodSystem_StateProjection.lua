@@ -171,6 +171,13 @@ local function sameValue(a, b, depth)
 end
 
 Projection.uiRevisionStates = setmetatable({}, { __mode = "k" })
+local function bankDisplay(bank)
+    local result = {}
+    for key,value in pairs(type(bank) == "table" and bank or {}) do
+        if key ~= "stocks" then result[key] = value end
+    end
+    return result
+end
 function Projection.updateUIRevisions(data, options)
     data = type(data) == "table" and data or {}
     options = type(options) == "table" and options or {}
@@ -185,7 +192,7 @@ function Projection.updateUIRevisions(data, options)
         shopCatalog = { options.economyRevision or 0, data.shopCatalogRevision or 0,
             data.shopCatalogCount or 0, options.shopConfigVersion or "" },
         shopPreferences = data.ui and { data.ui.shopFavorites, data.ui.shopRecent, data.ui.shopView } or {},
-        walletBank = { data.balance, data.bank, data.stats and data.stats.bankDeposited, data.stats and data.stats.bankWithdrawn },
+        walletBank = { data.balance, bankDisplay(data.bank), data.stats and data.stats.bankDeposited, data.stats and data.stats.bankWithdrawn },
         tasks = taskMembership,
         equipment = { options.equipmentRevision or 0 },
     }
@@ -204,7 +211,10 @@ function Projection.build(data, options)
     local result = {}
     for i = 1, #ROOT_FIELDS do
         local key = ROOT_FIELDS[i]
-        if data[key] ~= nil then result[key] = copyValue(data[key], {}, 0) end
+        if key == "bank" and type(data.bank) == "table" then
+            -- Stock accounts/receipts/history use the subscribed stock protocol.
+            result[key] = copyValue(bankDisplay(data.bank), {}, 0)
+        elseif data[key] ~= nil then result[key] = copyValue(data[key], {}, 0) end
     end
     result.stats = copyStats(data.stats)
     if type(data.shopInflation) == "table" then

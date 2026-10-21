@@ -415,6 +415,17 @@ local function unavailable(option, key, fallback)
     option.toolTip.description = text(key, fallback)
 end
 
+-- Presentation only: these flags do not authorize or cancel transactions.
+function Context.isModeVisible(mode)
+    local runtime = GodSystemApp.services.runtime
+    if not runtime or runtime.isFeatureEnabled("EnableRecycle") == false then return false end
+    if mode == "recycle" then return runtime.isFeatureEnabled("ShowRecycleContextRecycle") ~= false end
+    if runtime.isFeatureEnabled("EnableShop") == false or runtime.isFeatureEnabled("EnableRecycleListing") == false then return false end
+    if mode == "recycleAndList" then return runtime.isFeatureEnabled("ShowRecycleContextRecycleAndList") ~= false end
+    if mode == "listOnly" then return runtime.isFeatureEnabled("ShowRecycleContextListOnly") ~= false end
+    return false
+end
+
 function Context.fillInventoryMenu(playerNum, context, values)
     local runtime = GodSystemApp.services.runtime
     if not runtime or runtime.isFeatureEnabled("EnableRecycle") == false then return end
@@ -448,12 +459,9 @@ function Context.fillInventoryMenu(playerNum, context, values)
         setOptionSummary(option, classification)
     end
 
-    addModeOption("Menu_ContextRecycle", "Recycle", "recycle")
-    if runtime.isFeatureEnabled("EnableShop") ~= false
-        and runtime.isFeatureEnabled("EnableRecycleListing") ~= false then
-        addModeOption("Menu_ContextRecycleAndList", "Recycle and list", "recycleAndList")
-        addModeOption("Menu_ContextListOnly", "List only", "listOnly")
-    end
+    if Context.isModeVisible("recycle") then addModeOption("Menu_ContextRecycle", "Recycle", "recycle") end
+    if Context.isModeVisible("recycleAndList") then addModeOption("Menu_ContextRecycleAndList", "Recycle and list", "recycleAndList") end
+    if Context.isModeVisible("listOnly") then addModeOption("Menu_ContextListOnly", "List only", "listOnly") end
 
     local rangeState = rangeFilterView(playerNum)
     if not rangeState or not rangeState.enabled then return end

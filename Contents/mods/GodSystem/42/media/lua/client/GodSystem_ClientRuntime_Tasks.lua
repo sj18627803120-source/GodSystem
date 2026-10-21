@@ -658,6 +658,7 @@ function GodSystemApp.services.runtime.updateKillRewards()
     end
     local delta = kills - data.lastKnownKills
     if delta > 0 then
+        if GodSystemStockService then GodSystemStockService.record(data, "security", delta) end
         data.lastKnownKills = kills
         GodSystemApp.services.runtime.updateKillTaskProgress(delta, kills - delta)
         GodSystemApp.services.runtime.addPoints(delta * (GodSystemConfig.KillPointReward or 0), GodSystemApp.services.runtime.text("Reason_KillZombie", "Zombie kill"))
@@ -754,6 +755,11 @@ function GodSystemApp.services.runtime.onPlayerUpdate(player)
     if GodSystemNetwork and GodSystemNetwork.isMultiplayer == true then return end
     local now = GodSystemScheduler.nowMs()
     if not GodSystemScheduler.due("client.sp.core.fast", 1000, now) then return end
+    if GodSystemStockService then
+        GodSystemStockService.maintain(gsNowHours(), true)
+        GodSystemStockService.pump(GodSystemApp.services.runtime.getData(), "sp")
+        if GodSystemStockClient then GodSystemStockClient.refreshSP() end
+    end
     GodSystemShopInflation.advance(GodSystemApp.services.runtime.getData(), GodSystemRuntimeConfig.Current, math.floor(gsNowHours() * 60), true)
     if GodSystemScheduler.due("client.sp.inflation.cleanup", 30000, now) then
         GodSystemShopInflation.sweep(GodSystemApp.services.runtime.getData(), 8)
@@ -778,11 +784,13 @@ function GodSystemApp.services.runtime.onPlayerDeath(player)
     if player and type(player) ~= "number" and player ~= gsPlayer() then
         return
     end
+    GodSystemCarryCapacity.forget(gsPlayer())
     GodSystemApp.services.runtime.normalizeActiveKillTasks()
     GodSystemApp.services.runtime.handlePlayerDeath()
 end
 
 function GodSystemApp.services.runtime.onGameStart()
+    if GodSystemStockService then GodSystemStockService.reset() end
     if GodSystemShopCatalog then GodSystemShopCatalog.clear() end
     GodSystemScheduler.reset("client.sp.")
     if not (GodSystemNetwork and GodSystemNetwork.isMultiplayer) then
@@ -803,10 +811,12 @@ function GodSystemApp.services.runtime.onCreatePlayer(_, player)
 end
 
 function GodSystemApp.services.runtime.onInitGlobalModData()
+    GodSystemCarryCapacity.resetClient()
     GodSystemApp.services.runtime.getData()
 end
 
 function GodSystemApp.services.runtime.onGameExit()
+    GodSystemCarryCapacity.resetClient()
 end
 
 function GodSystemApp.services.runtime.debugAddPoints()

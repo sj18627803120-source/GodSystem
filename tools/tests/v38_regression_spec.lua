@@ -48,6 +48,7 @@ test("MP shop receipt, insufficient funds, delivery failure and stale quote pres
     isServer=function()return true end
     load("shared/GodSystem_RecycleFingerprint.lua");load("server/GodSystem_TransactionOps.lua");load("server/GodSystem_ServerRuntime_Commerce.lua")
     local root,data,c={},{stats={}},config()
+    local stockContributions=0
     local amount,items,failGrant,failPay,last=1000,0,false,false,nil
     local row={id="axe",items={{fullType="Base.Axe",count=1}}}
     local player={getInventory=function()return {}end}
@@ -64,6 +65,7 @@ test("MP shop receipt, insufficient funds, delivery failure and stale quote pres
         GodSystemServer={refundCurrencySources=function(_,_,bank,cash)amount=amount+bank+cash;return true end},
         finishCode=function(_,ok,code,_,payload)last={ok=ok,code=code,payload=payload}end,
         appendHistory=function()end,shopHistoryEntry=function()return {}end,errorMessage=function(_,why)error(why)end}, {__index=_G})
+    env.GodSystemStockService={shop=function(_,_,paid) stockContributions=stockContributions+paid end}
     GodSystemServerRuntimeInstallers.GodSystem_ServerRuntime_Commerce(env)
     local function request(seq,q)
         local _,id=S.issueQuote(data,c,0,S.key(row),100,q,true)
@@ -80,6 +82,7 @@ test("MP shop receipt, insufficient funds, delivery failure and stale quote pres
     local direct={id="axe",quantity=1,opId="gs-1-1-5"}
     env.Commands.buyShop(nil,nil,player,direct);eq(last.ok,true);eq(items,4);eq(amount,540)
     env.Commands.buyShop(nil,nil,player,direct);eq(items,4);eq(amount,540)
+    eq(stockContributions,460) -- successes only; no duplicate, failed delivery/payment or stale quote.
 end)
 test("offline time is excluded and reconnect resumes at a fresh baseline",function()
     local d,c={},config(); S.commit(d,c,0,"axe",1,true); S.advance(d,c,10,true)

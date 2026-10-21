@@ -109,14 +109,17 @@ function onCarryTick()
     if not GodSystemScheduler.due("server.carry", 1000) then return end
     local players = getOnlinePlayers and getOnlinePlayers() or nil
     if not players then return end
-    local root, active = store(), {}
+    local root, active, activeCharacters = store(), {}, {}
+    if GodSystemServer and GodSystemServer.stockTick then GodSystemServer.stockTick(players) end
     for i = 0, players:size() - 1 do
         local target = players:get(i)
         if target then
+            activeCharacters[target] = true
             local key = userKey(target)
             local data = root.players and root.players[key] or nil
             if data then
                 active[key] = true
+                if GodSystemServer and GodSystemServer.stockPlayer then GodSystemServer.stockPlayer(target, data) end
                 updateShopInflationOnline(target, data)
                 if checkPendingTeleport then checkPendingTeleport(target, data) end
             end
@@ -134,12 +137,25 @@ function onCarryTick()
                 local level = GodSystemCarryCapacity.getLevel(data, target)
                 GodSystemCarryCapacity.restore(target, level)
                 local snapshot = GodSystemCarryCapacity.makeSnapshot(target, level)
-                if carryPushState[target] ~= snapshot.revision then
+                local previous, currentMs = carryPushState[target], GodSystemScheduler.nowMs()
+                local correction = GodSystemCarryCapacity.sessions[target].corrections or 0
+                if level > 0 and (not previous or previous.revision ~= snapshot.revision
+                    or previous.correction ~= correction or currentMs - previous.sentAt >= 5000) then
                     sendServerCommand(target, MODULE, Protocol.S2C.CarryState, snapshot)
-                    carryPushState[target] = snapshot.revision
+                    carryPushState[target] = { revision = snapshot.revision, correction = correction, sentAt = currentMs }
+                elseif level == 0 then
+                    if previous then sendServerCommand(target, MODULE, Protocol.S2C.CarryState, snapshot) end
+                    carryPushState[target] = nil
                 end
+            else
+                GodSystemCarryCapacity.forget(target)
+                carryPushState[target] = nil
             end
         end
+    end
+    if GodSystemServer and GodSystemServer.stockEnd then GodSystemServer.stockEnd(activeCharacters) end
+    for old in pairs(GodSystemCarryCapacity.activePlayers) do
+        if not activeCharacters[old] then GodSystemCarryCapacity.forget(old); carryPushState[old] = nil end
     end
     if cleanupTeleportRequests then cleanupTeleportRequests(active) end
     for key in pairs(shopInflationOnline) do

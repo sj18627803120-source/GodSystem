@@ -22,3 +22,13 @@ NotifyMP_EquipmentConfigInvalid: "Equipment configuration is invalid. Check valu
 AdminSetting_BankInvestmentStableLossChance_Desc: "Daily loss probability (0 to 100 percent). Effective loss chance is min(input, 100 minus gain chance); remaining chance is flat. Applies at next settlement."
 AdminSetting_BankInvestmentBalancedLossChance_Desc: "Daily loss probability (0 to 100 percent). Effective loss chance is min(input, 100 minus gain chance); remaining chance is flat. Applies at next settlement."
 AdminSetting_BankInvestmentAggressiveLossChance_Desc: "Daily loss probability (0 to 100 percent). Effective loss chance is min(input, 100 minus gain chance); remaining chance is flat. Applies at next settlement."
+
+# 3.22 companion hover and recycle context-menu display.
+Companion_Mode_guard: "Guard"
+Companion_ActionGuard: "Guard"
+AdminSetting_ShowRecycleContextRecycle: "Show right-click Recycle"
+AdminSetting_ShowRecycleContextRecycle_Desc: "Hide only the corresponding item context-menu entry when off. Does not disable the operation or cancel submitted transactions. Parent feature switches still apply."
+AdminSetting_ShowRecycleContextRecycleAndList: "Show right-click Recycle and list"
+AdminSetting_ShowRecycleContextRecycleAndList_Desc: "Hide only the corresponding item context-menu entry when off. Does not disable the operation or cancel submitted transactions. Parent feature switches still apply."
+AdminSetting_ShowRecycleContextListOnly: "Show right-click List only"
+AdminSetting_ShowRecycleContextListOnly_Desc: "Hide only the corresponding item context-menu entry when off. Does not disable the operation or cancel submitted transactions. Parent feature switches still apply."

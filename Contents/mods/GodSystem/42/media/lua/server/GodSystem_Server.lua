@@ -33,6 +33,7 @@ require "GodSystem_B42JavaCalls"
 require "GodSystem_MimicKey"
 require "GodSystem_Lottery"
 require "GodSystem_UtilityGenerator"
+require "GodSystem_StockService"
 
 if not (isServer and isServer()) then return end
 
@@ -52,6 +53,7 @@ require "GodSystem_ServerRangeRecycle"
 require "GodSystem_ServerRuntime_Background"
 require "GodSystem_ServerRuntime_Equipment"
 require "GodSystem_ServerRuntime_UtilityGenerator"
+require "GodSystem_ServerRuntime_Stocks"
 
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Foundation"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Foundation")(GodSystemServerRuntimeEnv)
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Bank"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Bank")(GodSystemServerRuntimeEnv)
@@ -66,5 +68,6 @@ assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Background"], "
 
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Equipment"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Equipment")(GodSystemServerRuntimeEnv)
 assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_UtilityGenerator"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_UtilityGenerator")(GodSystemServerRuntimeEnv)
+assert(GodSystemServerRuntimeInstallers["GodSystem_ServerRuntime_Stocks"], "GodSystem server runtime installer missing: GodSystem_ServerRuntime_Stocks")(GodSystemServerRuntimeEnv)
 
 return GodSystemServerRuntimeEnv.Commands

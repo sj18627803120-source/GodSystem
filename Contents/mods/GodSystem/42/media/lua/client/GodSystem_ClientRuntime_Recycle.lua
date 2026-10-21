@@ -88,6 +88,7 @@ function GodSystemApp.services.runtime.buyShopItem(shopItem, quantity, confirmed
     end
     data.stats.spentPoints = (data.stats.spentPoints or 0) + price
     data.stats.boughtItems = (data.stats.boughtItems or 0) + quantity
+    if GodSystemStockService then GodSystemStockService.shop(data, shopItem, price, "shop:" .. tostring(confirmedQuoteId)) end
     data.ui = data.ui or {}
     data.ui.shopRecent = type(data.ui.shopRecent) == "table" and data.ui.shopRecent or {}
     local key = GodSystemShopInflation.key(shopItem)
